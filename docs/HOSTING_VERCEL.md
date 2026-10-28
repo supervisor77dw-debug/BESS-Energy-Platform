@@ -59,7 +59,9 @@ Es gibt keinen eigenen Server, keine Fremddatenbank und keine öffentlichen Date
 
 ## 4. Betrieb
 
-- **Deploy (Preview):** über GitHub automatisch, sobald verknüpft (Push auf `develop` bzw. `feature/*`). Ohne GitHub: `vercel deploy --target=preview`.
+- **Quellcode:** privates GitHub-Repository `supervisor77dw-debug/bess-energy-platform`, mit dem Vercel-Projekt verknüpft (2026-10-28).
+- **Deploy (Preview):** automatisch bei jedem Push auf `develop` oder `feature/*`. Pushes auf `main` erzeugen **kein** Deployment (`vercel.json`: `git.deploymentEnabled.main = false`). Ein Produktionsdeployment erfolgt erst nach Freigabe, bewusst und manuell. Manuell ohne Git: `vercel deploy --target=preview`.
+- **Abnahmestände:** Tags `v<version>` (z. B. `v1.1.0-preview`).
 - **Freigabelink für Markus:** im Vercel-Dashboard am Deployment „Share“ (gültig 23 h) oder über das Team. Dazu kommen Schrankenzugang und Portalkonto aus der Zugangsdatei.
 - **Zugänge neu erzeugen:**
   1. `node tools/provision-vercel.mjs`
