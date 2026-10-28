@@ -160,3 +160,4 @@ code { font-family: Consolas, "Cascadia Mono", monospace; font-size: .92em; back
 .bm-accent { stroke: var(--brand-mark); }
 .rail-brand { color: #fff; } .rail-logo { width: 34px; height: 34px; }
 .auth-brand .auth-logo { width: 34px; height: 34px; } .auth-brand .bm-accent { stroke: #9c5424; }
+.inline-form { display: inline; margin-left: 6px; }

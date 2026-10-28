@@ -1,7 +1,8 @@
 // Abnahmeprüfung der laufenden (externen) Vorschau mit den ECHTEN Prüferkonten Dirk und Markus.
 // Liest die Zugangsdatei nur im Speicher; es werden keine Passwörter oder MFA-Geheimnisse ausgegeben.
-// Achtung: richtet MFA für beide Konten ein. Danach zwingend tools/preview/reset-mfa.mjs ausführen,
-// damit Dirk und Markus den zweiten Faktor selbst einrichten.
+// Achtung: richtet MFA für beide Konten ein. Mit BESS_RESET_MFA=1 setzt das Skript die Einrichtung am Ende
+// über die Verwaltung zurück (Cloud); lokal alternativ tools/preview/reset-mfa.mjs.
+// BESS_SHARE_URL: Vercel-Freigabelink (Deployment Protection) – wird nicht ausgegeben.
 // Aufruf: node tools/preview/verify-preview.mjs --url https://grafik-engine.tail01a4a3.ts.net --zugaenge <ZUGAENGE_…txt>
 import { readFileSync } from 'node:fs';
 import { totp } from '../../src/lib/auth.mjs';
@@ -26,8 +27,13 @@ class C {
 }
 const tok = (b, n) => new RegExp(`name="${n}" value="([^"]+)"`).exec(b)?.[1];
 
+// 0. Vercel Deployment Protection (falls BESS_SHARE_URL gesetzt): ohne Freigabelink kein Zugriff
+const share = process.env.BESS_SHARE_URL;
+const withShare = async (c) => { if (share) await c.req(share.replace(base, '')); return c; };
+if (share) { const r = await fetch(base + '/', { redirect: 'manual' }); check('Vercel-Schutz ohne Freigabelink', [302, 401, 403].includes(r.status) && !/_vorschau/.test(r.headers.get('location') || ''), `Status ${r.status}`); }
+
 // 1. Ohne Schranke
-const anon = new C();
+const anon = await withShare(new C());
 for (const p of ['/', '/grundstueckseigentuemer', '/projekte', '/portal/login', '/robots.txt', '/portal/dokumente/d-n01-own-a-vertrag/download']) {
   const r = await anon.req(p);
   check(`ohne Schranke ${p}`, r.status === 303 && /^\/_vorschau\/anmelden/.test(r.headers.get('location') || ''), `Status ${r.status}`);
@@ -40,8 +46,8 @@ check('HTTPS-Schutz: HSTS gesetzt (bei https)', !base.startsWith('https') || /ma
 check('falsches Schrankenpasswort abgelehnt', (await anon.form('/_vorschau/anmelden', { _t: tok(gb, '_t'), user: 'dirk', password: 'falsch-' + Date.now() })).status === 401);
 
 // 2. Prüferablauf
-async function prüfer(who, email, expect) {
-  const c = new C();
+async function prüfer(who, email, expect, nachher) {
+  const c = await withShare(new C());
   const [, b] = await c.text('/_vorschau/anmelden');
   const g = await c.form('/_vorschau/anmelden', { _t: tok(b, '_t'), next: '/', user: who, password: gate[who] });
   check(`${who}: Schranke`, g.status === 303 && /HttpOnly; SameSite=Lax; Secure/.test(g.headers.getSetCookie().join(';')));
@@ -59,16 +65,20 @@ async function prüfer(who, email, expect) {
   check(`${who}: falscher MFA-Code abgelehnt`, (await c.form('/portal/mfa', { _csrf: tok(mb, '_csrf'), code: '000000' })).status === 401);
   check(`${who}: richtiger MFA-Code`, (await c.form('/portal/mfa', { _csrf: tok(mb, '_csrf'), code: totp(secret) })).status === 303);
   for (const [p, st] of expect) { const r = await c.req(p); check(`${who}: ${p} → ${st}`, r.status === st, `Status ${r.status}`); }
+  if (nachher) await nachher(c);
   const [, pb] = await c.text('/portal');
   const sid = c.jar.bess_sid;
   await c.form('/portal/abmelden', { _csrf: tok(pb, '_csrf') });
-  const after = await fetch(base + '/portal', { redirect: 'manual', headers: { cookie: `bess_gate=${c.jar.bess_gate}; bess_sid=${sid}` } });
+  const after = await fetch(base + '/portal', { redirect: 'manual', headers: { cookie: Object.entries({ ...c.jar, bess_sid: sid }).map(([k, v]) => `${k}=${v}`).join('; ') } });
   check(`${who}: Logout serverseitig`, after.headers.get('location') === '/portal/login');
   await c.req('/_vorschau/abmelden');
   check(`${who}: Schranken-Logout`, (await c.req('/')).status === 303);
 }
-await prüfer('dirk', 'dirk@bess-vorschau.invalid', [['/portal/admin', 200], ['/portal/projekte/p-s01', 200], ['/portal/dokumente/d-n01-fin-intern/download', 200], ['/portal/protokoll', 200]]);
+const dirkChecks = [['/portal/admin', 200], ['/portal/projekte/p-s01', 200], ['/portal/dokumente/d-n01-fin-intern/download', 200], ['/portal/protokoll', 200]];
+const resetMfa = async (c) => { for (const id of ['u-markus', 'u-admin']) { const [, ab] = await c.text('/portal/admin'); const r = await c.form('/portal/admin/mfa-zuruecksetzen', { _csrf: tok(ab, '_csrf'), userId: id }); check(`dirk: MFA-Einrichtung für ${id} zurückgesetzt`, r.status === 303); } };
 await prüfer('markus', 'markus@bess-vorschau.invalid', [['/portal/projekte/p-n01', 200], ['/portal/projekte/p-n02', 200], ['/portal/projekte/p-s01', 404], ['/portal/admin', 404], ['/portal/protokoll', 404], ['/portal/dokumente/d-n01-inv-fin/download', 404], ['/portal/dokumente/d-n01-fin-intern/download', 404], ['/portal/dokumente/d-n01-own-a-vertrag/download', 200], ['/portal/dokumente/d-s01-intern/download', 404]]);
+// Dirk zuletzt: Abschlussprüfung, danach MFA-Einrichtung für Markus und Dirk zurücksetzen (sie richten sie selbst ein)
+await prüfer('dirk', 'dirk@bess-vorschau.invalid', dirkChecks, process.env.BESS_RESET_MFA === '1' ? resetMfa : undefined);
 
 const failed = results.filter((r) => !r.ok);
 console.log(`\nErgebnis: ${results.length - failed.length}/${results.length} bestanden${failed.length ? ' – FEHLER: ' + failed.map((f) => f.name).join('; ') : ''}`);

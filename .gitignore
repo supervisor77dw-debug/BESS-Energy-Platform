@@ -8,3 +8,5 @@ qa-out/
 gate.json
 ZUGAENGE_*
 BESS_ACCOUNTS_*
+
+.vercel

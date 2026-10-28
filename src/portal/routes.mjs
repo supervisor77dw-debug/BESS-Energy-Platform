@@ -246,6 +246,15 @@ export async function handlePortal(req, res, url) {
     const [g] = db.grants.splice(i, 1); persist(); audit('zugriff_entzogen', u, { konto: g.userId, projekt: g.projectId });
     return redirect(res, '/portal/admin?m=ok');
   }
+  if (path === '/portal/admin/mfa-zuruecksetzen' && method === 'POST') {
+    adminOnly();
+    const { fields } = await post();
+    const target = db.users.find((x) => x.id === fields.userId);
+    if (!target || !target.mfa) throw new HttpError(400, 'Konto ohne MFA-Pflicht oder nicht gefunden.');
+    target.totp = null; delete target.totpEnrolledAt;
+    persist(); audit('mfa_zurueckgesetzt', u, { konto: target.id });
+    return redirect(res, '/portal/admin?m=ok');
+  }
   if (path === '/portal/admin/konto' && method === 'POST') {
     adminOnly();
     const { fields } = await post();

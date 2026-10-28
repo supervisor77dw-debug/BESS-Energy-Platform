@@ -312,3 +312,15 @@ test('Abmeldung beendet die Sitzung serverseitig', async () => {
   const r = await fetch(base + '/portal', { redirect: 'manual', headers: { cookie: old } });
   assert.equal(r.headers.get('location'), '/portal/login');
 });
+
+test('MFA-Rücksetzung: nur Administration, danach Ersteinrichtung beim nächsten Login', async () => {
+  const pl = await login('projektleitung@demo.invalid');
+  assert.equal((await pl.form('/portal/admin/mfa-zuruecksetzen', { _csrf: await pl.csrf(), userId: 'u-inv-b' })).status, 404, 'Projektleitung darf nicht');
+  const admin = await login('admin@demo.invalid');
+  assert.equal((await admin.form('/portal/admin/mfa-zuruecksetzen', { _csrf: await admin.csrf(), userId: 'u-inv-b' })).status, 303);
+  assert.equal(db.users.find((u) => u.id === 'u-inv-b').totp, null);
+  const c = new Client();
+  const { body } = await c.text('/portal/login');
+  await c.form('/portal/anmelden', { _t: tokenFrom(body), email: 'investor.b@demo.invalid', password: PW });
+  assert.match(await (await c.req('/portal/mfa')).text(), /Zweiten Faktor einrichten/);
+});
