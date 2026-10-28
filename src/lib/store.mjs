@@ -56,7 +56,7 @@ async function readStream(stream) {
 // und wird VOR dem Inhalt gelesen: Ändert sich der Zustand dazwischen, scheitert das spätere bedingte Speichern
 // und wird zusammengeführt – ein veralteter Stand kann so nie unbemerkt überschrieben werden.
 async function headEtag() {
-  try { return (await driver.sdk.head(STATE))?.etag || null; } catch (e) { if (/not.?found|404/i.test(String(e?.name) + String(e?.message))) return null; throw e; }
+  try { return (await driver.sdk.head(STATE))?.etag || null; } catch (e) { if (/not.?found|404|does not exist/i.test(String(e?.name) + String(e?.message))) return null; throw e; }
 }
 async function readState() {
   const tag = await headEtag();

@@ -26,12 +26,12 @@ globalThis.__bessBlobSdk = {
   },
   async head(path) {
     const cur = blobs.get(path);
-    if (!cur) { const e = new Error('Blob not found'); e.name = 'BlobNotFoundError'; throw e; }
+    if (!cur) { const e = new Error('Vercel Blob: The requested blob does not exist'); e.name = 'BlobError'; throw e; }
     return { etag: cur.etag };
   },
   async get(path, o) {
     const cur = blobs.get(path);
-    if (!cur) { const e = new Error('Blob not found'); e.name = 'BlobNotFoundError'; throw e; }
+    if (!cur) { const e = new Error('Vercel Blob: The requested blob does not exist'); e.name = 'BlobError'; throw e; }
     if (o.ifNoneMatch && o.ifNoneMatch === cur.etag) return { statusCode: 304, stream: null, blob: { etag: cur.etag } };
     return { statusCode: 200, stream: Readable.from([cur.data]), blob: { etag: `W/${cur.etag}-http` } }; // HTTP-ETag weicht ab (wie real)
   },

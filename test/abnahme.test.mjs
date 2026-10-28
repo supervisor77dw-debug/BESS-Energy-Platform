@@ -17,7 +17,7 @@ const blobs = new Map(); let n = 0;
 class Precondition extends Error { constructor() { super('Precondition failed'); this.name = 'BlobPreconditionFailedError'; } }
 globalThis.__bessBlobSdk = {
   async put(path, body, o) { const cur = blobs.get(path); if (cur && o.allowOverwrite === false) throw new Error('exists'); if (o.ifMatch && (!cur || cur.etag !== o.ifMatch)) throw new Precondition(); const etag = `"e${++n}"`; blobs.set(path, { data: Buffer.isBuffer(body) ? body : Buffer.from(body), etag, access: o.access }); return { etag }; },
-  async head(path) { const cur = blobs.get(path); if (!cur) { const e = new Error('Blob not found'); e.name = 'BlobNotFoundError'; throw e; } return { etag: cur.etag }; },
+  async head(path) { const cur = blobs.get(path); if (!cur) { const e = new Error('Vercel Blob: The requested blob does not exist'); e.name = 'BlobError'; throw e; } return { etag: cur.etag }; },
   async get(path) { const cur = blobs.get(path); if (!cur) return null; return { statusCode: 200, stream: Readable.from([cur.data]), blob: { etag: `W/${cur.etag}-http` } }; },
 };
 
