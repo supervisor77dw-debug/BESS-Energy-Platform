@@ -125,7 +125,8 @@ export const createApp = () => createServer(handleRequest);
 let ready = null; let chain = Promise.resolve(); let sync = null;
 export async function vercelHandler(req, res) {
   // Production-Ziel nur als ausdrücklich konfigurierter Abnahmekandidat (BESS_STAGE=abnahme) oder nach Produktivfreigabe
-  if (process.env.VERCEL_ENV === 'production' && process.env.BESS_STAGE !== 'abnahme' && process.env.BESS_ALLOW_PRODUCTION !== '1') {
+  const envFlag = (k) => String(process.env[k] || '').trim();
+  if (process.env.VERCEL_ENV === 'production' && envFlag('BESS_STAGE') !== 'abnahme' && envFlag('BESS_ALLOW_PRODUCTION') !== '1') {
     res.statusCode = 503; res.setHeader('Content-Type', 'text/plain; charset=utf-8'); res.setHeader('X-Robots-Tag', 'noindex');
     return res.end('Produktivbetrieb nicht freigegeben.');
   }

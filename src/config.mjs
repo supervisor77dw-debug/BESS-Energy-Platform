@@ -4,7 +4,8 @@ import { dirname, join, resolve } from 'node:path';
 
 export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-const env = process.env;
+// Umgebungswerte bereinigt (Leerzeichen/Zeilenumbrüche aus Shell-Eingaben dürfen keine Einstellung verfälschen)
+const env = Object.fromEntries(Object.entries(process.env).map(([k, v]) => [k, typeof v === 'string' && k.startsWith('BESS_') && k !== 'BESS_ACCOUNTS' ? v.trim() : v]));
 
 export const config = {
   host: env.BESS_HOST || '127.0.0.1',
