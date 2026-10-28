@@ -24,7 +24,7 @@ Synthetische Testkonten (`*@demo.invalid`) und das gemeinsame Vorschau-Passwort 
 - Hosting: Vercel (Projekt `bess-energy-platform`, Region fra1), Zustand und Dokumente in privatem Vercel Blob. Details, Kosten, Domain: `docs/HOSTING_VERCEL.md`.
 - Tests: `npm test` (Plattform, externe Vorschau, Cloud-Pfad mit Blob-Stellvertreter); CI: `.github/workflows/ci.yml`.
 - Branches:
-  - `main` – stabil; später Produktionszweig, Produktion bleibt bis zur Freigabe gesperrt
+  - `main` – stabil; später Produktionszweig. Automatische Vercel-Deployments aus `main` sind abgeschaltet (`vercel.json`: `git.deploymentEnabled.main = false`); Produktion bleibt bis zur Freigabe gesperrt
   - `develop` – Integration, Preview-Deployments
   - `feature/<thema>-aw-<auftrag>` – Arbeitszweige
   - `release/<version>` und Tags `v<version>` für Abnahmestände
