@@ -2,7 +2,10 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { config, isPreview } from '../config.mjs';
 
-const FORM_KEY = randomBytes(32);
+// Schlüssel für Formular-Token: aus dem gemeinsamen privaten Schlüssel abgeleitet (gleich auf allen Instanzen).
+import { getDb } from './store.mjs';
+const FALLBACK_KEY = randomBytes(32);
+const formKey = () => { const k = getDb()?.meta?.sessionKey; return k ? createHmac('sha256', Buffer.from(k, 'base64')).update('formular-token').digest() : FALLBACK_KEY; };
 
 export function parseCookies(req) {
   const out = {};
@@ -81,13 +84,13 @@ export function sniffType(data) {
 // Signierte Formular-Tokens für öffentliche Formulare (ohne Sitzung).
 export function formToken() {
   const ts = Date.now().toString(36);
-  const sig = createHmac('sha256', FORM_KEY).update(ts).digest('base64url');
+  const sig = createHmac('sha256', formKey()).update(ts).digest('base64url');
   return `${ts}.${sig}`;
 }
 export function checkFormToken(tok, minAgeMs = 1500) {
   const [ts, sig] = String(tok || '').split('.');
   if (!ts || !sig) return false;
-  const exp = createHmac('sha256', FORM_KEY).update(ts).digest('base64url');
+  const exp = createHmac('sha256', formKey()).update(ts).digest('base64url');
   if (exp.length !== sig.length || !timingSafeEqual(Buffer.from(exp), Buffer.from(sig))) return false;
   const age = Date.now() - parseInt(ts, 36);
   return age >= minAgeMs && age < 1000 * 60 * 60 * 6; // Mindestzeit gegen Bots, Höchstalter 6 h

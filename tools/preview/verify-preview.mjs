@@ -63,7 +63,7 @@ async function prüfer(who, email, expect, nachher) {
   const secret = /<code>([A-Z2-7 ]+)<\/code>/.exec(mb)?.[1]?.replace(/ /g, '');
   check(`${who}: MFA-Ersteinrichtung mit QR`, enroll && /data:image\/gif;base64/.test(mb) && !!secret);
   check(`${who}: falscher MFA-Code abgelehnt`, (await c.form('/portal/mfa', { _csrf: tok(mb, '_csrf'), code: '000000' })).status === 401);
-  check(`${who}: richtiger MFA-Code`, (await c.form('/portal/mfa', { _csrf: tok(mb, '_csrf'), code: totp(secret) })).status === 303);
+  check(`${who}: richtiger MFA-Code`, (await c.form('/portal/mfa', { _csrf: tok(mb, '_csrf'), code: secret ? totp(secret) : '000000' })).status === 303);
   for (const [p, st] of expect) { const r = await c.req(p); check(`${who}: ${p} → ${st}`, r.status === st, `Status ${r.status}`); }
   if (nachher) await nachher(c);
   const [, pb] = await c.text('/portal');
