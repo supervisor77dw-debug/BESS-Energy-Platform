@@ -1,5 +1,5 @@
 import { html, raw } from '../lib/html.mjs';
-import { brand } from '../config.mjs';
+import { brand, realDomain } from '../config.mjs';
 import { page, illus } from './layout.mjs';
 import { heroSvg } from '../../tools/illustrations.mjs';
 import { publicProjects } from '../lib/policy.mjs';
@@ -20,7 +20,7 @@ export const PHASES = [
   ['Rückbau oder Repowering', 'Am Ende der Laufzeit wird die Anlage vollständig zurückgebaut oder – nach neuer Vereinbarung – modernisiert.'],
 ];
 
-const ORG_LD = { '@context': 'https://schema.org', '@type': 'Organization', name: brand.name, url: brand.domain, description: `${brand.claim}.` };
+const ORG_LD = { '@context': 'https://schema.org', '@type': 'Organization', name: brand.name, ...(realDomain() ? { url: realDomain() } : {}), description: `${brand.claim}.` };
 
 // ---------------- Startseite ----------------
 export function home() {

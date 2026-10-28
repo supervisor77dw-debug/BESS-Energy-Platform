@@ -47,3 +47,6 @@ export function brandLogo(cls = 'logo-mark') {
   logoSvg ??= readFileSync(join(ROOT, brand.logo), 'utf8').trim();
   return logoSvg.replace('<svg ', `<svg class="${cls}" `);
 }
+
+// Echte Domain oder null, solange in brand.json nur ein Platzhalter steht (dann keine kanonischen Links/Domainangaben).
+export const realDomain = () => (/\.invalid$|example\./i.test(brand.domain || '') ? null : brand.domain);

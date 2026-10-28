@@ -1,5 +1,5 @@
 import { html, raw } from '../lib/html.mjs';
-import { brand, isPreview, config, brandLogo } from '../config.mjs';
+import { brand, isPreview, config, brandLogo, realDomain } from '../config.mjs';
 
 const previewNote = () => config.stage === 'abnahme'
   ? `Vorläufiger Abnahmekandidat · Arbeitsname „${brand.name}“ · Inhalte und Rechtstexte in Prüfung · Illustrationen sind Beispiele`
@@ -28,7 +28,7 @@ export function page({ path, title, description, body, ogType = 'website', jsonl
 <title>${fullTitle}</title>
 <meta name="description" content="${description}">
 ${isPreview() ? raw('<meta name="robots" content="noindex, nofollow">') : ''}
-<link rel="canonical" href="${brand.domain}${path}">
+${realDomain() ? html`<link rel="canonical" href="${realDomain()}${path}">` : ''}
 <meta property="og:title" content="${fullTitle}">
 <meta property="og:description" content="${description}">
 <meta property="og:type" content="${ogType}">

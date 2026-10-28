@@ -46,7 +46,7 @@ class C {
 }
 const tok = (b, k) => new RegExp(`name="${k}" value="([^"]+)"`).exec(b)?.[1];
 const PUBLIC = ['/', '/unternehmen', '/technologie', '/standortentwicklung', '/grundstueckseigentuemer', '/standort-anbieten', '/investoren', '/kommunen', '/projekte', '/kontakt', '/impressum', '/datenschutz'];
-const SECRETS = ['Demo-Standort', 'Musterkreis', 'DEMO-N0', 'Speicherprojekt Nord', 'CAPEX', 'Eigentümer A', 'Investor A', 'Demo-Gemarkung', 'Flurstück 12/4', 'scrypt$', 'sessionKey', 'Vorschau!Speicher', 'bess-vorschau.invalid', 'stromkai-abnahme.invalid', 'BLOB_READ_WRITE', 'BESS_ACCOUNTS'];
+const SECRETS = ['Demo-Standort', 'Musterkreis', 'DEMO-N0', 'Speicherprojekt Nord', 'CAPEX', 'Eigentümer A', 'Investor A', 'Demo-Gemarkung', 'Flurstück 12/4', 'scrypt$', 'sessionKey', 'Vorschau!Speicher', 'bess-vorschau.invalid', 'stromkai-abnahme.invalid', '.invalid', 'BLOB_READ_WRITE', 'BESS_ACCOUNTS'];
 
 test('Test 1 – Besucher: alle 12 öffentlichen Seiten, Bilder, CSS, JS ohne Anmeldung; keine vertraulichen Inhalte', async () => {
   const c = new C();
