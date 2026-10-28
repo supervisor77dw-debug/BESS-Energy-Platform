@@ -32,7 +32,7 @@ def reset():
     sc.render.resolution_percentage = 100
     sc.view_settings.view_transform = 'AgX'
     sc.view_settings.look = 'AgX - Medium High Contrast'
-    sc.view_settings.exposure = -0.35
+    sc.view_settings.exposure = -0.2
     sc.render.image_settings.file_format = 'PNG'
     sc.render.image_settings.color_depth = '16'
     sc.render.filepath = A.out
@@ -133,6 +133,70 @@ def fence_mat():
     nt.links.new(mx.outputs[0], out.inputs['Surface'])
     return m
 
+ASSETS = 'C:/dev/bess-assets'
+IMGS = {}
+def img(path, color=True):
+    if path not in IMGS:
+        im = bpy.data.images.load(path); im.colorspace_settings.name = 'sRGB' if color else 'Non-Color'; IMGS[path] = im
+    return IMGS[path]
+
+def pbr(name, tid, size=2.0, tint=None, sat=1.0, val=1.0, rough=None, nrm=1.0, metal=0.0, var=0.0, var_scale=0.01, stripes=None, color_from_tex=True, base=None):
+    """Material aus Poly-Haven-Texturen (Diffuse/Normal/Rough), Box-Projektion in Objektkoordinaten (Meter).
+    size: reale Kantenlänge der Textur in m; tint/sat/val färben ein; var: großflächige Helligkeitsvariation gegen Kachelwiederholung."""
+    d = f'{ASSETS}/textures/{tid}/{tid}_'
+    m = bpy.data.materials.new(name); m.use_nodes = True; nt = m.node_tree
+    b = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
+    tc = nt.nodes.new('ShaderNodeTexCoord'); mp = nt.nodes.new('ShaderNodeMapping'); mp.inputs['Scale'].default_value = (1 / size,) * 3
+    nt.links.new(tc.outputs['Object'], mp.inputs['Vector'])
+    def tex(suffix, color):
+        t = nt.nodes.new('ShaderNodeTexImage'); t.image = img(d + suffix + '_2k.jpg', color); t.projection = 'BOX'; t.projection_blend = 0.25
+        nt.links.new(mp.outputs['Vector'], t.inputs['Vector']); return t
+    col = None
+    if color_from_tex:
+        dt = tex('diff', True); hs = nt.nodes.new('ShaderNodeHueSaturation')
+        hs.inputs['Saturation'].default_value = sat; hs.inputs['Value'].default_value = val
+        nt.links.new(dt.outputs['Color'], hs.inputs['Color']); col = hs.outputs['Color']
+        if tint:
+            mx = nt.nodes.new('ShaderNodeMix'); mx.data_type = 'RGBA'; mx.blend_type = 'MULTIPLY'; mx.inputs['Factor'].default_value = 1.0
+            nt.links.new(col, mx.inputs['A']); mx.inputs['B'].default_value = (*tint, 1); col = mx.outputs['Result']
+    else:
+        dt = tex('diff', True); bw = nt.nodes.new('ShaderNodeRGBToBW'); nt.links.new(dt.outputs['Color'], bw.inputs['Color'])
+        mr = nt.nodes.new('ShaderNodeMapRange'); mr.inputs['To Min'].default_value = 0.82; mr.inputs['To Max'].default_value = 1.08
+        nt.links.new(bw.outputs[0], mr.inputs['Value'])
+        mx = nt.nodes.new('ShaderNodeMix'); mx.data_type = 'RGBA'; mx.blend_type = 'MULTIPLY'; mx.inputs['Factor'].default_value = 1.0
+        mx.inputs['A'].default_value = (*base, 1); cv = nt.nodes.new('ShaderNodeCombineColor')
+        for i in range(3): nt.links.new(mr.outputs[0], cv.inputs[i])
+        nt.links.new(cv.outputs[0], mx.inputs['B']); col = mx.outputs['Result']
+    if var:
+        n = nt.nodes.new('ShaderNodeTexNoise'); n.inputs['Scale'].default_value = var_scale; n.inputs['Detail'].default_value = 3
+        nt.links.new(tc.outputs['Object'], n.inputs['Vector'])
+        mr = nt.nodes.new('ShaderNodeMapRange'); mr.inputs['To Min'].default_value = 1 - var; mr.inputs['To Max'].default_value = 1 + var
+        nt.links.new(n.outputs['Fac'], mr.inputs['Value'])
+        mx = nt.nodes.new('ShaderNodeMix'); mx.data_type = 'RGBA'; mx.blend_type = 'MULTIPLY'; mx.inputs['Factor'].default_value = 1.0
+        cv = nt.nodes.new('ShaderNodeCombineColor')
+        for i in range(3): nt.links.new(mr.outputs[0], cv.inputs[i])
+        nt.links.new(col, mx.inputs['A']); nt.links.new(cv.outputs[0], mx.inputs['B']); col = mx.outputs['Result']
+    if stripes:
+        w = nt.nodes.new('ShaderNodeTexWave'); w.wave_type = 'BANDS'; w.bands_direction = stripes
+        w.inputs['Scale'].default_value = 0.0105; nt.links.new(tc.outputs['Object'], w.inputs['Vector'])
+        gt = nt.nodes.new('ShaderNodeMath'); gt.operation = 'GREATER_THAN'; gt.inputs[1].default_value = 0.993
+        nt.links.new(w.outputs['Fac'], gt.inputs[0])
+        ml = nt.nodes.new('ShaderNodeMath'); ml.operation = 'MULTIPLY'; ml.inputs[1].default_value = 0.35; nt.links.new(gt.outputs[0], ml.inputs[0])
+        mx = nt.nodes.new('ShaderNodeMix'); mx.data_type = 'RGBA'; nt.links.new(ml.outputs[0], mx.inputs['Factor'])
+        nt.links.new(col, mx.inputs['A']); mx.inputs['B'].default_value = (0.09, 0.075, 0.05, 1); col = mx.outputs['Result']
+    nt.links.new(col, b.inputs['Base Color'])
+    if rough is None:
+        import os
+        rp = d + 'rough_2k.jpg'
+        if os.path.exists(rp):
+            rt = tex('rough', False); nt.links.new(rt.outputs['Color'], b.inputs['Roughness'])
+        else: b.inputs['Roughness'].default_value = 0.8
+    else: b.inputs['Roughness'].default_value = rough
+    b.inputs['Metallic'].default_value = metal
+    nm = tex('nor_gl', False); nn = nt.nodes.new('ShaderNodeNormalMap'); nn.inputs['Strength'].default_value = nrm
+    nt.links.new(nm.outputs['Color'], nn.inputs['Color']); nt.links.new(nn.outputs['Normal'], b.inputs['Normal'])
+    return m
+
 M = {}
 def materials():
     M['container'] = mat('Containerblech', (0.40, 0.42, 0.41), 0.38, 0.0, bump='corrugate', bump_scale=3.4, bump_strength=0.9)
@@ -162,6 +226,24 @@ def materials():
     M['beacon'] = mat('Signal', (0.9, 0.3, 0.05), 0.4, emit=(1.0, 0.35, 0.05), emit_strength=0.0)
     M['tray'] = mat('Kabelpritsche', (0.45, 0.46, 0.47), 0.5, 1.0)
     M['signyellow'] = mat('Warnschild', (0.75, 0.50, 0.02), 0.5)
+    M['water'] = mat('Wasser', (0.01, 0.014, 0.012), 0.08)
+    M['swale'] = mat('Muldengras', (0.035, 0.07, 0.015), 0.85, bump='noise', bump_scale=30, bump_strength=0.4)
+    # Bildwelt 2.0: fotografische Oberflächen (Poly Haven, CC0)
+    M['container'] = pbr('Containerblech', 'container_side', size=1.94, color_from_tex=False, base=(0.46, 0.48, 0.48), rough=0.45, nrm=0.6)
+    M['door'] = pbr('Tür', 'container_side', size=1.94, color_from_tex=False, base=(0.30, 0.32, 0.32), rough=0.4, nrm=0.4)
+    M['hvac'] = pbr('Klimagerät', 'corrugated_iron_02', size=0.8, color_from_tex=False, base=(0.40, 0.41, 0.41), rough=0.45, nrm=0.25)
+    M['gravel'] = pbr('Schotter', 'gravel_floor_02', size=2.0, sat=0.6, val=0.36, var=0.12, var_scale=0.05)
+    M['track'] = pbr('Wirtschaftsweg', 'rocky_gravel', size=1.8, sat=0.55, val=0.8, var=0.15, var_scale=0.05)
+    M['asphalt'] = pbr('Asphalt', 'clean_asphalt', size=2.1, val=0.85, var=0.1, var_scale=0.04)
+    M['concrete'] = pbr('Beton', 'concrete_floor_02', size=2.0, sat=0.4, val=0.75)
+    M['brick'] = pbr('Klinker', 'red_brick_03', size=1.2, val=0.9)
+    M['roof'] = pbr('Dachziegel', 'roof_tiles', size=1.6, sat=0.8, val=0.7, tint=(0.85, 0.55, 0.45))
+    M['grass'] = pbr('Grünland', 'aerial_grass_rock', size=37.0, sat=1.1, val=0.62, tint=(0.62, 0.95, 0.42), var=0.18, var_scale=0.004)
+    M['crop'] = pbr('Wintergetreide', 'aerial_grass_rock', size=37.0, sat=1.25, val=0.6, tint=(0.52, 1.0, 0.36), var=0.15, var_scale=0.006, stripes='X')
+    M['rape'] = pbr('Raps', 'aerial_grass_rock', size=31.0, sat=1.3, val=0.55, tint=(0.45, 0.95, 0.30), var=0.15, var_scale=0.005)
+    M['plough'] = pbr('Acker', 'dirt_aerial_02', size=43.0, sat=0.8, val=0.42, var=0.15, var_scale=0.006, stripes='Y')
+    M['stubble'] = pbr('Stoppel', 'dirt_aerial_02', size=43.0, sat=0.65, val=0.75, tint=(1.0, 0.92, 0.62), var=0.12, var_scale=0.006, stripes='X')
+    M['earth'] = pbr('Wall', 'aerial_grass_rock', size=6.0, sat=0.9, val=0.45, tint=(0.7, 0.85, 0.5))
     M['tank'] = mat('Löschwasserbehälter', (0.12, 0.17, 0.14), 0.5)
     M['rubber'] = mat('Dichtung', (0.02, 0.02, 0.02), 0.6)
 
@@ -252,6 +334,7 @@ def inst(proto, loc, rot_z=0.0, name=None):
     bpy.context.collection.objects.link(o); return o
 
 LEAF_DENSITY = 70.0
+USE_TREE_MODEL = True
 VEG = {'crown': [], 'trunk': []}  # Punkte (Position, Skalierung) für Instanzierung per Geometry Nodes
 
 def leaf_card():
@@ -341,7 +424,7 @@ def crowns_proto():
     tcol.objects.link(t); t.location = (0, 0, -700)
     PROTO['crown'] = col; PROTO['trunk'] = tcol
 
-def scatter(name, pts, coll):
+def scatter(name, pts, coll, whole=None):
     """Instanzen einer Sammlung auf Punkten; Skalierung je Punkt aus Attribut 'sc', Drehung zufällig."""
     if not pts: return
     me = bpy.data.meshes.new(name); me.from_pydata([p for p, _ in pts], [], [])
@@ -355,20 +438,41 @@ def scatter(name, pts, coll):
     gi = N.new('NodeGroupInput'); go = N.new('NodeGroupOutput')
     mp = N.new('GeometryNodeMeshToPoints'); io = N.new('GeometryNodeInstanceOnPoints')
     ci = N.new('GeometryNodeCollectionInfo'); ci.inputs['Collection'].default_value = coll
-    ci.inputs['Separate Children'].default_value = True; ci.inputs['Reset Children'].default_value = True
+    if whole is None: whole = coll.name in ('Baummodell', 'Grasmodell')
+    ci.inputs['Separate Children'].default_value = not whole; ci.inputs['Reset Children'].default_value = not whole
     rv = N.new('FunctionNodeRandomValue'); rv.data_type = 'FLOAT_VECTOR'
     rv.inputs[0].default_value = (0, 0, 0); rv.inputs[1].default_value = (0, 0, 6.283)
     na = N.new('GeometryNodeInputNamedAttribute'); na.data_type = 'FLOAT_VECTOR'; na.inputs['Name'].default_value = 'sc'
     L.new(gi.outputs[0], mp.inputs['Mesh']); L.new(mp.outputs['Points'], io.inputs['Points'])
-    L.new(ci.outputs[0], io.inputs['Instance']); io.inputs['Pick Instance'].default_value = True
+    L.new(ci.outputs[0], io.inputs['Instance']); io.inputs['Pick Instance'].default_value = not whole
     L.new(rv.outputs[0], io.inputs['Rotation']); L.new(na.outputs[0], io.inputs['Scale'])
     L.new(io.outputs[0], go.inputs[0])
     o.modifiers.new('gn', 'NODES').node_group = ng
     return o
 
+def tree_proto():
+    if 'treemodel' in PROTO: return PROTO['treemodel']
+    col = bpy.data.collections.new('Baummodell'); bpy.context.scene.collection.children.link(col)
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=f'{ASSETS}/models/tree_small_02/tree_small_02_2k.gltf')
+    new = [o for o in bpy.data.objects if o not in before]
+    for o in new:
+        for uc in list(o.users_collection): uc.objects.unlink(o)
+        col.objects.link(o)
+    # Höhe normieren auf 1 m (Skalierung erfolgt je Instanz)
+    zs = [ (o.matrix_world @ Vector(c)).z for o in new if o.type == 'MESH' for c in o.bound_box ]
+    h = max(zs) - min(zs) if zs else 1.0
+    root = bpy.data.objects.new('Baum_Wurzel', None); col.objects.link(root)
+    for o in new:
+        if o.parent is None: o.parent = root
+    root.scale = (1 / h,) * 3; root.location = (0, 0, -min(zs) / h if zs else 0)
+    PROTO['treemodel'] = col; PROTO['treeh'] = h
+    return col
+
 def flush_veg():
     if 'crown' not in PROTO: return
     scatter('Gehölz', VEG['crown'], PROTO['crown']); scatter('Stämme', VEG['trunk'], PROTO['trunk'])
+    if VEG.get('model'): scatter('Bäume', VEG['model'], tree_proto())
 
 def hedge(p0, p1, wall=True, density=0.33, h=(6, 12), seed=1, young=False):
     """Knick: Erdwall mit dichtem Strauchgürtel und einzelnen Überhältern."""
@@ -388,7 +492,7 @@ def hedge(p0, p1, wall=True, density=0.33, h=(6, 12), seed=1, young=False):
         t = (i + rr.random() * 0.8) / max(n, 1)
         p = p0 + d * t + nrm * rr.uniform(-1.4, 1.4)
         r = rr.uniform(1.8, 3.4); hh = rr.uniform(3.0, 6.5)
-        if young: r *= 0.45; hh *= 0.4
+        if young: r *= 0.35; hh *= 0.28
         VEG['crown'].append(((p.x, p.y, base + hh - r * 0.7), (r * rr.uniform(1.0, 1.5), r * rr.uniform(1.0, 1.5), r * rr.uniform(0.8, 1.1))))
     k = 0.0
     while k < L and not young:  # Überhälter (Eiche, Esche)
@@ -400,6 +504,9 @@ def hedge(p0, p1, wall=True, density=0.33, h=(6, 12), seed=1, young=False):
 def tree(p, hh, seed, base=0.0):
     crowns_proto()
     rr = random.Random(seed); r = hh * rr.uniform(0.3, 0.4)
+    if USE_TREE_MODEL:
+        VEG.setdefault('model', []).append(((p[0], p[1], base - 0.2), (hh * rr.uniform(0.9, 1.15), hh * rr.uniform(0.9, 1.15), hh)))
+        return
     VEG['crown'].append(((p[0], p[1], base + hh - r * 0.9), (r * rr.uniform(0.9, 1.2), r * rr.uniform(0.9, 1.2), r * rr.uniform(0.8, 1.0))))
     VEG['trunk'].append(((p[0], p[1], base), (1.2, 1.2, max(hh - r, 0.5))))
 
@@ -501,7 +608,16 @@ def bess_plant(cx=0.0, cy=0.0, rows=6, per_row=8, lit=False):
     box('Übergabestation', (8, 3, 3), (x0 + 12, y0 + 6, 1.5), M['hvac'], bevel=0.03)
     box('Betriebsgebäude', (6, 3, 3), (x0 + 24, y0 + 6, 1.5), M['container'], bevel=0.03)
     box('Löschwasser', (0.1, 0.1, 0.1), (x0 + 4, y0 + 4, 0), M['dark'])
-    cyl('Löschwasserbehälter', 3.2, 4.5, (x0 + W - 10, y0 + 7, 2.25), M['tank'], verts=48)
+    cyl('Löschwasserbehälter', 3.2, 4.5, (x0 + W - 8, y0 + Hh - 7, 2.25), M['tank'], verts=48)
+    # Erschließung: befestigte Fahrwege (Feuerwehr, Wartung) entlang West- und Nordseite
+    plane('Fahrweg West', 6, Hh + 3, (x0 + 3, cy + 1.5, 0.05), M['asphalt'])
+    plane('Fahrweg Nord', W - 22, 6, (x0 + (W - 22) / 2, y0 + Hh - 7, 0.05), M['asphalt'])
+    # Entwässerung: Versickerungsmulde entlang der Südseite, Regenrückhaltebecken an der Südostecke
+    plane('Mulde', W + 10, 4, (cx, y0 - 9, 0.02), M['swale'])
+    bpy.ops.mesh.primitive_circle_add(vertices=48, radius=1, fill_type='NGON', location=(x0 + W - 10, y0 - 17, 0.015))
+    bk = bpy.context.object; bk.name = 'Böschung'; bk.scale = (10.5, 5.8, 1); bk.data.materials.append(M['swale'])
+    bpy.ops.mesh.primitive_circle_add(vertices=48, radius=1, fill_type='NGON', location=(x0 + W - 10, y0 - 17, 0.03))
+    rb = bpy.context.object; rb.name = 'Rückhaltebecken'; rb.scale = (8.0, 3.8, 1); rb.data.materials.append(M['water'])
     fence(x0 - 3, y0 - 3, x0 + W + 3, y0 + Hh + 3)
     return (x0, y0, W, Hh)
 
@@ -538,7 +654,7 @@ def substation(cx, cy):
 def fields(extent=2600):
     """Feldmosaik: Schläge mit wechselnder Kultur, getrennt durch Knicks."""
     rr = random.Random(3)
-    kinds = ['crop', 'crop', 'rape', 'stubble', 'plough', 'grass', 'crop', 'stubble']
+    kinds = ['crop', 'crop', 'rape', 'crop', 'plough', 'grass', 'crop', 'stubble', 'grass', 'rape']
     step = 260
     for ix in range(-extent // step, extent // step):
         for iy in range(-extent // step, extent // step):
@@ -548,7 +664,26 @@ def fields(extent=2600):
     plane('Untergrund', extent * 3, extent * 3, (0, 0, -0.05), M['grass'])
 
 # ------------------------------------------------------------ Licht, Himmel, Kamera
+CLOUD_PLANE = False
+USE_HDRI = True
+HDRI_KIND = 'clear'
+HDRI_STRENGTH = 1.0
+HDRI = {'day': 'kloofendal_48d_partly_cloudy_puresky', 'evening': 'belfast_sunset_puresky', 'clear': 'autumn_field_puresky'}
+def hdri(kind='day', rot=0.0, strength=1.0):
+    w = bpy.data.worlds.new('Himmel'); bpy.context.scene.world = w; w.use_nodes = True; nt = w.node_tree
+    bg = next(n for n in nt.nodes if n.type == 'BACKGROUND'); bg.inputs['Strength'].default_value = strength
+    tc = nt.nodes.new('ShaderNodeTexCoord'); mp = nt.nodes.new('ShaderNodeMapping'); mp.inputs['Rotation'].default_value = (0, 0, math.radians(rot))
+    env = nt.nodes.new('ShaderNodeTexEnvironment')
+    env.image = bpy.data.images.load(f'{ASSETS}/hdris/{HDRI[kind]}/{HDRI[kind]}_4k.hdr')
+    nt.links.new(tc.outputs['Generated'], mp.inputs['Vector']); nt.links.new(mp.outputs['Vector'], env.inputs['Vector'])
+    nt.links.new(env.outputs['Color'], bg.inputs['Color'])
+    bpy.context.scene.world.mist_settings.start = 200
+    return env
+
 def sky(sun_elev=14, sun_rot=215, strength=0.28, dust=1.6, air=1.0, ozone=1.0):
+    if USE_HDRI:
+        # sun_rot = gewünschter Sonnenazimut (Grad, mathematisch ab +X); Sonne liegt in allen drei HDRIs bei ca. 144°
+        return hdri('evening' if sun_elev < 6 else HDRI_KIND, rot=144 - sun_rot, strength=HDRI_STRENGTH)
     w = bpy.data.worlds.new('Himmel'); bpy.context.scene.world = w; w.use_nodes = True
     nt = w.node_tree; bg = next(n for n in nt.nodes if n.type == 'BACKGROUND')
     s = nt.nodes.new('ShaderNodeTexSky'); s.sky_type = 'NISHITA'
@@ -563,7 +698,8 @@ def sky(sun_elev=14, sun_rot=215, strength=0.28, dust=1.6, air=1.0, ozone=1.0):
     return s
 
 def clouds(cover=0.45, z=1600, seed=0.0):
-    """Lockere Kumulusschicht: wirft Schatten auf die Felder und strukturiert den Himmel."""
+    """Lockere Kumulusschicht (nur noch für Draufsicht: Wolkenschatten)."""
+    if not CLOUD_PLANE: return
     bpy.ops.mesh.primitive_plane_add(size=1, location=(0, 0, z))
     o = bpy.context.object; o.scale = (60000, 60000, 1); bpy.ops.object.transform_apply(location=False, rotation=False, scale=True); o.name = 'Wolken'
     m = bpy.data.materials.new('Wolken'); m.use_nodes = True; nt = m.node_tree
@@ -597,6 +733,20 @@ def haze(color=(0.80, 0.86, 0.92), start=200, depth=3000, amount=0.55):
     mix = nt.nodes.new('CompositorNodeMixRGB'); mix.inputs[2].default_value = (*color, 1)
     nt.links.new(rl.outputs['Mist'], mul.inputs[0]); nt.links.new(mul.outputs[0], mix.inputs['Fac'])
     nt.links.new(rl.outputs['Image'], mix.inputs[1]); nt.links.new(mix.outputs[0], comp.inputs['Image'])
+
+def grass_models(x0, y0, x1, y1, n=4000, seed=3, h=(0.6, 1.1)):
+    """Grasbüschel (Poly Haven grass_medium_01) als Instanzen im Vordergrund."""
+    if 'grassmodel' not in PROTO:
+        col = bpy.data.collections.new('Grasmodell'); bpy.context.scene.collection.children.link(col)
+        before = set(bpy.data.objects)
+        bpy.ops.import_scene.gltf(filepath=f'{ASSETS}/models/grass_medium_01/grass_medium_01_2k.gltf')
+        for o in [o for o in bpy.data.objects if o not in before]:
+            for uc in list(o.users_collection): uc.objects.unlink(o)
+            col.objects.link(o)
+        PROTO['grassmodel'] = col
+    rr = random.Random(seed)
+    pts = [((rr.uniform(x0, x1), rr.uniform(y0, y1), 0.0), (s, s, s)) for s in [rr.uniform(*h) for _ in range(n)]]
+    scatter('Grasbüschel', pts, PROTO['grassmodel'])
 
 def grass_patch(loc, size, m, count=60000, length=0.55, seed=1, color=(0.25, 0.33, 0.08)):
     """Vordergrund-Bewuchs als Haarpartikel (Getreide/Gras)."""
@@ -633,7 +783,7 @@ def shot_hero():
     hedge((x0 + W + 14, y0 - 14), (x0 + W + 14, y0 + H + 14), seed=6, density=0.32)
     hedge((x0 - 14, y0 + H + 14), (x0 + W + 14, y0 + H + 14), seed=7, density=0.32)
     substation(-190, 70)
-    plane('Zufahrt', 5, 150, (x0 + 18, y0 - 80, 0.04), M['asphalt'])
+    plane('Zufahrt', 5, 150, (x0 + 3, y0 - 78, 0.04), M['asphalt'])
     plane('Kreisstraße', 2600, 6.5, (0, y0 - 155, 0.04), M['asphalt'])
     for i in range(14):
         lattice_pylon((-190 + 0, 140 + i * 320), h=52)
@@ -641,8 +791,8 @@ def shot_hero():
         wire([(-190 + k, 140 + i * 320, 48) for i in range(10)], r=0.05, sag=6)
     sky(sun_elev=11, sun_rot=235, strength=0.30, dust=2.2)
     clouds(cover=0.42, seed=3000.0)
-    camera((120, -160, 52), (-55, 25, 0), lens=34)
-    haze(start=150, depth=3500, amount=0.5)
+    camera((112, -128, 34), (-48, 22, 0), lens=32)
+    haze(start=250, depth=3500, amount=0.3)
 
 def shot_feld():
     materials(); common_landscape()
@@ -651,10 +801,11 @@ def shot_feld():
     hedge((x0 + W + 16, y0 - 16), (x0 + W + 16, y0 + H + 16), seed=16, density=0.32)
     hedge((x0 - 16, y0 + H + 16), (x0 + W + 16, y0 + H + 16), seed=17, density=0.32)
     substation(-190, 70)
-    grass_patch((60, -150, 0.01), (120, 60), M['crop'], count=120000, length=0.75, color=(0.10, 0.16, 0.03))
+    grass_patch((70, -95, 0.01), (90, 40), M['crop'], count=160000, length=0.7, color=(0.09, 0.15, 0.03))
     sky(sun_elev=16, sun_rot=250, strength=0.32, dust=1.8)
     clouds(cover=0.4, seed=1200.0)
-    camera((95, -178, 3.6), (-10, 20, 4), lens=42)
+    grass_models(40, -112, 110, -80, n=2500, seed=4)
+    camera((72, -104, 6.5), (-6, 4, 2.0), lens=36)
     haze(start=120, depth=2600, amount=0.45)
 
 def shot_modul():
@@ -662,9 +813,9 @@ def shot_modul():
     plane('Boden', 3000, 3000, (0, 0, -0.05), M['grass'])
     x0, y0, W, H = bess_plant(0, 0, rows=3, per_row=7)
     hedge((x0 - 14, y0 + H + 18), (x0 + W + 14, y0 + H + 18), seed=21, density=0.35, h=(8, 14))
-    sky(sun_elev=22, sun_rot=150, strength=0.34, dust=1.4)
+    sky(sun_elev=22, sun_rot=60, strength=0.34, dust=1.4)
     clouds(cover=0.35, seed=800.0)
-    camera((x0 + 16, y0 + 12.4, 1.75), (x0 + 50, y0 + 17.5, 1.9), lens=30)
+    camera((x0 + 13, y0 + 23.2, 1.7), (x0 + 60, y0 + 22.0, 1.75), lens=26)
     haze(start=200, depth=2000, amount=0.3)
 
 def shot_netz():
@@ -676,7 +827,7 @@ def shot_netz():
         wire([(k, 60 + i * 320, 48) for i in range(10)], r=0.05, sag=6)
     sky(sun_elev=9, sun_rot=260, strength=0.30, dust=2.4)
     clouds(cover=0.45, seed=500.0)
-    camera((48, -52, 3.2), (-6, 8, 7.5), lens=32)
+    camera((32, -38, 2.0), (-6, 4, 6.5), lens=26)
     haze(start=150, depth=3000, amount=0.45)
 
 def shot_planung():
@@ -700,7 +851,7 @@ def shot_investor():
     sky(sun_elev=3.5, sun_rot=245, strength=0.42, dust=3.0)
     clouds(cover=0.38, seed=2200.0)
     clouds(cover=0.38, seed=900.0)
-    camera((-420, -360, 95), (0, 30, 0), lens=55)
+    camera((-175, -150, 46), (5, 20, 0), lens=42)
     haze(color=(0.85, 0.80, 0.78), start=150, depth=3000, amount=0.5)
 
 def village(cx, cy):
@@ -730,14 +881,14 @@ def village(cx, cy):
 def shot_kommune():
     materials(); common_landscape()
     village(-40, 420)
-    x0, y0, W, H = bess_plant(340, 140, rows=4, per_row=7)
-    hedge((x0 - 14, y0 - 14), (x0 + W + 14, y0 - 14), seed=41, density=0.3)
+    x0, y0, W, H = bess_plant(260, 260, rows=4, per_row=7)
+    hedge((x0 - 14, y0 - 14), (x0 + W + 14, y0 - 14), seed=41, density=0.3, young=True, wall=False)
     hedge((x0 - 14, y0 - 14), (x0 - 14, y0 + H + 14), seed=42, density=0.3)
-    substation(470, 300)
-    plane('Gemeindestraße', 6, 900, (200, 200, 0.04), M['asphalt'])
+    substation(520, 210)
+    plane('Gemeindestraße', 6, 900, (115, 200, 0.04), M['asphalt'])
     sky(sun_elev=20, sun_rot=210, strength=0.32, dust=1.6)
     clouds(cover=0.38, seed=2600.0)
-    camera((150, -260, 60), (180, 260, 0), lens=45)
+    camera((120, -40, 48), (120, 380, 0), lens=30)
     haze(start=150, depth=3000, amount=0.45)
 
 def shot_betrieb():
@@ -770,23 +921,35 @@ def shot_betrieb():
     sb.inputs['Base Color'].default_value = (0.01, 0.01, 0.01, 1); sb.inputs['Roughness'].default_value = 0.15
     if A.tex:
         tx = nt.nodes.new('ShaderNodeTexImage'); tx.image = bpy.data.images.load(A.tex)
-        nt.links.new(tx.outputs['Color'], sb.inputs['Emission Color']); sb.inputs['Emission Strength'].default_value = 2.2
-    for i, (x, rz) in enumerate(((-1.62, 0.22), (0, 0), (1.62, -0.22))):
-        bpy.ops.mesh.primitive_plane_add(size=1, location=(x, ry - 1.82, 4.32))
-        s = bpy.context.object; s.scale = (1.5, 0.86, 1); s.rotation_euler = (math.radians(84), 0, rz)
-        bpy.ops.object.transform_apply(location=False, rotation=False, scale=True); s.data.materials.append(sm)
-        uv = s.data.uv_layers[0].data
-        for k, lp in enumerate(s.data.loops):
-            co = s.data.vertices[lp.vertex_index].co
-            uv[k].uv = ((co.x + 0.75) / 1.5 / 3 + i / 3, (co.y + 0.43) / 0.86)
-        b = box('Monitorrahmen', (1.56, 0.04, 0.92), (x, ry - 1.80 + 0.03, 4.32), frame_m); b.rotation_euler = (math.radians(-6), 0, rz)
-        box('Fuß', (0.08, 0.08, 0.3), (x, ry - 1.74, 3.92), frame_m)
+        nt.links.new(tx.outputs['Color'], sb.inputs['Emission Color']); sb.inputs['Emission Strength'].default_value = 1.6
+        sb.inputs['Coat Weight'].default_value = 0.3
+    for i, (x, rz) in enumerate(((-1.6, 0.25), (0, 0), (1.6, -0.25))):
+        # Gehäuse (Rückseite zum Fenster), Bildschirm zur Kamera (−Y), leicht nach hinten geneigt
+        piv = Vector((x, ry - 1.85, 4.32)); rot = Matrix.Rotation(rz, 4, 'Z') @ Matrix.Rotation(math.radians(-5), 4, 'X')
+        bpy.ops.mesh.primitive_cube_add(size=1); g = bpy.context.object; g.name = 'Monitorgehäuse'
+        g.scale = (1.52, 0.05, 0.9); bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        g.matrix_world = Matrix.Translation(piv) @ rot; g.data.materials.append(frame_m)
+        bpy.ops.mesh.primitive_plane_add(size=1); sc_ = bpy.context.object; sc_.name = 'Bildschirm'
+        sc_.scale = (1.46, 0.84, 1); bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+        for v in sc_.data.vertices: v.co = Vector((v.co.x, -0.026, v.co.y))   # Fläche in XZ, Normale −Y
+        sc_.data.update(); sc_.matrix_world = Matrix.Translation(piv) @ rot
+        uv = sc_.data.uv_layers[0].data
+        for k, lp in enumerate(sc_.data.loops):
+            co = sc_.data.vertices[lp.vertex_index].co
+            uv[k].uv = ((co.x + 0.73) / 1.46 / 3 + i / 3, (co.z + 0.42) / 0.84)
+        if sc_.data.polygons[0].normal.y > 0: bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.flip_normals(); bpy.ops.object.mode_set(mode='OBJECT')
+        sc_.data.materials.append(sm)
+        box('Fuß', (0.08, 0.08, 0.32), (x, ry - 1.74, 3.92), frame_m)
+        box('Standplatte', (0.3, 0.22, 0.02), (x, ry - 1.74, 3.79), frame_m)
     box('Tastatur', (0.45, 0.15, 0.02), (-0.2, ry - 2.0, 3.79), frame_m)
+    box('Maus', (0.06, 0.1, 0.03), (0.25, ry - 2.0, 3.79), frame_m)
+    box('Sitz', (0.55, 0.55, 0.08), (0.1, ry - 2.75, 3.5), frame_m); box('Lehne', (0.55, 0.08, 0.65), (0.1, ry - 3.05, 3.9), frame_m)
+    cyl('Stuhlsäule', 0.04, 0.45, (0.1, ry - 2.75, 3.22), frame_m)
     lamp = bpy.data.lights.new('Deckenlicht', 'AREA'); lamp.energy = 300; lamp.size = 4; lamp.color = (1.0, 0.95, 0.88)
     lo = bpy.data.objects.new('Deckenlicht', lamp); bpy.context.collection.objects.link(lo); lo.location = (0, ry - 5, 6.1)
     sky(sun_elev=18, sun_rot=200, strength=0.34, dust=1.6)
     clouds(cover=0.38, seed=1500.0)
-    camera((1.3, ry - 5.6, 4.7), (-0.4, ry + 30, 2.2), lens=26)
+    camera((1.9, ry - 5.2, 4.75), (-0.6, ry + 25, 2.8), lens=24)
     haze(start=80, depth=2000, amount=0.3)
 
 SHOTS = {'hero': shot_hero, 'feld': shot_feld, 'modul': shot_modul, 'netz': shot_netz, 'planung': shot_planung,

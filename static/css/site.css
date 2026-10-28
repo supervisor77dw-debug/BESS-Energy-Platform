@@ -343,7 +343,7 @@ p { margin: 0 0 var(--s4); max-width: 68ch; }
   .hero-photo .hero-art { position: relative; inset: auto; aspect-ratio: 4 / 5; max-height: 72vh; }
   .hero-photo::after { inset: 0 0 auto 0; height: 0; }
   .hero-photo .hero-copy { padding-top: var(--s6); padding-bottom: var(--s7); background: #16302d; }
-  .hero-photo .hero-note { position: absolute; top: 8px; bottom: auto; }
+  .hero-photo .hero-note { position: absolute; top: 8px; bottom: auto; left: 8px; right: auto; width: auto; max-width: calc(100% - 16px); background: rgba(12,26,24,.62); padding: 2px 8px; border-radius: 4px; }
   .chain { grid-template-columns: 1fr; row-gap: var(--s6); }
   .photo-band img { aspect-ratio: 1 / 1; max-height: 70vh; }
   .owner-pay { grid-template-columns: 1fr; }

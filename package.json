@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node server.mjs",
     "seed": "node data/seed.mjs",
-    "test": "node --test test/platform.test.mjs test/external.test.mjs test/blob.test.mjs test/abnahme.test.mjs",
+    "test": "node --test test/platform.test.mjs test/external.test.mjs test/blob.test.mjs test/abnahme.test.mjs test/content.test.mjs",
     "illustrations": "node tools/illustrations.mjs"
   },
   "dependencies": {
