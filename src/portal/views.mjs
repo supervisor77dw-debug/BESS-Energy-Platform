@@ -57,7 +57,7 @@ export function shell({ u, s, path, title, context, body, actions }) {
       <div class="top-title"><h1>${title}</h1>${context ? html`<p>${context}</p>` : ''}</div>
       <div class="top-user">
         ${actions || ''}
-        <span class="who"><strong>${u.name}</strong><span>${ROLES[u.role].label}</span></span>
+        <span class="who"><strong>${u.name}</strong><span>${ROLES[u.role].label} · <a href="/portal/passwort">Passwort ändern</a></span></span>
         <form method="post" action="/portal/abmelden"><input type="hidden" name="_csrf" value="${s.csrf}"><button class="btn btn-quiet" type="submit">Abmelden</button></form>
       </div>
     </header>
@@ -126,6 +126,24 @@ export function mfaEnrollView({ s, secret, account, error }) {
     <label for="code">Bestätigungscode aus der App</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
     <button class="btn btn-primary" type="submit">Einrichtung abschließen</button>
   </form>
+</div>` });
+}
+
+export function passwordView({ s, u, forced, error }) {
+  return authPage({ title: 'Passwort festlegen', body: html`
+<div class="auth-card">
+  <h1>${forced ? 'Eigenes Passwort festlegen' : 'Passwort ändern'}</h1>
+  <p class="muted">${forced ? 'Sie haben sich mit einem Startpasswort angemeldet. Bitte legen Sie jetzt ein eigenes Passwort fest. Es ist nur Ihnen bekannt.' : 'Hier können Sie Ihr Passwort jederzeit ändern.'}</p>
+  ${error ? html`<div class="alert" role="alert">${error}</div>` : ''}
+  <form method="post" action="/portal/passwort" class="stack">
+    <input type="hidden" name="_csrf" value="${s.csrf}">
+    <input type="text" name="username" value="${u.email}" autocomplete="username" hidden>
+    <label for="cur">Bisheriges Passwort</label><input id="cur" name="current" type="password" autocomplete="current-password" required>
+    <label for="n1">Neues Passwort (mindestens 12 Zeichen)</label><input id="n1" name="neu" type="password" autocomplete="new-password" minlength="12" required>
+    <label for="n2">Neues Passwort wiederholen</label><input id="n2" name="neu2" type="password" autocomplete="new-password" minlength="12" required>
+    <button class="btn btn-primary" type="submit">Passwort speichern</button>
+  </form>
+  <form method="post" action="/portal/abmelden"><input type="hidden" name="_csrf" value="${s.csrf}"><button class="btn btn-quiet" type="submit">Abmelden</button></form>
 </div>` });
 }
 
@@ -339,7 +357,7 @@ export function admin({ s, users, grants, projects, spvs, msg }) {
   const ext = users.filter((x) => ['investor', 'kommune', 'technik'].includes(x.role));
   return html`${msg ? html`<div class="notice" role="status">${msg}</div>` : ''}
 <section class="panel"><h2>Konten und Rollen</h2><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Person</th><th>Rolle</th><th>MFA</th><th>Projektzugriffe</th><th>Status</th></tr></thead><tbody>
-${users.map((x) => html`<tr><td data-l="Person"><strong>${x.name}</strong><br><span class="muted small">${x.email}</span></td><td data-l="Rolle">${ROLES[x.role].label}</td><td data-l="MFA">${x.mfa ? html`${x.totp ? 'eingerichtet' : html`<span class="mark mark-warn">Einrichtung offen</span>`}${x.totp ? html`<form method="post" action="/portal/admin/mfa-zuruecksetzen" class="inline-form"><input type="hidden" name="_csrf" value="${s.csrf}"><input type="hidden" name="userId" value="${x.id}"><button class="btn btn-small" type="submit">Zurücksetzen</button></form>` : ''}` : html`<span class="muted">nicht erforderlich</span>`}</td><td data-l="Zugriffe" class="small">${grants.filter((g) => g.userId === x.id).map((g) => html`<span class="chip">${pById[g.projectId]?.code} · ${g.scope}<form method="post" action="/portal/admin/zugriff/${g.id}/entziehen"><input type="hidden" name="_csrf" value="${s.csrf}"><button type="submit" aria-label="Zugriff ${pById[g.projectId]?.code} entziehen">×</button></form></span>`)}${x.role === 'projektleitung' ? (x.projects || []).map((id) => pById[id]?.code).join(', ') : ''}${x.role.startsWith('vertrieb_') ? 'regionsbezogen' : ''}${x.role === 'eigentuemer' ? 'über eigene Grundstücke' : ''}${x.role === 'admin' ? 'alle' : ''}</td><td data-l="Status">${x.active ? 'aktiv' : 'gesperrt'}</td></tr>`)}
+${users.map((x) => html`<tr><td data-l="Person"><strong>${x.name}</strong><br><span class="muted small">${x.email}</span></td><td data-l="Rolle">${ROLES[x.role].label}</td><td data-l="MFA">${x.mfa ? html`${x.totp ? 'eingerichtet' : html`<span class="mark mark-warn">Einrichtung offen</span>`}${x.totp ? html`<form method="post" action="/portal/admin/mfa-zuruecksetzen" class="inline-form"><input type="hidden" name="_csrf" value="${s.csrf}"><input type="hidden" name="userId" value="${x.id}"><button class="btn btn-small" type="submit">Zurücksetzen</button></form>` : ''}` : html`<span class="muted">nicht erforderlich</span>`}</td><td data-l="Zugriffe" class="small">${grants.filter((g) => g.userId === x.id).map((g) => html`<span class="chip">${pById[g.projectId]?.code} · ${g.scope}<form method="post" action="/portal/admin/zugriff/${g.id}/entziehen"><input type="hidden" name="_csrf" value="${s.csrf}"><button type="submit" aria-label="Zugriff ${pById[g.projectId]?.code} entziehen">×</button></form></span>`)}${x.role === 'projektleitung' ? (x.projects || []).map((id) => pById[id]?.code).join(', ') : ''}${x.role.startsWith('vertrieb_') ? 'regionsbezogen' : ''}${x.role === 'eigentuemer' ? 'über eigene Grundstücke' : ''}${x.role === 'admin' ? 'alle' : ''}</td><td data-l="Status">${x.active ? html`aktiv<form method="post" action="/portal/admin/passwort-neu" class="inline-form"><input type="hidden" name="_csrf" value="${s.csrf}"><input type="hidden" name="userId" value="${x.id}"><button class="btn btn-small" type="submit">Passwort neu vergeben</button></form>` : 'gesperrt'}</td></tr>`)}
 <tr><td><strong>Vertriebskoordination Süd</strong></td><td>${ROLES.vertrieb_sued.label}</td><td>–</td><td class="small">regionsbezogen</td><td><span class="mark mark-warn">nicht besetzt</span></td></tr>
 </tbody></table></div></section>
 <section class="grid-2">

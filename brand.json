@@ -1,24 +1,47 @@
 {
   "_hinweis": "Zentrale Markendatei. Alle Werte sind ARBEITSWERTE bis zur Marken-, Domain- und Gesellschaftsentscheidung (KLÄRUNGSBEDARF). Änderungen hier wirken auf Website und Portal. Bildmarke: Datei unter logo (SVG, Rahmen in currentColor, Akzentlinie mit class=\"bm-accent\").",
-  "name": "Speicherwerk",
-  "nameStatus": "Arbeitsname – Markenprüfung offen",
-  "wordmark": "Speicherwerk",
+  "name": "STROMKAI",
+  "nameStatus": "Arbeitsname (favorisiert, Entscheidung nicht abgeschlossen) – Markenprüfung offen",
+  "wordmark": "STROMKAI",
   "logo": "static/img/brand/bildmarke.svg",
   "favicon": "/static/img/favicon.svg",
   "claim": "Speicherinfrastruktur für ein leistungsfähiges Energiesystem",
   "domain": "https://www.example.invalid",
   "legal": {
     "operator": "[Rechtsträger der Plattform – noch festzulegen]",
-    "address": ["[Straße Hausnummer]", "[PLZ Ort]"],
+    "address": [
+      "[Straße Hausnummer]",
+      "[PLZ Ort]"
+    ],
     "representatives": "[Geschäftsführung – noch festzulegen]",
     "register": "[Registergericht und Registernummer – nach Eintragung]",
     "vatId": "[nach Erteilung]",
     "responsible": "[Name, Anschrift – Verantwortlich nach § 18 Abs. 2 MStV]"
   },
-  "contact": { "email": "[kontakt@domain – noch festzulegen]", "phone": "[Telefon – noch festzulegen]" },
+  "contact": {
+    "email": "[kontakt@domain – noch festzulegen]",
+    "phone": "[Telefon – noch festzulegen]"
+  },
   "regions": [
-    { "id": "nord", "name": "Region Nord", "area": "Schleswig-Holstein, Hamburg, Niedersachsen, Mecklenburg-Vorpommern", "contactRole": "Vertriebskoordination Nord", "contactName": "Markus", "contactNote": "Nachname, Telefon und E-Mail nach seiner Freigabe", "email": null, "phone": null, "status": "besetzt" },
-    { "id": "sued", "name": "Region Süd", "area": "Süddeutschland", "contactRole": "Vertriebskoordination Süd", "contactName": null, "status": "nicht besetzt" }
+    {
+      "id": "nord",
+      "name": "Region Nord",
+      "area": "Schleswig-Holstein, Hamburg, Niedersachsen, Mecklenburg-Vorpommern",
+      "contactRole": "Vertriebskoordination Nord",
+      "contactName": "Markus",
+      "contactNote": "Nachname, Telefon und E-Mail nach seiner Freigabe",
+      "email": null,
+      "phone": null,
+      "status": "besetzt"
+    },
+    {
+      "id": "sued",
+      "name": "Region Süd",
+      "area": "Süddeutschland",
+      "contactRole": "Vertriebskoordination Süd",
+      "contactName": null,
+      "status": "nicht besetzt"
+    }
   ],
   "confirmedPartners": []
 }

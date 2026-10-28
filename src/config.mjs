@@ -15,13 +15,18 @@ export const config = {
   dataDir: resolve(env.BESS_DATA_DIR || join(ROOT, 'data', 'runtime')),
   // Vorschau-Hilfen (Demo-Zugänge, aktueller MFA-Code auf der Login-Seite). In Produktion zwingend aus.
   // Hinter der Vorschau-Schranke (externe Vorschau) sind die Hilfen immer aus.
-  previewHelpers: env.BESS_GATE !== '1' && !env.VERCEL && (env.BESS_PREVIEW_HELPERS ?? (env.BESS_MODE === 'production' ? '0' : '1')) === '1',
+  // Vorschau-Hilfen nur lokal: nie hinter der Schranke, nie auf Vercel, nie im Abnahmekandidaten
+  previewHelpers: env.BESS_GATE !== '1' && !env.VERCEL && !env.VERCEL_ENV && env.BESS_STAGE !== 'abnahme' && (env.BESS_PREVIEW_HELPERS ?? (env.BESS_MODE === 'production' ? '0' : '1')) === '1',
   secureCookies: env.BESS_SECURE_COOKIES === '1' || !!env.VERCEL,
   // Vorschau-Zugangsschranke vor der gesamten Website (externe Vorschau). Zugänge in <dataDir>/gate.json (nur Hashes).
-  gate: env.BESS_GATE === '1' || (!!env.VERCEL && env.BESS_GATE !== '0'), // auf Vercel standardmäßig an
+  // Vorschau-Schranke: auf Vercel in der QA-Stufe standardmäßig an, im öffentlichen Abnahmekandidaten aus.
+  gate: env.BESS_GATE === '1' || (!!env.VERCEL && env.BESS_GATE !== '0' && (env.BESS_STAGE || (env.VERCEL_ENV === 'production' ? 'abnahme' : 'qa')) !== 'abnahme'),
   // Nur hinter einem lokalen Reverse-Proxy (z. B. Tailscale Funnel) X-Forwarded-For auswerten.
   trustProxy: env.BESS_TRUST_PROXY === '1' || !!env.VERCEL,
   onVercel: !!env.VERCEL,
+  // Betriebsstufe: 'qa' (geschützte Entwicklungs-/QA-Vorschau) | 'abnahme' (öffentlicher, vorläufiger Abnahmekandidat).
+  // Auf Vercel: Production-Ziel = Abnahme, Preview-Ziele = QA.
+  stage: env.BESS_STAGE || (env.VERCEL_ENV === 'production' ? 'abnahme' : 'qa'),
   sessionTtlMs: Number(env.BESS_SESSION_TTL_MS || 1000 * 60 * 60 * 8),
   idleTtlMs: Number(env.BESS_IDLE_TTL_MS || 1000 * 60 * 30),
   gateTtlMs: Number(env.BESS_GATE_TTL_MS || 1000 * 60 * 60 * 12),

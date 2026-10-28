@@ -1,6 +1,10 @@
 import { html, raw } from '../lib/html.mjs';
 import { brand, isPreview, config, brandLogo } from '../config.mjs';
 
+const previewNote = () => config.stage === 'abnahme'
+  ? `Vorläufiger Abnahmekandidat · Arbeitsname „${brand.name}“ · Inhalte und Rechtstexte in Prüfung · Illustrationen sind Beispiele`
+  : `Interne QA-Vorschau · Arbeitsname „${brand.name}“ · nicht öffentlich · Illustrationen sind Beispiele`;
+
 export const NAV = [
   ['/unternehmen', 'Unternehmen'],
   ['/technologie', 'Technologie'],
@@ -37,15 +41,15 @@ ${jsonld ? raw(`<script type="application/ld+json">${JSON.stringify(jsonld).repl
 </head>
 <body>
 <a class="skip" href="#inhalt">Zum Inhalt springen</a>
-${isPreview() ? html`<aside class="preview-bar" aria-label="Hinweis zur Vorschau">Abnahmevorschau · Arbeitsname „${brand.name}“ · nicht öffentlich · Illustrationen sind Beispiele</aside>` : ''}
+${isPreview() ? html`<aside class="preview-bar" aria-label="Hinweis zur Vorschau">${previewNote()}</aside>` : ''}
 <header class="site-head">
   <div class="wrap head-row">
     <a class="brand" href="/" aria-label="${brand.name} – Startseite">${logo}<span>${brand.wordmark}</span></a>
+    <a class="btn btn-line btn-login head-login" href="/portal/login" aria-label="Login / Partnerportal"><span class="lg-full">Login / Partnerportal</span><span class="lg-short" aria-hidden="true">Login</span></a>
     <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="hauptnavigation">Menü</button>
     <nav id="hauptnavigation" class="main-nav" aria-label="Hauptnavigation">
       <ul>${nav}</ul>
       <div class="nav-actions">
-        <a class="btn btn-quiet" href="/portal/login">Portal</a>
         <a class="btn btn-solid" href="/kontakt">Kontakt</a>
       </div>
     </nav>
@@ -83,7 +87,7 @@ ${body}
       <h2 class="foot-h">Kontakt</h2>
       <ul class="foot-list">
         <li><a href="/kontakt">Ansprechpartner</a></li>
-        <li><a href="/portal/login">Portal-Anmeldung</a></li>
+        <li><a href="/portal/login">Login / Partnerportal</a></li>
         <li><a href="/impressum">Impressum</a></li>
         <li><a href="/datenschutz">Datenschutz</a></li>
       </ul>

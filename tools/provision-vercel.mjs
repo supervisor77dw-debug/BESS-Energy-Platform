@@ -15,6 +15,45 @@ if (/dropbox/i.test(out) || out.startsWith(resolve('.'))) { console.error('Abbru
 mkdirSync(out, { recursive: true });
 
 const pw = () => randomBytes(12).toString('base64url');
+const stage = arg('--stage', 'qa'); // 'qa' (geschützte Vorschau, Schranke + Rollenkonten) | 'abnahme' (öffentlich, nur persönliche Konten)
+if (stage === 'abnahme') {
+  const url = arg('--url', '<öffentliche Adresse>');
+  const people = [
+    { id: 'u-admin', email: 'dirk@abnahme.stromkai.invalid', name: 'Dirk – Plattformadministration', who: 'Dirk', role: 'Plattformadministration (alle Bereiche)' },
+    { id: 'u-markus', email: 'markus@abnahme.stromkai.invalid', name: 'Markus – Vertriebskoordination Nord', who: 'Markus', role: 'Vertriebskoordination Nord (Nordprojekte, Eigentümerkontakte)' },
+  ].map((p) => ({ ...p, password: pw() }));
+  const env = { users: people.map((p) => ({ id: p.id, email: p.email, name: p.name, pw: hashPassword(p.password), mustChangePassword: true })) };
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+  writeFileSync(join(out, `BESS_ACCOUNTS_ABNAHME_${stamp}.json`), JSON.stringify(env), { mode: 0o600 });
+  const block = (p) => `=== ${p.who} – ${p.role} ===
+Benutzername (E-Mail-Feld):  ${p.email}
+Startpasswort (einmalig):    ${p.password}
+`;
+  writeFileSync(join(out, `ZUGAENGE_STROMKAI-Abnahme_${stamp}.txt`), `STROMKAI (Arbeitsname) – Zugänge öffentlicher Abnahmekandidat
+VERTRAULICH · nicht weiterleiten · nicht in Dropbox, Mail oder Chat kopieren
+Erzeugt: ${new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })} Europe/Berlin · Auftrag AW-20261028-GE-CLAUDE-BESS-PUBLIC-PORTAL-005
+
+Öffentliche Website (ohne Anmeldung):  ${url}
+Login-Seite:                           ${url.replace(/\/$/, '')}/portal/login   (oder oben rechts „Login / Partnerportal“)
+
+So melden Sie sich zum ersten Mal an
+1. Login-Seite öffnen, Benutzername und Startpasswort eingeben.
+2. Zweiten Faktor einrichten: Authenticator-App öffnen (z. B. Microsoft oder Google Authenticator),
+   „Konto hinzufügen“ → QR-Code scannen, dann den 6-stelligen Code eingeben.
+   Kein QR-Scan möglich? Den angezeigten Schlüssel manuell eingeben (zeitbasiert, 6 Stellen, 30 Sekunden).
+3. Eigenes Passwort festlegen (mindestens 12 Zeichen, ohne den Benutzernamen). Das Startpasswort ist danach ungültig.
+4. Bei jeder weiteren Anmeldung: Benutzername, eigenes Passwort, 6-stelliger Code aus der App.
+
+Passwort vergessen / neues Handy: Dirk vergibt in „Verwaltung“ ein Einmalpasswort bzw. setzt die MFA-Einrichtung zurück.
+Für Dirks eigenes Konto: neue Provisionierung (tools/provision-vercel.mjs --stage abnahme), siehe docs/HOSTING_VERCEL.md.
+
+${people.map(block).join('\n')}
+Weitergabe an Markus: Benutzername und Startpasswort getrennt übermitteln (z. B. Benutzername per Mail, Passwort telefonisch
+oder per Signal/Threema). Markus richtet MFA und sein eigenes Passwort selbst ein.
+`, { mode: 0o600 });
+  console.log(`Abnahme-Zugänge erzeugt in ${out} (BESS_ACCOUNTS_ABNAHME_${stamp}.json = nur Hashes, ZUGAENGE_STROMKAI-Abnahme_${stamp}.txt = vertraulich).`);
+  process.exit(0);
+}
 const accounts = [
   ['u-admin', 'dirk@bess-vorschau.invalid', 'Dirk – Plattformadministration', true],
   ['u-markus', 'markus@bess-vorschau.invalid', 'Markus – Vertriebskoordination Nord', true],

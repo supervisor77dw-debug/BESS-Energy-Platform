@@ -31,6 +31,20 @@ function checkCsrf(s, fields) {
 
 const out = (res, body, status = 200) => send(res, status, String(body));
 
+// Startbereich nach der Anmeldung je Rolle
+export function landing(u) {
+  if (u.mustChangePassword) return '/portal/passwort';
+  return { investor: '/portal/dokumente', kommune: '/portal/projekte', technik: '/portal/projekte', vertrieb_nord: '/portal/pipeline', vertrieb_sued: '/portal/pipeline' }[u.role] || '/portal';
+}
+function passwordProblem(u, pw, pw2) {
+  if (pw.length < 12) return 'Das neue Passwort muss mindestens 12 Zeichen lang sein.';
+  if (pw.length > 200) return 'Das neue Passwort ist zu lang.';
+  if (pw !== pw2) return 'Die beiden neuen Passwörter stimmen nicht überein.';
+  if (pw.toLowerCase().includes(String(u.email).split('@')[0].toLowerCase())) return 'Das Passwort darf den Benutzernamen nicht enthalten.';
+  if (verifyPassword(pw, u.pw)) return 'Bitte ein neues, anderes Passwort wählen.';
+  return null;
+}
+
 function ctxFor(u) {
   const db = getDb();
   const projects = P.listProjects(u);
@@ -68,7 +82,7 @@ export async function handlePortal(req, res, url) {
     const s = createSession(user.id, { mfaPending: !!user.mfa });
     res.setHeader('Set-Cookie', sessionCookie(s));
     audit(user.mfa ? 'anmeldung_passwort_ok' : 'anmeldung', user, { ip });
-    return redirect(res, user.mfa ? '/portal/mfa' : '/portal');
+    return redirect(res, user.mfa ? '/portal/mfa' : landing(user));
   }
   if (path === '/portal/mfa') {
     const { s, pendingUser } = current(req, res);
@@ -90,7 +104,7 @@ export async function handlePortal(req, res, url) {
     const s2 = createSession(pendingUser.id, { mfaPending: false });
     res.setHeader('Set-Cookie', sessionCookie(s2));
     audit('anmeldung', pendingUser, { mfa: 'ok' });
-    return redirect(res, '/portal');
+    return redirect(res, landing(pendingUser));
   }
   if (path === '/portal/abmelden' && method === 'POST') {
     const { s, pendingUser } = current(req, res);
@@ -103,6 +117,21 @@ export async function handlePortal(req, res, url) {
   // ---------- ab hier: angemeldet ----------
   const { s, u } = current(req, res);
   if (!u) return redirect(res, s ? '/portal/mfa' : '/portal/login');
+
+  // Eigenes Passwort festlegen (Pflicht beim ersten Login, sonst jederzeit möglich)
+  if (path === '/portal/passwort') {
+    if (method === 'GET') return out(res, V.passwordView({ s, u, forced: !!u.mustChangePassword }));
+    const { fields } = await parseForm(req);
+    checkCsrf(s, fields);
+    if (!rateLimit(`pw:${u.id}`, 10, 15 * 60000)) return out(res, V.passwordView({ s, u, forced: !!u.mustChangePassword, error: 'Zu viele Versuche. Bitte später erneut versuchen.' }), 429);
+    if (!verifyPassword(fields.current || '', u.pw)) { audit('passwort_aenderung_fehlgeschlagen', u); return out(res, V.passwordView({ s, u, forced: !!u.mustChangePassword, error: 'Das bisherige Passwort ist nicht korrekt.' }), 401); }
+    const problem = passwordProblem(u, String(fields.neu || ''), String(fields.neu2 || ''));
+    if (problem) return out(res, V.passwordView({ s, u, forced: !!u.mustChangePassword, error: problem }), 422);
+    u.pw = hashPassword(String(fields.neu)); u.mustChangePassword = false; u.passwordChangedAt = now();
+    persist(); audit('passwort_geaendert', u);
+    return redirect(res, landing(u));
+  }
+  if (u.mustChangePassword) return redirect(res, '/portal/passwort');
   const view = (title, body, context) => out(res, V.shell({ u, s, path, title, body, context }));
   const internalOnly = () => { if (!P.isInternal(u)) throw notFound(); };
   const adminOnly = () => { if (!P.isAdmin(u)) throw notFound(); };
@@ -245,6 +274,16 @@ export async function handlePortal(req, res, url) {
     if (i < 0) throw notFound();
     const [g] = db.grants.splice(i, 1); persist(); audit('zugriff_entzogen', u, { konto: g.userId, projekt: g.projectId });
     return redirect(res, '/portal/admin?m=ok');
+  }
+  if (path === '/portal/admin/passwort-neu' && method === 'POST') {
+    adminOnly();
+    const { fields } = await post();
+    const target = db.users.find((x) => x.id === fields.userId);
+    if (!target || !target.active) throw new HttpError(400, 'Konto nicht gefunden oder gesperrt.');
+    const pw = randomBytes(12).toString('base64url');
+    target.pw = hashPassword(pw); target.mustChangePassword = true;
+    persist(); audit('passwort_neu_vergeben', u, { konto: target.id });
+    return view('Einmalpasswort vergeben', html`<section class="panel"><h2>Einmalpasswort für ${target.name}</h2><p>Dieses Passwort wird nur jetzt angezeigt und nirgends gespeichert. Bitte persönlich oder über einen getrennten, verschlüsselten Kanal übergeben. Beim nächsten Login muss ein eigenes Passwort festgelegt werden.</p><dl class="kv"><div><dt>Benutzername</dt><dd><code>${target.email}</code></dd></div><div><dt>Einmalpasswort</dt><dd><code>${pw}</code></dd></div></dl><p><a class="btn" href="/portal/admin">Zurück zur Verwaltung</a></p></section>`);
   }
   if (path === '/portal/admin/mfa-zuruecksetzen' && method === 'POST') {
     adminOnly();

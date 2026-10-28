@@ -218,7 +218,7 @@ p { margin: 0 0 var(--s4); max-width: 68ch; }
 .foot-base { margin-top: var(--s7); padding-top: var(--s4); border-top: 1px solid #284541; color: #8fa5a1; }
 
 /* Responsiv */
-@media (max-width: 1279px) {
+@media (max-width: 1439px) {
   .nav-toggle { display: inline-flex; }
   .main-nav { display: none; position: absolute; left: 0; right: 0; top: 100%; background: var(--bg); border-bottom: 1px solid var(--line); padding: var(--s3) clamp(16px, 4vw, 48px) var(--s5); flex-direction: column; align-items: stretch; gap: var(--s3); }
   .main-nav.open { display: flex; }
@@ -258,4 +258,16 @@ p { margin: 0 0 var(--s4); max-width: 68ch; }
 @media (max-width: 1100px) { .org-row { grid-template-columns: 1fr; } .org-line { margin-left: 24px; } }
 /* QA Firefox: Kopfzeile darf nicht zusammenlaufen */
 .head-row > .brand { flex: none; margin-right: var(--s3); }
-@media (min-width: 1280px) { .main-nav { gap: var(--s3); } .main-nav ul a { padding: 8px 8px; font-size: .92rem; } }
+@media (min-width: 1440px) { .main-nav { gap: var(--s3); } .main-nav ul a { padding: 8px 8px; font-size: .92rem; } }
+
+/* Login / Partnerportal: deutlich sichtbar, ohne Umbruch */
+.nav-actions .btn { white-space: nowrap; }
+.btn-login { border-color: var(--ink); }
+/* Login im Kopf immer sichtbar (auch bei eingeklapptem Menü) */
+.head-login { order: 3; }
+.main-nav { order: 2; }
+.nav-toggle { order: 4; }
+.lg-short { display: none; }
+@media (max-width: 1439px) { .head-login { margin-left: auto; } .nav-toggle { margin-left: 0; } }
+@media (max-width: 520px) { .lg-full { display: none; } .lg-short { display: inline; } .head-row { gap: var(--s3); } }
+.head-login { white-space: nowrap; flex: none; }

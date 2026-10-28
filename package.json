@@ -4,11 +4,13 @@
   "private": true,
   "description": "BESS Energy Platform – Unternehmensauftritt und geschützte Stakeholder-Portale (Vorschau, synthetische Daten)",
   "type": "module",
-  "engines": { "node": "22.x" },
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "start": "node server.mjs",
     "seed": "node data/seed.mjs",
-    "test": "node --test test/platform.test.mjs test/external.test.mjs test/blob.test.mjs",
+    "test": "node --test test/platform.test.mjs test/external.test.mjs test/blob.test.mjs test/abnahme.test.mjs",
     "illustrations": "node tools/illustrations.mjs"
   },
   "dependencies": {

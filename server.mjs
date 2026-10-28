@@ -122,20 +122,23 @@ export const createApp = () => createServer(handleRequest);
 
 // ---- Vercel ----
 // Je Instanz werden Anfragen nacheinander verarbeitet (konsistenter Zustand); vor dem Senden wird gespeichert.
-let ready = null; let chain = Promise.resolve();
+let ready = null; let chain = Promise.resolve(); let sync = null;
 export async function vercelHandler(req, res) {
-  if (process.env.VERCEL_ENV === 'production' && process.env.BESS_ALLOW_PRODUCTION !== '1') {
+  // Production-Ziel nur als ausdrücklich konfigurierter Abnahmekandidat (BESS_STAGE=abnahme) oder nach Produktivfreigabe
+  if (process.env.VERCEL_ENV === 'production' && process.env.BESS_STAGE !== 'abnahme' && process.env.BESS_ALLOW_PRODUCTION !== '1') {
     res.statusCode = 503; res.setHeader('Content-Type', 'text/plain; charset=utf-8'); res.setHeader('X-Robots-Tag', 'noindex');
     return res.end('Produktivbetrieb nicht freigegeben.');
   }
   ready ??= (async () => {
-    const { bootstrapFromEnv } = await import('./src/lib/bootstrap.mjs');
-    await openStore({ kind: 'blob', bootstrap: bootstrapFromEnv });
+    const { bootstrapFromEnv, syncAccounts } = await import('./src/lib/bootstrap.mjs');
+    sync = syncAccounts;
+    await openStore({ kind: 'blob', bootstrap: bootstrapFromEnv, prefix: config.stage === 'abnahme' ? 'abnahme/' : '' });
   })().catch((e) => { ready = null; throw e; }); // nächster Aufruf versucht es erneut
   let release; const turn = chain; chain = new Promise((r) => (release = r));
   await turn;
   try {
     await ready; await refresh();
+    if (sync(getDb())) { persist(); await flush(); } // neue Provisionierung übernehmen
     const end = res.end.bind(res);
     await new Promise((resolve) => {
       res.end = (...a) => {

@@ -39,7 +39,7 @@ globalThis.__bessBlobSdk = {
 
 const pw = { admin: randomBytes(9).toString('base64url'), own: randomBytes(9).toString('base64url'), gate: randomBytes(9).toString('base64url') };
 const ACCOUNTS = JSON.stringify({
-  users: [{ id: 'u-admin', email: 'dirk@bess-vorschau.invalid', pw: hashPassword(pw.admin) }, { id: 'u-own-a', email: 'eigentuemer.a@demo.invalid', pw: hashPassword(pw.own) }],
+  users: [{ id: 'u-admin', email: 'dirk@bess-vorschau.invalid', pw: hashPassword(pw.admin), mustChangePassword: false }, { id: 'u-own-a', email: 'eigentuemer.a@demo.invalid', pw: hashPassword(pw.own), mustChangePassword: false }],
   gate: [{ id: 'g-dirk', user: 'dirk', name: 'Dirk', hash: hashPassword(pw.gate), active: true }],
 });
 

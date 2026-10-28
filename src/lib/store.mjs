@@ -14,7 +14,8 @@ let etag = null;
 let dirty = false;
 let driver = null;    // { kind, ... }
 
-const STATE = 'state/db.json';
+let STATE = 'state/db.json';
+let FILES = 'files/';
 const ensureCollections = (d) => { for (const k of ['audit', 'downloads', 'inquiries', 'messages', 'approvals', 'uploads', 'revoked', 'gateUsers']) d[k] ??= []; d.meta ??= {}; return d; };
 
 export async function openStore(opts) {
@@ -33,6 +34,9 @@ export async function openStore(opts) {
   }
   if (opts.kind === 'blob') {
     driver = { kind: 'blob', sdk: opts.sdk || globalThis.__bessBlobSdk || await import('@vercel/blob'), bootstrap: opts.bootstrap }; // __bessBlobSdk: nur Tests
+    // Getrennte Speicherbereiche je Betriebsstufe (z. B. 'abnahme/'), damit QA- und Abnahmedaten nie vermischt werden
+    const prefix = opts.prefix || '';
+    STATE = `${prefix}state/db.json`; FILES = `${prefix}files/`;
     await refresh();
     return db;
   }
@@ -72,7 +76,7 @@ export async function refresh() {
     const { db: fresh, files } = await driver.bootstrap();
     ensureCollections(fresh);
     fresh.meta.sessionKey ??= randomBytes(32).toString('base64');
-    for (const f of files) await put(`files/${f.name}`, f.data, { access: 'private', addRandomSuffix: false, allowOverwrite: true, contentType: f.mime || 'application/octet-stream' });
+    for (const f of files) await put(`${FILES}${f.name}`, f.data, { access: 'private', addRandomSuffix: false, allowOverwrite: true, contentType: f.mime || 'application/octet-stream' });
     try { await put(STATE, JSON.stringify(fresh), { access: 'private', addRandomSuffix: false, allowOverwrite: false, contentType: 'application/json' }); } catch { /* parallel gebootet – unten neu laden */ }
     st = await readState();
   }
@@ -131,11 +135,11 @@ export async function flush() {
 // ---- Dateien ----
 export async function putFile(name, data, mime) {
   if (driver.kind === 'file') return writeFileSync(join(driver.dataDir, 'files', name), data);
-  await driver.sdk.put(`files/${name}`, data, { access: 'private', addRandomSuffix: false, allowOverwrite: false, contentType: mime || 'application/octet-stream' });
+  await driver.sdk.put(`${FILES}${name}`, data, { access: 'private', addRandomSuffix: false, allowOverwrite: false, contentType: mime || 'application/octet-stream' });
 }
 export async function getFile(name) {
   if (driver.kind === 'file') return readFileSync(join(driver.dataDir, 'files', name));
-  const r = await driver.sdk.get(`files/${name}`, { access: 'private' });
+  const r = await driver.sdk.get(`${FILES}${name}`, { access: 'private' });
   return readStream(r.stream);
 }
 
