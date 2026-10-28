@@ -48,26 +48,37 @@ async function readStream(stream) {
   return Buffer.concat(chunks);
 }
 
-// Blob: aktuellen Zustand laden (304 bei unverändertem ETag spart den Download). Fehlt er, wird gebootet.
+// Blob: aktuellen Zustand laden. Das ETag stammt aus head() (Steuerungs-API, dasselbe Format wie bei put/ifMatch)
+// und wird VOR dem Inhalt gelesen: Ändert sich der Zustand dazwischen, scheitert das spätere bedingte Speichern
+// und wird zusammengeführt – ein veralteter Stand kann so nie unbemerkt überschrieben werden.
+async function headEtag() {
+  try { return (await driver.sdk.head(STATE))?.etag || null; } catch (e) { if (/not.?found|404/i.test(String(e?.name) + String(e?.message))) return null; throw e; }
+}
+async function readState() {
+  const tag = await headEtag();
+  if (!tag) return null;
+  const r = await driver.sdk.get(STATE, { access: 'private', useCache: false });
+  if (!r || !r.stream) return null;
+  return { text: (await readStream(r.stream)).toString('utf8'), etag: tag };
+}
 export async function refresh() {
   if (driver.kind !== 'blob') return;
-  const { get, put } = driver.sdk;
-  let r;
-  try { r = await get(STATE, { access: 'private', useCache: false, ifNoneMatch: etag || undefined }); } catch (e) { if (!/not.?found|404/i.test(String(e?.name) + String(e?.message))) throw e; r = null; }
-  if (r && (r.statusCode === 304 || (!r.stream && etag))) return; // unverändert
-  if (!r || !r.stream) {
+  const tag = await headEtag();
+  if (tag && tag === etag && db) return; // unverändert
+  let st = tag ? await readState() : null;
+  if (!st) {
     if (!driver.bootstrap) throw new Error('Zustand fehlt und kein Bootstrap konfiguriert.');
+    const { put } = driver.sdk;
     const { db: fresh, files } = await driver.bootstrap();
     ensureCollections(fresh);
     fresh.meta.sessionKey ??= randomBytes(32).toString('base64');
     for (const f of files) await put(`files/${f.name}`, f.data, { access: 'private', addRandomSuffix: false, allowOverwrite: true, contentType: f.mime || 'application/octet-stream' });
     try { await put(STATE, JSON.stringify(fresh), { access: 'private', addRandomSuffix: false, allowOverwrite: false, contentType: 'application/json' }); } catch { /* parallel gebootet – unten neu laden */ }
-    r = await get(STATE, { access: 'private', useCache: false });
+    st = await readState();
   }
-  const text = (await readStream(r.stream)).toString('utf8');
-  db = ensureCollections(JSON.parse(text));
-  base = JSON.parse(text);
-  etag = r.blob?.etag || null;
+  db = ensureCollections(JSON.parse(st.text));
+  base = JSON.parse(st.text);
+  etag = st.etag;
   dirty = false;
 }
 
@@ -100,7 +111,7 @@ export function merge(baseDb, localDb, remoteDb) {
 
 export async function flush() {
   if (driver.kind !== 'blob' || !dirty) return;
-  const { put, get } = driver.sdk;
+  const { put } = driver.sdk;
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       const res = await put(STATE, JSON.stringify(db), { access: 'private', addRandomSuffix: false, allowOverwrite: true, ifMatch: etag || undefined, contentType: 'application/json' });
@@ -108,10 +119,10 @@ export async function flush() {
       return;
     } catch (e) {
       if (!/precondition|412/i.test(String(e?.name) + String(e?.message))) throw e;
-      const r = await get(STATE, { access: 'private', useCache: false });
-      const remote = JSON.parse((await readStream(r.stream)).toString('utf8'));
+      const st = await readState();
+      const remote = JSON.parse(st.text);
       db = ensureCollections(merge(base, db, remote));
-      base = remote; etag = r.blob?.etag || null;
+      base = remote; etag = st.etag;
     }
   }
   throw new Error('Speichern nach mehreren Konflikten fehlgeschlagen');

@@ -24,11 +24,16 @@ globalThis.__bessBlobSdk = {
     const etag = `"e${++n}"`; blobs.set(path, { data, etag, access: o.access });
     return { etag, url: `blob://${path}` };
   },
+  async head(path) {
+    const cur = blobs.get(path);
+    if (!cur) { const e = new Error('Blob not found'); e.name = 'BlobNotFoundError'; throw e; }
+    return { etag: cur.etag };
+  },
   async get(path, o) {
     const cur = blobs.get(path);
     if (!cur) { const e = new Error('Blob not found'); e.name = 'BlobNotFoundError'; throw e; }
     if (o.ifNoneMatch && o.ifNoneMatch === cur.etag) return { statusCode: 304, stream: null, blob: { etag: cur.etag } };
-    return { statusCode: 200, stream: Readable.from([cur.data]), blob: { etag: cur.etag } };
+    return { statusCode: 200, stream: Readable.from([cur.data]), blob: { etag: `W/${cur.etag}-http` } }; // HTTP-ETag weicht ab (wie real)
   },
 };
 
