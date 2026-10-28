@@ -1,9 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { html, raw } from '../lib/html.mjs';
 import { brand, isPreview, config, brandLogo, realDomain } from '../config.mjs';
 
 const previewNote = () => config.stage === 'abnahme'
-  ? `Vorläufiger Abnahmekandidat · Arbeitsname „${brand.name}“ · Inhalte und Rechtstexte in Prüfung · Illustrationen sind Beispiele`
-  : `Interne QA-Vorschau · Arbeitsname „${brand.name}“ · nicht öffentlich · Illustrationen sind Beispiele`;
+  ? `Vorläufiger Abnahmekandidat · Arbeitsname „${brand.name}“ · Inhalte und Rechtstexte in Prüfung · Bilder sind Visualisierungen von Beispielanlagen`
+  : `Interne QA-Vorschau · Arbeitsname „${brand.name}“ · nicht öffentlich · Bilder sind Visualisierungen von Beispielanlagen`;
 
 export const NAV = [
   ['/unternehmen', 'Unternehmen'],
@@ -98,6 +99,31 @@ ${body}
 </body>
 </html>`;
 }
+
+// Bildwelt 2.0: 3D-Visualisierungen (tools/render) als AVIF/WebP in mehreren Breiten, Mobilzuschnitt 4:5.
+// Jede Verwendung trägt den Hinweis „Visualisierung“ – die Motive zeigen Beispielanlagen, keine realen Standorte.
+const IMG = (() => { try { return JSON.parse(readFileSync(new URL('../../static/img/v2/manifest.json', import.meta.url), 'utf8')); } catch { return {}; } })();
+const srcset = (key, kind, fmt) => (IMG[key]?.[kind] || []).map((w) => `/static/img/v2/${key}-${kind}-${w}.${fmt}?v=${IMG._v} ${w}w`).join(', ');
+export function picture(key, alt, { eager = false, sizes = '100vw', mobile = true, cls = '' } = {}) {
+  const m = IMG[key]; if (!m) return '';
+  const d = m.d, last = d[d.length - 1], fb = d.find((w) => w >= 1280) || last;
+  const pos = m.focus ? raw(` style="object-position:${m.focus[0]}% ${m.focus[1]}%"`) : '';
+  return html`<picture${cls ? raw(` class="${cls}"`) : ''}>
+    ${mobile && m.m ? html`<source media="(max-width: 700px)" type="image/avif" srcset="${srcset(key, 'm', 'avif')}" sizes="100vw"><source media="(max-width: 700px)" type="image/webp" srcset="${srcset(key, 'm', 'webp')}" sizes="100vw">` : ''}
+    <source type="image/avif" srcset="${srcset(key, 'd', 'avif')}" sizes="${sizes}">
+    <source type="image/webp" srcset="${srcset(key, 'd', 'webp')}" sizes="${sizes}">
+    <img src="/static/img/v2/${key}-d-${fb}.webp?v=${IMG._v}" alt="${alt}" width="${m.w}" height="${m.h}"${pos}${eager ? raw(' fetchpriority="high"') : raw(' loading="lazy"')} decoding="async">
+  </picture>`;
+}
+export const photo = (key, alt, caption, { cls = '', sizes = '(min-width: 1180px) 640px, (min-width: 760px) 55vw, 100vw' } = {}) => html`<figure class="photo ${cls}">
+  ${picture(key, alt, { sizes, mobile: false })}
+  <figcaption><span class="tag-vis">Visualisierung</span> ${caption}</figcaption>
+</figure>`;
+// Bildband unter dem Seitenkopf (volle Breite, mobil 4:5)
+export const band = (key, alt, caption) => html`<figure class="photo-band">
+  ${picture(key, alt, { sizes: '100vw' })}
+  <figcaption class="wrap"><span class="tag-vis">Visualisierung</span> ${caption}</figcaption>
+</figure>`;
 
 export const illus = (src, alt, caption, cls = '') => html`<figure class="illus ${cls}">
   <img src="/static/img/${src}" alt="${alt}" loading="lazy" decoding="async" width="1600" height="900">

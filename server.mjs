@@ -13,7 +13,7 @@ import { esc } from './src/lib/html.mjs';
 import { handleGate, loadGate } from './src/lib/gate.mjs';
 
 const STATIC = join(ROOT, 'static');
-const TYPES = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
+const TYPES = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.avif': 'image/avif', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
 
 async function serveStatic(res, pathname) {
   const rel = normalize(decodeURIComponent(pathname.slice('/static/'.length)));
@@ -21,7 +21,8 @@ async function serveStatic(res, pathname) {
   if (!file.startsWith(STATIC + sep) || rel.includes('..')) return send(res, 404, 'Nicht gefunden', 'text/plain; charset=utf-8');
   try {
     const data = await readFile(file);
-    res.setHeader('Cache-Control', isPreview() ? 'no-cache' : 'public, max-age=86400');
+    // Bildwelt-Dateien sind über ?v= versioniert und dürfen lange zwischengespeichert werden
+    res.setHeader('Cache-Control', rel.startsWith('img' + sep + 'v2' + sep) && !rel.endsWith('.json') ? 'public, max-age=31536000, immutable' : isPreview() ? 'no-cache' : 'public, max-age=86400');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     if (isPreview()) res.setHeader('X-Robots-Tag', 'noindex');
     return send(res, 200, data, TYPES[extname(file)] || 'application/octet-stream');

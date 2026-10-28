@@ -271,3 +271,86 @@ p { margin: 0 0 var(--s4); max-width: 68ch; }
 @media (max-width: 1439px) { .head-login { margin-left: auto; } .nav-toggle { margin-left: 0; } }
 @media (max-width: 520px) { .lg-full { display: none; } .lg-short { display: inline; } .head-row { gap: var(--s3); } }
 .head-login { white-space: nowrap; flex: none; }
+
+/* ---------- Bildwelt 2.0 (AW-BESS-STROMKAI-CONTENT-DESIGN-006) ---------- */
+.tag-vis { display: inline-block; font-size: .74rem; font-weight: 650; color: var(--copper); border: 1px solid currentColor; border-radius: 3px; padding: 0 6px; margin-right: 6px; }
+.photo { margin: 0; }
+.photo picture, .photo img { display: block; width: 100%; }
+.photo img { aspect-ratio: 3 / 2; height: auto; object-fit: cover; border-radius: var(--r-box); background: #c9d3cf; }
+.photo figcaption { margin-top: var(--s2); font-size: .86rem; color: var(--muted); }
+.photo-dark figcaption, .section-ink .photo figcaption { color: #a9bdb9; } .photo-dark .tag-vis, .section-ink .tag-vis { color: var(--copper-soft); }
+
+/* Hero mit Visualisierung: Bild vollflächig, Text auf ruhiger Abdunklung links */
+.hero-photo { background: #20302c; color: #fff; min-height: clamp(560px, 86vh, 900px); justify-content: flex-end; border-bottom: 0; }
+.hero-photo .hero-art { position: absolute; inset: 0; margin: 0; order: 0; }
+.hero-photo .hero-art picture, .hero-photo .hero-art img { width: 100%; height: 100%; }
+.hero-photo .hero-art img { object-fit: cover; }
+.hero-photo::after { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(90deg, rgba(12,26,24,.86) 0%, rgba(12,26,24,.62) 34%, rgba(12,26,24,.10) 62%, rgba(12,26,24,0) 80%), linear-gradient(0deg, rgba(12,26,24,.55) 0%, rgba(12,26,24,0) 30%); }
+.hero-photo .hero-copy { position: relative; z-index: 1; padding-top: clamp(72px, 12vh, 140px); padding-bottom: clamp(56px, 9vh, 110px); }
+.hero-photo h1 { color: #fff; max-width: 17ch; }
+.hero-photo .lead { color: #dfe9e6; max-width: 54ch; }
+.hero-photo .btn-solid { background: #fff; color: #16302d; border-color: #fff; }
+.hero-photo .btn-solid:hover { background: #e6eeec; color: #16302d; }
+.hero-photo .btn-line { border-color: rgba(255,255,255,.85); color: #fff; }
+.hero-photo .btn-line:hover { background: rgba(255,255,255,.12); color: #fff; }
+.hero-photo .hero-note { color: rgba(255,255,255,.78); z-index: 2; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
+
+/* Leistungskette – echte Abfolge, daher nummeriert */
+.chain { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); counter-reset: ch; }
+.chain li { counter-increment: ch; position: relative; padding: var(--s5) var(--s5) 0 0; border-top: 2px solid var(--ink); }
+.chain li::before { content: counter(ch); position: absolute; top: -15px; left: 0; width: 28px; height: 28px; border-radius: 50%; background: var(--bg); border: 2px solid var(--ink); font: 650 .85rem/24px var(--font); text-align: center; color: var(--ink); }
+.chain h3 { margin-top: var(--s3); font-size: 1.12rem; }
+.chain p { color: var(--text-2); font-size: .96rem; margin: 0; }
+.chain-sec { padding-bottom: clamp(40px, 5vw, 64px); }
+
+/* Bildband unter dem Seitenkopf */
+.photo-band { margin: 0; background: #20302c; }
+.photo-band picture, .photo-band img { display: block; width: 100%; }
+.photo-band img { aspect-ratio: 21 / 8; max-height: 620px; height: auto; object-fit: cover; }
+.photo-band figcaption { padding-top: var(--s2); padding-bottom: var(--s2); font-size: .82rem; color: #b9cac6; }
+.photo-band .tag-vis { color: var(--copper-soft); }
+
+/* Abschluss mit Bildhintergrund */
+.cta-photo { position: relative; overflow: hidden; background: #16302d; color: #fff; padding: clamp(64px, 9vw, 128px) 0; }
+.cta-photo > picture { position: absolute; inset: 0; }
+.cta-photo > picture img { width: 100%; height: 100%; object-fit: cover; }
+.cta-photo::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, rgba(12,26,24,.9) 0%, rgba(12,26,24,.72) 50%, rgba(12,26,24,.45) 100%); }
+.cta-photo .wrap { position: relative; z-index: 1; }
+.cta-photo h2 { color: #fff; } .cta-photo p { color: #dfe9e6; }
+.cta-photo .btn-solid { background: #fff; color: #16302d; border-color: #fff; }
+.cta-photo .btn-line { border-color: rgba(255,255,255,.85); color: #fff; }
+
+/* Eigentümer: Vergütung, Risikoverteilung */
+.owner-pay { grid-template-columns: repeat(3, 1fr); margin-bottom: var(--s7); }
+.owner-pay li:nth-child(3) { padding-left: var(--s5); border-left: 1px solid var(--line); }
+.pay-detail { margin-top: var(--s5); }
+.risk-table { display: grid; border-top: 1px solid #3c5a56; }
+.risk-table > div { display: grid; grid-template-columns: minmax(0, 11rem) 1fr 1fr; gap: var(--s5); padding: var(--s4) 0; border-bottom: 1px solid #3c5a56; }
+.risk-table .rt-head { font-size: .86rem; font-weight: 650; color: var(--copper-soft); }
+.risk-table [role="rowheader"] { font-weight: 650; color: #fff; }
+.risk-table [role="cell"] { color: #c9d8d5; }
+.risks article { border-top: 1px solid var(--line); padding-top: var(--s4); }
+.risks p { color: var(--text-2); }
+.tech-grid .span-2 { grid-column: 1 / -1; }
+.tech-grid .span-2 p { max-width: 90ch; }
+
+@media (max-width: 1100px) {
+  .chain { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: var(--s7); }
+}
+@media (max-width: 760px) {
+  .hero-photo { min-height: auto; justify-content: flex-start; }
+  .hero-photo .hero-art { position: relative; inset: auto; aspect-ratio: 4 / 5; max-height: 72vh; }
+  .hero-photo::after { inset: 0 0 auto 0; height: 0; }
+  .hero-photo .hero-copy { padding-top: var(--s6); padding-bottom: var(--s7); background: #16302d; }
+  .hero-photo .hero-note { position: absolute; top: 8px; bottom: auto; }
+  .chain { grid-template-columns: 1fr; row-gap: var(--s6); }
+  .photo-band img { aspect-ratio: 1 / 1; max-height: 70vh; }
+  .owner-pay { grid-template-columns: 1fr; }
+  .owner-pay li:nth-child(3) { padding-left: 0; border-left: 0; }
+  .risk-table > div { grid-template-columns: 1fr; gap: var(--s1); }
+  .risk-table .rt-head { display: none; }
+  .risk-table [role="cell"]:nth-child(2)::before { content: "Projektentwickler: "; font-weight: 650; color: #fff; }
+  .risk-table [role="cell"]:nth-child(3)::before { content: "Eigentümer: "; font-weight: 650; color: #fff; }
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .chain li::before { background: var(--bg); border-color: var(--text); color: var(--text); } :root:not([data-theme="light"]) .chain li { border-top-color: var(--text); } }
