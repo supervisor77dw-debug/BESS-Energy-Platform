@@ -1,6 +1,29 @@
 # Hosting-Architektur – GitHub und Vercel
 
-TEMPORAERER SNAPSHOT / KEINE SSOT · Auftrag `AW-BESS-PLATFORM-GITHUB-VERCEL-004` · Stand 2026-10-28
+TEMPORAERER SNAPSHOT / KEINE SSOT · Aufträge `AW-BESS-PLATFORM-GITHUB-VERCEL-004`, `AW-20261028-GE-CLAUDE-BESS-PUBLIC-PORTAL-005` · Stand 2026-10-28
+
+## 0. Zwei Betriebsstufen (ab Auftrag -005)
+
+| | **A – Öffentlicher Abnahmekandidat** | **B – Interne QA-Vorschau** |
+|---|---|---|
+| Vercel-Ziel | Production, **nur manuell** (`vercel deploy --prod`); Push auf `main` deployt nicht | Preview (Push auf `develop`/`feature/*`) |
+| Adresse | `https://bess-energy-platform.vercel.app` (fest) | `bess-energy-platform-git-develop-…vercel.app` und Einzel-URLs |
+| Vercel-Schutz | keiner für die feste Adresse; einzelne Deployment-URLs geschützt (`prod_deployment_urls_and_all_previews`) | Vercel Authentication |
+| Öffentliche Seiten | ohne Anmeldung, `noindex`, `robots.txt Disallow: /`, Hinweisleiste „Vorläufiger Abnahmekandidat“ | zusätzlich Vorschau-Schranke |
+| Portal | Login + MFA + Rollenprüfung, Pflicht-Passwortwechsel beim ersten Login | wie A, Konten aus QA-Provisionierung |
+| Konten | nur Dirk und Markus (persönlich) | Dirk, Markus + synthetische Rollenkonten |
+| Speicher | Blob-Bereich `abnahme/` | Blob-Bereich ohne Präfix |
+| Umgebung | `BESS_STAGE=abnahme`, `BESS_GATE=0`, `BESS_ACCOUNTS` (Production, sensitive) | `BESS_ACCOUNTS` (Preview, sensitive) |
+
+Produktionssperre im Code: Das Production-Ziel startet nur mit `BESS_STAGE=abnahme` (Abnahmekandidat) oder `BESS_ALLOW_PRODUCTION=1` (späterer Produktivstart nach Freigabe).
+
+**Konten neu ausstellen (Abnahme):**
+1. `node tools/provision-vercel.mjs --stage abnahme --url https://bess-energy-platform.vercel.app` (Ausgabe außerhalb Dropbox).
+2. `BESS_ACCOUNTS` (Production) durch die neue `BESS_ACCOUNTS_ABNAHME_*.json` ersetzen.
+3. `vercel deploy --prod`.
+4. Der Kontenabgleich setzt Passwörter, MFA und alle Sitzungen zurück.
+
+**Prüfung:** `node tools/preview/verify-abnahme.mjs --url https://bess-energy-platform.vercel.app --zugaenge <datei>`. Die Prüfung verbraucht die Startzugänge, danach neu ausstellen.
 
 ## 1. Überblick
 
