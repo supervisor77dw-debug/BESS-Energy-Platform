@@ -1,0 +1,10 @@
+node_modules/
+data/runtime/
+qa-out/
+.vercel/
+.env*
+*.log
+*.tmp
+gate.json
+ZUGAENGE_*
+BESS_ACCOUNTS_*

@@ -1,0 +1,1 @@
+// Herkunft: AIW-Portal 3.3.2 public/vendor/qrcode-generator.js (MIT, Kazuhiko Arase) – unverändert übernommen

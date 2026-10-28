@@ -1,0 +1,26 @@
+name: Qualitätsprüfung
+on:
+  push:
+    branches: [main, develop, 'feature/**', 'release/**']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Syntaxprüfung
+        run: for f in $(git ls-files '*.mjs'); do node --check "$f"; done
+      - name: Keine Geheimnisse oder Laufzeitdaten im Repository
+        run: |
+          ! git ls-files | grep -E '(^|/)(gate\.json|db\.json|ZUGAENGE_|BESS_ACCOUNTS_|\.env)'
+          ! git grep -nE '(BLOB_READ_WRITE_TOKEN|vercel_blob_rw_)[A-Za-z0-9_]{8,}' -- . ':!.github'
+      - name: Tests (Plattform, externe Vorschau, Cloud-Pfad)
+        run: npm test
