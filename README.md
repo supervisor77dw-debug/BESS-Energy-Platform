@@ -9,8 +9,7 @@ TEMPORAERER SNAPSHOT / KEINE SSOT · Aufträge `AW-BESS-PLATFORM-20261028-001`, 
 ```
 node data/seed.mjs        # synthetischen Datenbestand in data/runtime erzeugen (setzt ihn zurück)
 node server.mjs           # http://127.0.0.1:4710
-node --test test/platform.test.mjs   # 25 End-to-End-Tests (eigener temporärer Datenbestand)
-node --test test/external.test.mjs   # 11 Tests der externen Vorschau (Schranke, MFA-Einrichtung, Sitzungen, Last, Wiederherstellung)
+npm test                  # 46 Tests: Plattform (26), externe Vorschau (11), Cloud-Pfad Vercel/Blob (9)
 node tools/illustrations.mjs   # SVG-Illustrationen neu erzeugen
 ```
 
@@ -20,7 +19,18 @@ Umgebungsvariablen: `BESS_PORT`, `BESS_HOST` (Standard 127.0.0.1), `BESS_DATA_DI
 
 Synthetische Testkonten (`*@demo.invalid`) und das gemeinsame Vorschau-Passwort stehen in `data/seed.mjs` (`DEMO_PASSWORD`) und werden im Vorschaumodus auf der Login-Seite angezeigt; der aktuelle MFA-Code erscheint auf der MFA-Seite. In Produktion (`BESS_MODE=production`) ist beides abgeschaltet – Seed-Konten dürfen dort nicht verwendet werden.
 
-## Externe Vorschau
+## Hosting (Vercel) und Repository
+
+- Hosting: Vercel (Projekt `bess-energy-platform`, Region fra1), Zustand und Dokumente in privatem Vercel Blob. Details, Kosten, Domain: `docs/HOSTING_VERCEL.md`.
+- Tests: `npm test` (Plattform, externe Vorschau, Cloud-Pfad mit Blob-Stellvertreter); CI: `.github/workflows/ci.yml`.
+- Branches:
+  - `main` – stabil; später Produktionszweig, Produktion bleibt bis zur Freigabe gesperrt
+  - `develop` – Integration, Preview-Deployments
+  - `feature/<thema>-aw-<auftrag>` – Arbeitszweige
+  - `release/<version>` und Tags `v<version>` für Abnahmestände
+- Geheimnisse und Laufzeitdaten werden nie eingecheckt (`.gitignore`, CI-Prüfung).
+
+## Externe Vorschau (Tailscale, nicht weiterverfolgt)
 
 Einrichtung, Zugangsschutz, Start/Stopp und Rückbau: `docs/EXTERNE_VORSCHAU.md`. Kurz: `node tools/provision-preview.mjs` (Daten und Zugänge außerhalb Dropbox), dann `toolspreviewstart-preview.ps1 [-Funnel]`, Abschalten mit `stop-preview.ps1`. Browser-QA: `tools/qa/run-qa.mjs`.
 
