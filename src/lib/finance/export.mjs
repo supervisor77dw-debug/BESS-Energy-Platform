@@ -14,7 +14,7 @@ export function berechnungCsv(ergebnis, { projektName }) {
     zeile(['Modellversion', m.modellVersion]), zeile(['Berechnet am', m.berechnetAm]), zeile(['Szenario', m.szenarioName]), zeile(['Datenquelle', m.quelle]),
     zeile(['Parameter-Prüfsumme', m.parameterPruefsumme]), zeile(['Hinweis', m.hinweis]), '',
     zeile(['Kennzahl', 'Wert', 'Einheit']),
-    zeile(['Gesamtinvestition', zahl(k.gesamtinvestition), 'EUR']), zeile(['Investition je kWh', zahl(k.investitionJeKWh), 'EUR/kWh']),
+    zeile(['Gesamtinvestition', zahl(k.gesamtinvestition), 'EUR']), zeile(['Investition je nominaler kWh', zahl(k.investitionJeKWh), 'EUR/kWh']),
     zeile(['Eigenkapitalbedarf', zahl(k.eigenkapitalbedarf), 'EUR']), zeile(['Fremdkapital', zahl(k.fremdkapital), 'EUR']), zeile(['Schuldendienst p. a.', zahl(k.schuldendienstJahr), 'EUR']),
     zeile(['DSCR minimal', zahl(k.dscrMin, 2), 'x']), zeile(['DSCR Durchschnitt', zahl(k.dscrDurchschnitt, 2), 'x']),
     zeile(['Kapitalwert', zahl(k.kapitalwert), 'EUR']), zeile(['Projekt-IRR', zahl(k.projektIRR == null ? null : k.projektIRR * 100, 2), '%']), zeile(['Eigenkapital-IRR', zahl(k.eigenkapitalIRR == null ? null : k.eigenkapitalIRR * 100, 2), '%']),
