@@ -93,6 +93,7 @@ async function firstLogin(email, pwStart, pwNew) {
   const c = new C();
   const [, lp] = await c.text('/portal/login');
   assert.ok(!/Demo-Zugänge|Passwort für alle/.test(lp), 'keine Demo-Zugänge');
+  assert.match(lp, /Demo-Betrieb/, 'Demo-Betrieb auf der Anmeldeseite gekennzeichnet');
   assert.equal((await c.form('/portal/anmelden', { _t: tok(lp, '_t'), email, password: pwStart })).headers.get('location'), '/portal/mfa');
   const [, mb] = await c.text('/portal/mfa');
   assert.match(mb, /Zweiten Faktor einrichten/);

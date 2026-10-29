@@ -83,6 +83,7 @@ export function loginView({ token, error, demo, email = '', info }) {
 <div class="auth-card">
   <h1>Anmeldung zum Portal</h1>
   <p class="muted">Für Grundstückseigentümer, Investoren, Kommunen, Partner und Mitarbeitende. Zugänge werden persönlich eingerichtet.</p>
+  ${isPreview() ? html`<p class="demo-note"><span class="mark mark-demo">Demo-Betrieb</span> Alle Inhalte im Portal sind synthetisch. Keine realen Verträge, Zahlungen oder Marktprognosen.</p>` : ''}
   ${info ? html`<div class="notice" role="status">${info}</div>` : ''}
   ${error ? html`<div class="alert" role="alert">${error}</div>` : ''}
   <form method="post" action="/portal/anmelden" class="stack">
