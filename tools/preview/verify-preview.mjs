@@ -1,3 +1,5 @@
+// ABGELÖST durch tools/preview/verify-qa-regression.mjs (AW-BESS-STROMKAI-FINAL-QA-007): kennt den Pflicht-Passwortwechsel (-005) nicht,
+// und die MFA-Rücksetzprüfung wertete jede Weiterleitung als Erfolg (falsch positiv). Nicht mehr für Abnahmen verwenden.
 // Abnahmeprüfung der laufenden (externen) Vorschau mit den ECHTEN Prüferkonten Dirk und Markus.
 // Liest die Zugangsdatei nur im Speicher; es werden keine Passwörter oder MFA-Geheimnisse ausgegeben.
 // Achtung: richtet MFA für beide Konten ein. Mit BESS_RESET_MFA=1 setzt das Skript die Einrichtung am Ende
@@ -64,13 +66,13 @@ async function prüfer(who, email, expect, nachher) {
   check(`${who}: MFA-Ersteinrichtung mit QR`, enroll && /data:image\/gif;base64/.test(mb) && !!secret);
   check(`${who}: falscher MFA-Code abgelehnt`, (await c.form('/portal/mfa', { _csrf: tok(mb, '_csrf'), code: '000000' })).status === 401);
   check(`${who}: richtiger MFA-Code`, (await c.form('/portal/mfa', { _csrf: tok(mb, '_csrf'), code: secret ? totp(secret) : '000000' })).status === 303);
-  for (const [p, st] of expect) { const r = await c.req(p); check(`${who}: ${p} → ${st}`, r.status === st, `Status ${r.status}`); }
+  for (const [p, st] of expect) { const r = await c.req(p); check(`${who}: ${p} → ${st}`, r.status === st, `Status ${r.status}${r.headers.get('location') ? ' → ' + r.headers.get('location') : ''}`); }
   if (nachher) await nachher(c);
   const [, pb] = await c.text('/portal');
   const sid = c.jar.bess_sid;
   await c.form('/portal/abmelden', { _csrf: tok(pb, '_csrf') });
   const after = await fetch(base + '/portal', { redirect: 'manual', headers: { cookie: Object.entries({ ...c.jar, bess_sid: sid }).map(([k, v]) => `${k}=${v}`).join('; ') } });
-  check(`${who}: Logout serverseitig`, after.headers.get('location') === '/portal/login');
+  check(`${who}: Logout serverseitig`, after.headers.get('location') === '/portal/login', `Status ${after.status} → ${after.headers.get('location')}`);
   await c.req('/_vorschau/abmelden');
   check(`${who}: Schranken-Logout`, (await c.req('/')).status === 303);
 }
