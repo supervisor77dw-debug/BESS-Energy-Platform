@@ -42,7 +42,7 @@ test('Dimensionierung: Blöcke, Kapazität, PCS, Trafo, Netzbegrenzung, Fläche 
   assert.equal(d.einspeise, 12, 'Netz 12 MW begrenzt 15-MW-Anlage'); assert.equal(d.bezug, 12, 'Bezug durch Netzanschluss 12 MW begrenzt');
   assert.ok(d.meldungen.some((m) => /begrenzt die Einspeisung auf 12 MW/.test(m.text)));
   nah(d.flaecheBloecke, n * (SYS2.laengeM + SYS2.abstandStirnM) * (SYS2.breiteM + SYS2.abstandSeiteM));
-  nah(d.rest, d.bilanz.fuerBloecke - d.flaecheBloecke - d.trafos * ANN.flaecheJeTrafoM2);
+  nah(d.rest, d.bilanz.fuerBloecke - d.flaecheBloecke, 'Stationsfläche nicht doppelt abgezogen');
   nah(d.dauerH, d.kapNutzbar / 12);
   // Zu kleine Fläche: nachvollziehbare Meldung
   const klein = IP.dimensioniere({ leistungMW: 15, kapazitaetMWh: 30 }, SYS2, { ...G, flaecheM2: 600, laengeM: 30, breiteM: 20 }, ANN);
@@ -50,6 +50,21 @@ test('Dimensionierung: Blöcke, Kapazität, PCS, Trafo, Netzbegrenzung, Fläche 
   // Flächenbilanz reicht, Anordnung nicht (schmales Grundstück)
   const schmal = IP.dimensioniere({ leistungMW: 10, kapazitaetMWh: 40 }, SYS4, { ...G, flaecheM2: null, laengeM: 400, breiteM: 14, zufahrtM2: 0, feuerwehrM2: 0, nebenanlagenM2: 0 }, ANN);
   assert.ok(!schmal.layout.passt); assert.ok(schmal.meldungen.some((m) => /schematischen Anordnung/.test(m.text)));
+  // Nebenanlagenfläche umfasst Trafo-/PCS-Stationen; die berechnete Stationsfläche wird nicht zusätzlich addiert.
+  const areaCheck = IP.dimensioniere({ leistungMW: 15, kapazitaetMWh: 30 }, SYS2, G, ANN);
+  assert.equal(areaCheck.bilanz.abzug.nebenanlagen, Math.max(G.nebenanlagenM2, areaCheck.flaecheStationen));
+  nah(areaCheck.rest, areaCheck.bilanz.fuerBloecke - areaCheck.flaecheBloecke);
+  const stationZoneH = Math.max(1, areaCheck.bilanz.innenB - Math.min(areaCheck.bilanz.innenB, ANN.zufahrtBreiteM));
+  nah(areaCheck.layout.stationsB, Math.min(areaCheck.bilanz.innenL, Math.max(areaCheck.flaecheStationen, G.nebenanlagenM2) / stationZoneH));
+  // Netzgrenzen, die vom installierten PCS abweichen, dürfen keine ungebremste WM-Erlösrechnung auslösen.
+  const limited = IP.rechneVariante({ stand: { ...standX, grundstueck: G }, v: { key: 'L', kosten: {}, systemRef: { systemId: SYS2.systemId, version: 1 }, leistungMW: 15, kapazitaetMWh: 30, erloesQuelle: 'wm' }, katalog: IP.KATALOG_START, angebote: [], basis: demoParameter(20, 40, 26400), ergebnisse: ERG });
+  assert.match(limited.wirtschaftlichkeitSperre, /getrennte Lade- und Entladeleistungsgrenzen/);
+  assert.equal(limited.erloesQuelleTatsaechlich, null, 'Bei gesperrter Wirtschaftlichkeit wird keine Erlösquelle als tatsächlich verwendet ausgewiesen');
+  const missingNetz = IP.dimensioniere({ leistungMW: 10, kapazitaetMWh: 20 }, SYS2, { ...G, netzMW: null, einspeiseMW: null, bezugMW: null }, ANN);
+  assert.match(missingNetz.wirtschaftlichkeitSperre, /Netzanschluss-.*fehlt/);
+  const zeroExport = IP.dimensioniere({ leistungMW: 10, kapazitaetMWh: 20 }, SYS2, { ...G, netzMW: 20, einspeiseMW: 0, bezugMW: 20 }, ANN);
+  assert.equal(zeroExport.dauerH, null, 'Null Einspeiseleistung darf keine unendliche Speicherdauer erzeugen');
+  assert.match(zeroExport.wirtschaftlichkeitSperre, /getrennte Lade- und Entladeleistungsgrenzen/);
   // Ungültige Eingaben
   assert.ok(IP.dimensioniere({ leistungMW: 0, kapazitaetMWh: 10 }, SYS2, G, ANN).fehler.length);
   assert.ok(IP.dimensioniere({ leistungMW: 5, kapazitaetMWh: 10 }, null, G, ANN).fehler.length);
@@ -111,7 +126,8 @@ test('Tilgungsmodelle: Annuität (Formel), Ratentilgung, endfällig; Schuldendie
 });
 
 // ---------- Doppelzählung und Datenherkunft ----------
-const standX = { grundstueck: G, annahmen: ANN, finanzierung: IP.FINANZIERUNG_START };
+const G_WM = { ...G, netzMW: 20, einspeiseMW: 20, bezugMW: 20 };
+const standX = { grundstueck: G_WM, annahmen: ANN, finanzierung: IP.FINANZIERUNG_START };
 const rechneX = (v, extra = {}) => IP.rechneVariante({ stand: standX, v: { key: 'A', kosten: {}, systemRef: { systemId: SYS2.systemId, version: 1 }, erloesQuelle: 'wm', ...v }, katalog: IP.KATALOG_START, angebote: [], basis: demoParameter(20, 40, 26400), ergebnisse: ERG, ...extra });
 
 test('Keine Doppelzählung: Planer-Gesamtinvestition = WM-Gesamtinvestition; jede Position genau einmal', () => {
@@ -151,6 +167,7 @@ test('Trading-Export: Referenz aus B2, nur Preise und Mengen; Netto-DB nicht als
   // Variante ohne passende Simulation fällt sichtbar auf WM-Erlöse zurück
   const r1 = IP.rechneVariante({ stand: standX, v: { key: 'X', kosten: {}, systemRef: { systemId: 'sys-ph-1h', version: 1 }, leistungMW: 10, kapazitaetMWh: 10, erloesQuelle: 'b2_A' }, katalog: IP.KATALOG_START, angebote: [], basis: demoParameter(20, 40, 26400), ergebnisse: ERG });
   assert.ok(r1.hinweise.some((x) => /nicht anwendbar/.test(x)));
+  assert.equal(r1.erloesQuelleTatsaechlich, 'wm', 'Bei nicht passender B2-Simulation ist WM die tatsächliche Erlösquelle');
 });
 
 test('Datenherkunft: Platzhalter ohne Preis, Demo-Vorbelegung gekennzeichnet, Angebot ersetzt Position nachvollziehbar', () => {
@@ -208,7 +225,7 @@ class C {
 const sitz = {};
 const als = async (e) => { if (!sitz[e]) { sitz[e] = new C(); await sitz[e].login(e); } return sitz[e]; };
 const db = async () => (await import('../src/lib/store.mjs')).getDb();
-const GRUND = { schritt: 'grundstueck', 'g.bezeichnung': 'Testfläche Nord A', 'g.flaecheM2': '12000', 'g.laengeM': '120', 'g.breiteM': '100', 'g.grenzabstandM': '3', 'g.nichtNutzbarM2': '0', 'g.zufahrtM2': '600', 'g.feuerwehrM2': '400', 'g.nebenanlagenM2': '300', 'g.netzMW': '12', 'g.einspeiseMW': '12', 'g.bezugMW': '15', 'a.flaeche.status': 'bestaetigt', 'a.flaeche.quelle': 'Lageplan (Test)', 'a.geometrie.status': 'angenommen', 'a.netz.status': 'angenommen', 'a.abstaende.status': 'angenommen' };
+const GRUND = { schritt: 'grundstueck', 'g.bezeichnung': 'Testfläche Nord A', 'g.flaecheM2': '12000', 'g.laengeM': '120', 'g.breiteM': '100', 'g.grenzabstandM': '3', 'g.nichtNutzbarM2': '0', 'g.zufahrtM2': '600', 'g.feuerwehrM2': '400', 'g.nebenanlagenM2': '300', 'g.netzMW': '20', 'g.einspeiseMW': '20', 'g.bezugMW': '20', 'a.flaeche.status': 'bestaetigt', 'a.flaeche.quelle': 'Lageplan (Test)', 'a.geometrie.status': 'angenommen', 'a.netz.status': 'angenommen', 'a.abstaende.status': 'angenommen' };
 
 test('Rechte: Administration und Projektleitung (nur eigene Projekte); Eigentümer, Investor, Vertrieb, Gäste nicht', async () => {
   const a = await als('admin@demo.invalid');

@@ -98,3 +98,12 @@ Ohne diese Angaben rechnet 1.1 identisch zu 1.0. Der Regressionstest vergleicht 
 - **Lesen und Bearbeiten:** Administration und Projektleitung, je Projekt über `rolesForProject`.
 - **Nur Administration:** Katalogpflege und Freigabe zur Investitionsentscheidung. Die Freigabe ist nur ohne Platzhalter oder fehlende Positionen möglich.
 - **Kein Zugriff:** Eigentümer, Investoren, Vertrieb und Kommunen erhalten 404. Investoren sehen Kennzahlen weiterhin nur über die Freigabe in STROMKAI-WM.
+
+
+## Nachtrag Korrektur 017
+
+- **Flächenbilanz:** Die erfasste Nebenanlagenfläche wird als Gesamtfläche einschließlich Trafo-/PCS-Station behandelt. Die berechnete Stationsfläche ersetzt einen kleineren oder fehlenden Mindestwert, wird aber nicht zusätzlich zu einer bereits größeren Nebenanlagenfläche addiert. Die Restfläche bezieht sich auf die für Speicherblöcke verbleibende Fläche. Die geometrische Skizze bleibt eine getrennte Plausibilitätsprüfung und keine Fachplanung.
+- **Netzrestriktionen:** Eine STROMKAI-WM-Jahresrechnung wird gesperrt, wenn Netzanschluss-, Einspeise- oder Bezugsleistung fehlen oder die zulässige Lade-/Entladeleistung unter der installierten PCS-Leistung liegt. Das Jahresmodell berechnet keine zeitaufgelöste Einsatzoptimierung unter asymmetrischen Netzgrenzen. Für diese Fälle ist ein Backtest mit passenden Leistungsgrenzen erforderlich; es wird kein pauschaler Erlösabschlag erfunden.
+- **Erlösquelle:** Angeforderte und tatsächlich verwendete Erlösquelle werden getrennt ausgewiesen. Wenn eine B2-Referenz nicht passend verfügbar ist, wird der Rückfall auf WM-Annahmen ausdrücklich angezeigt und in Vergleich, Risiken und Bericht nicht als B2 ausgegeben.
+- **Preisbezugsgröße:** Der Katalogpreis preisEURkWh bezieht sich auf nutzbare kWh. Die Kennzahl „Investition je nominaler kWh“ in STROMKAI-WM verwendet dagegen die nominale Kapazität als Nenner. Das sind unterschiedliche Kennzahlen; sie dürfen nicht als abweichende Gesamtinvestition interpretiert werden.
+- **Finanzierung:** STROMKAI-WM bleibt ein vereinfachtes Jahresmodell vor Steuern. Ein positiver DSCR allein belegt keine Bankfähigkeit. Steuerzahlungen, Working Capital und weitere projektspezifische Zahlungsströme müssen vor einer bankfähigen Planung gesondert modelliert werden.

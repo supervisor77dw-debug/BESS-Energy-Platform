@@ -92,7 +92,7 @@ export const GRUNDSTUECK_START = {
   netzMW: null, einspeiseMW: null, bezugMW: null, gelaende: '', entwaesserung: '', erschliessung: '',
   angaben: { flaeche: { status: 'fehlt', quelle: '' }, geometrie: { status: 'fehlt', quelle: '' }, abstaende: { status: 'angenommen', quelle: 'Platzhalter 3 m Grenzabstand' }, netz: { status: 'fehlt', quelle: '' } },
 };
-export function flaechenbilanz(g) {
+export function flaechenbilanz(g, { flaecheStationenM2 = 0 } = {}) {
   const hinweise = [];
   const LB = g.laengeM > 0 && g.breiteM > 0 ? g.laengeM * g.breiteM : null;
   const brutto = g.flaecheM2 > 0 ? g.flaecheM2 : LB || 0;
@@ -103,7 +103,7 @@ export function flaechenbilanz(g) {
   const a = Math.max(0, g.grenzabstandM || 0);
   const innenL = Math.max(0, L - 2 * a), innenB = Math.max(0, B - 2 * a);
   const innen = rechteck ? innenL * innenB : (brutto ? innenL * innenB : 0);
-  const abzug = { grenzabstand: Math.max(0, (rechteck ? LB : brutto) - innen), nichtNutzbar: g.nichtNutzbarM2 || 0, zufahrt: g.zufahrtM2 || 0, feuerwehr: g.feuerwehrM2 || 0, nebenanlagen: g.nebenanlagenM2 || 0 };
+  const abzug = { grenzabstand: Math.max(0, (rechteck ? LB : brutto) - innen), nichtNutzbar: g.nichtNutzbarM2 || 0, zufahrt: g.zufahrtM2 || 0, feuerwehr: g.feuerwehrM2 || 0, nebenanlagen: Math.max(g.nebenanlagenM2 || 0, flaecheStationenM2 || 0) };
   const fuerBloecke = Math.max(0, innen - abzug.nichtNutzbar - abzug.zufahrt - abzug.feuerwehr - abzug.nebenanlagen);
   const fehlend = [];
   if (!brutto) fehlend.push('Grundstücksfläche');
@@ -133,6 +133,13 @@ export function dimensioniere(v, sys, g, ann) {
   const einspeise = netzGrenze == null ? v.leistungMW : Math.min(v.leistungMW, netzGrenze);
   const bezugGrenzen = [g.netzMW, g.bezugMW].filter((x) => x != null && x >= 0);
   const bezug = bezugGrenzen.length ? Math.min(v.leistungMW, ...bezugGrenzen) : v.leistungMW;
+  const netzDatenFehlen = g.netzMW == null || g.einspeiseMW == null || g.bezugMW == null;
+  const wirtschaftlichkeitSperre = netzDatenFehlen
+    ? 'Wirtschaftlichkeitsrechnung gesperrt: Netzanschluss-, Einspeise- oder Bezugsleistung fehlt. Die technische Vorplanung ist möglich, die Erlösrechnung ist nicht belastbar.'
+    : (einspeise < v.leistungMW - 1e-9 || bezug < v.leistungMW - 1e-9)
+      ? `Wirtschaftlichkeitsrechnung gesperrt: Die Jahresmodellrechnung bildet getrennte Lade- und Entladeleistungsgrenzen nicht zeitaufgelöst ab (installiert ${num1(v.leistungMW)} MW, Einspeisung ${num1(einspeise)} MW, Bezug ${num1(bezug)} MW). Für belastbare Erlöse ist ein Backtest mit passenden Netzgrenzen erforderlich.`
+      : null;
+  if (wirtschaftlichkeitSperre) meldungen.push({ art: 'bad', text: wirtschaftlichkeitSperre });
   if (netzGrenze == null) meldungen.push({ art: 'warn', text: 'Netzanschluss- bzw. Einspeiseleistung unbekannt: Die Variante ist netzseitig ungeprüft.' });
   else if (v.leistungMW > netzGrenze + 1e-9) meldungen.push({ art: 'warn', text: `Der Netzanschluss begrenzt die Einspeisung auf ${num1(einspeise)} MW (Anlage ${num1(v.leistungMW)} MW). Die Wirtschaftlichkeit rechnet mit ${num1(einspeise)} MW.` });
   if (bezug < v.leistungMW - 1e-9) meldungen.push({ art: 'warn', text: `Der Bezug ist auf ${num1(bezug)} MW begrenzt; die Ladeleistung reicht nicht für die volle Anlagenleistung.` });
@@ -140,16 +147,18 @@ export function dimensioniere(v, sys, g, ann) {
   const trafos = aufrunden(mva / ann.mvaJeTrafo);
   const block = (sys.laengeM + sys.abstandStirnM) * (sys.breiteM + sys.abstandSeiteM);
   const flaecheBloecke = bloecke * block, flaecheStationen = trafos * ann.flaecheJeTrafoM2;
-  const bilanz = flaechenbilanz(g);
+  const bilanz = flaechenbilanz(g, { flaecheStationenM2: flaecheStationen });
   const bedarf = flaecheBloecke + flaecheStationen;
-  const rest = bilanz.fuerBloecke - bedarf;
+  // Nebenanlagenfläche umfasst die Trafo-/PCS-Station bereits (oder wird mindestens durch deren berechnete Fläche ersetzt).
+  // Die Restfläche für Speicherblöcke darf die Stationsfläche daher nicht ein zweites Mal abziehen.
+  const rest = bilanz.fuerBloecke - flaecheBloecke;
   const lay = layout(bilanz, g, sys, ann, bloecke, flaecheStationen);
   if (!bilanz.brutto) meldungen.push({ art: 'warn', text: 'Keine Grundstücksfläche erfasst: Flächenprüfung nicht möglich.' });
-  else if (rest < 0) meldungen.push({ art: 'bad', text: `Die Anlage passt rechnerisch nicht auf die verfügbare Fläche: Bedarf ${Math.round(bedarf)} m², verfügbar ${Math.round(bilanz.fuerBloecke)} m² (Fehlbetrag ${Math.round(-rest)} m²).` });
+  else if (rest < 0) meldungen.push({ art: 'bad', text: `Die Anlage passt rechnerisch nicht auf die verfügbare Fläche: Blockflächenbedarf ${Math.round(flaecheBloecke)} m², für Blöcke verfügbar ${Math.round(bilanz.fuerBloecke)} m² (Fehlbetrag ${Math.round(-rest)} m²). Die Stations-/Nebenanlagenfläche ist separat berücksichtigt.` });
   else if (!lay.passt) meldungen.push({ art: 'bad', text: `Die Flächenbilanz reicht, aber in der schematischen Anordnung finden nur ${lay.plaetze} von ${bloecke} Blöcken Platz (Geometrie, Zufahrt, Stationen).` });
   return {
     bloecke, kapNutzbar, kapNominal, leistungBloecke, pcsMW: v.leistungMW, mva, trafos, schaltanlagen: 1, netzBedarfMW: v.leistungMW, netzGrenze, einspeise, bezug,
-    dauerH: kapNutzbar / einspeise, flaecheBloecke, flaecheStationen, bedarf, rest, bilanz, layout: lay, meldungen, fehler: [],
+    dauerH: einspeise > 0 ? kapNutzbar / einspeise : null, flaecheBloecke, flaecheStationen, bedarf, rest, bilanz, layout: lay, meldungen, wirtschaftlichkeitSperre, fehler: [],
   };
 }
 const num1 = (x) => new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 }).format(x);
@@ -160,7 +169,8 @@ export function layout(bilanz, g, sys, ann, bloecke, flaecheStationen) {
   const W = bilanz.innenL, H = bilanz.innenB;
   if (!(W > 0 && H > 0)) return { passt: false, plaetze: 0, W, H, bloecke: [], zonen: [] };
   const zufahrtH = Math.min(H, ann.zufahrtBreiteM);
-  const stationsB = Math.min(W, (flaecheStationen + (g.nebenanlagenM2 || 0)) / Math.max(1, H - zufahrtH));
+  // g.nebenanlagenM2 bezeichnet die Gesamtfläche inkl. Trafo-/PCS-Station; deshalb max statt Summe.
+  const stationsB = Math.min(W, Math.max(flaecheStationen, g.nebenanlagenM2 || 0) / Math.max(1, H - zufahrtH));
   const zoneW = Math.max(0, W - stationsB), zoneH = Math.max(0, H - zufahrtH);
   const cw = sys.laengeM + sys.abstandStirnM, ch = sys.breiteM + sys.abstandSeiteM;
   const cols = Math.floor(zoneW / cw), rows = Math.floor(zoneH / ch);
@@ -375,12 +385,13 @@ export function rechneVariante({ stand, v, katalog, angebote, basis, ergebnisse 
   if (finFehler.length) return { v, sys, dim, pos, fehler: finFehler };
   const finErg = finanzierung(basisSumme, stand.finanzierung, stand.annahmen.reserveAnteil);
   const referenz = v.erloesQuelle?.startsWith('b2_') && ergebnisse ? erloesReferenz(ergebnisse, dim.dauerH, v.erloesQuelle === 'b2_A' ? 'befreit' : 'ohne_befreiung') : null;
+  const erloesQuelleTatsaechlich = dim.wirtschaftlichkeitSperre ? null : (v.erloesQuelle?.startsWith('b2_') && referenz && !referenz.fehler ? v.erloesQuelle : 'wm');
   const hinweise = [];
   if (referenz?.fehler) hinweise.push(`Erlösreferenz nicht anwendbar: ${referenz.fehler} Es gelten die Erlösannahmen der STROMKAI-WM-Version.`);
   if (!basis) hinweise.push('Für dieses Projekt gibt es keine STROMKAI-WM-Version: Betriebskosten, Erlöse und Bewertung fehlen, Wirtschaftlichkeit nicht berechenbar.');
   const params = basis ? wmParameter({ g: stand.grundstueck, ann: stand.annahmen, v, dim, sys, pos, fin: stand.finanzierung, finErg, basis, referenz }) : null;
   const anteile = Object.fromEntries(Object.keys(DATENSTATUS).map((k) => [k, sum(pos.filter((p) => p.datenstatus === k).map((p) => p.gesamt))]));
-  return { v, sys, dim, pos, basisSumme, finErg, referenz, params, anteile, hinweise, fehler: [] };
+  return { v, sys, dim, pos, basisSumme, finErg, referenz, erloesQuelleTatsaechlich, wirtschaftlichkeitSperre: dim.wirtschaftlichkeitSperre || null, params, anteile, hinweise, fehler: [] };
 }
 
 export const eurCent = cent;
