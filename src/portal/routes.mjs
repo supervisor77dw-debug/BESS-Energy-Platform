@@ -8,6 +8,7 @@ import { parseCookies, parseForm, send, redirect, rateLimit, clientIp, formToken
 import * as P from '../lib/policy.mjs';
 import * as V from './views.mjs';
 import { handleUserAdmin, handleActivation, passwordProblem as pwProblem } from './benutzer.mjs';
+import { handleFinanzen, investorKennzahlen } from './finanzen.mjs';
 import { html } from '../lib/html.mjs';
 
 const DEMO_PASSWORD = 'Vorschau!Speicher-2026'; // nur für die Anzeige der Vorschau-Zugänge (siehe data/seed.mjs)
@@ -88,13 +89,12 @@ export async function handlePortal(req, res, url) {
         const t = Date.now();
         user.failedLogins = (user.failedLogins || []).filter((x) => t - x < LOCK_WINDOW).concat(t);
         if (user.failedLogins.length >= LOCK_FAILS) { user.lockedUntil = new Date(t + LOCK_TIME).toISOString(); user.failedLogins = []; audit('konto_vorlaeufig_gesperrt', user, { ip }); }
-        persist();
-      }
+      } // gespeichert mit dem folgenden Protokolleintrag (audit schreibt den Datenbestand)
       audit('anmeldung_fehlgeschlagen', null, { email, ip });
       return fail('E-Mail-Adresse oder Passwort ist nicht korrekt.');
     }
     const needMfa = mfaRequired(user);
-    user.failedLogins = []; delete user.lockedUntil; user.lastLoginAt = now(); user.lastLoginIp = ip; persist();
+    user.failedLogins = []; delete user.lockedUntil; user.lastLoginAt = now(); user.lastLoginIp = ip; // gespeichert mit dem Protokolleintrag unten
     const s = createSession(user.id, { mfaPending: needMfa });
     res.setHeader('Set-Cookie', sessionCookie(s));
     audit(needMfa ? 'anmeldung_passwort_ok' : 'anmeldung', user, { ip });
@@ -151,6 +151,7 @@ export async function handlePortal(req, res, url) {
   }
   if (u.mustChangePassword) return redirect(res, '/portal/passwort');
   const view = (title, body, context) => out(res, V.shell({ u, s, path, title, body, context }));
+  const page = (title, body, context) => V.shell({ u, s, path, title, body, context });
   const internalOnly = () => { if (!P.isInternal(u)) throw notFound(); };
   const adminOnly = () => { if (!P.isAdmin(u)) throw notFound(); };
   const post = async () => { const f = await parseForm(req); checkCsrf(s, f.fields); return f; };
@@ -166,7 +167,7 @@ export async function handlePortal(req, res, url) {
     const p = P.getProject(u, m[1]);
     if (!p) throw notFound();
     audit('projekt_angesehen', u, { projekt: p.id });
-    return view(p.name, V.projectDetail({ u, s, p, spv: db.spvs.find((x) => x.id === p.spvId), docs: P.listDocuments(u, p.id), showFin: P.canSeeFinancials(u, p), showTech: P.canSeeTechnical(u, p), parcels: P.listParcels(u, p.id), approvals: db.approvals }), p.code);
+    return view(p.name, html`${V.projectDetail({ u, s, p, spv: db.spvs.find((x) => x.id === p.spvId), docs: P.listDocuments(u, p.id), showFin: P.canSeeFinancials(u, p), showTech: P.canSeeTechnical(u, p), parcels: P.listParcels(u, p.id), approvals: db.approvals })}${investorKennzahlen(db, u, p)}`, p.code);
   }
   if (path === '/portal/grundstuecke' && method === 'GET') {
     if (!(P.hasRole(u, 'eigentuemer') || P.isInternal(u))) throw notFound();
@@ -320,6 +321,9 @@ export async function handlePortal(req, res, url) {
   }
   // frühere Kontoanlage mit angezeigtem Startpasswort ersetzt durch Einladung mit Aktivierungslink
   if (path === '/portal/admin/konto') { adminOnly(); return redirect(res, '/portal/admin/benutzer/neu'); }
+  // Projektwirtschaftlichkeit, Vergütung, Handelsdaten (eigene Rechteprüfung je Projekt)
+  const fin = await handleFinanzen({ req, res, url, path, method, u, s, view, page, post });
+  if (fin !== null) return fin;
   throw notFound();
 }
 

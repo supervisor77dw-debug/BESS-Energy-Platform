@@ -75,6 +75,7 @@ export function internalProjectIds(u) {
   for (const [r, ids] of projectsByRole(u)) if (ROLES[r].internal) for (const id of ids) out.add(id);
   return out;
 }
+export const rolesForProject = (u, projectId) => rolesFor(u, projectId);
 const rolesFor = (u, projectId) => [...projectsByRole(u)].filter(([, ids]) => ids.has(projectId)).map(([r]) => r);
 
 export function allowedAudiences(u, projectId) {
