@@ -42,3 +42,14 @@ test('alle Bilddateien laut Manifest vorhanden', () => {
   for (const k of keys) for (const kind of ['d', 'm']) for (const w of m[k][kind]) for (const ext of ['avif', 'webp'])
     assert.ok(existsSync(new URL(`../static/img/v2/${k}-${kind}-${w}.${ext}`, import.meta.url)), `${k}-${kind}-${w}.${ext}`);
 });
+
+test('Grundsatzentscheidungen -007: UL 9540A als Prüfverfahren, Vertragsmodell als Arbeitsstand, keine kommunalen Zusagen', () => {
+  const tech = text(pages.technologie), own = text(pages.eigentuemer), kom = text(pages.kommunen);
+  assert.match(tech, /Prüfverfahren UL 9540A/);
+  assert.match(tech, /keine Zertifizierung der gesamten Anlage/);
+  assert.ok(!/UL 9540A[- ]?(zertifiziert|Zertifikat)/i.test(tech));
+  assert.match(own, /Arbeitsstand, Änderungen vorbehalten/);
+  assert.ok(!/Gewerbesteuer|Einnahmen für die Gemeinde|Beteiligung der Gemeinde/i.test(kom));
+  assert.ok(!/(garantiert|sicher(e|n)?) (Vergütung|Pacht|Einnahmen)/i.test(own + kom));
+  for (const h of Object.values(pages)) assert.ok(!/Referenzprojekt|unsere Projekte in Betrieb/i.test(text(h)));
+});

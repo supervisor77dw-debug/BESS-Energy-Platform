@@ -197,6 +197,29 @@ def pbr(name, tid, size=2.0, tint=None, sat=1.0, val=1.0, rough=None, nrm=1.0, m
     nt.links.new(nm.outputs['Color'], nn.inputs['Color']); nt.links.new(nn.outputs['Normal'], b.inputs['Normal'])
     return m
 
+def age(m, height=0.9, dirt=(0.30, 0.27, 0.22), amount=0.55, streaks=0.18):
+    """Gebrauchsspuren: Spritzschmutz zum Boden hin (Objekt-Z), Laufspuren von oben, fleckiger Staub."""
+    nt = m.node_tree; b = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
+    src = b.inputs['Base Color'].links[0].from_socket if b.inputs['Base Color'].links else None
+    tc = nt.nodes.new('ShaderNodeTexCoord'); sep = nt.nodes.new('ShaderNodeSeparateXYZ'); nt.links.new(tc.outputs['Object'], sep.inputs[0])
+    mr = nt.nodes.new('ShaderNodeMapRange'); mr.inputs['From Min'].default_value = height; mr.inputs['From Max'].default_value = 0.3
+    nt.links.new(sep.outputs['Z'], mr.inputs['Value'])
+    n = nt.nodes.new('ShaderNodeTexNoise'); n.inputs['Scale'].default_value = 3.0; n.inputs['Detail'].default_value = 8
+    nt.links.new(tc.outputs['Object'], n.inputs['Vector'])
+    ml = nt.nodes.new('ShaderNodeMath'); ml.operation = 'MULTIPLY'; nt.links.new(mr.outputs[0], ml.inputs[0]); nt.links.new(n.outputs['Fac'], ml.inputs[1])
+    # Laufspuren: in X gestreckte Rauschstreifen
+    mp = nt.nodes.new('ShaderNodeMapping'); mp.inputs['Scale'].default_value = (14, 14, 0.6); nt.links.new(tc.outputs['Object'], mp.inputs['Vector'])
+    n2 = nt.nodes.new('ShaderNodeTexNoise'); n2.inputs['Scale'].default_value = 2.0; n2.inputs['Detail'].default_value = 4; nt.links.new(mp.outputs['Vector'], n2.inputs['Vector'])
+    st = nt.nodes.new('ShaderNodeMapRange'); st.inputs['From Min'].default_value = 0.55; st.inputs['From Max'].default_value = 0.8; st.inputs['To Max'].default_value = streaks
+    nt.links.new(n2.outputs['Fac'], st.inputs['Value'])
+    ad = nt.nodes.new('ShaderNodeMath'); ad.operation = 'ADD'; ad.use_clamp = True; nt.links.new(ml.outputs[0], ad.inputs[0]); nt.links.new(st.outputs[0], ad.inputs[1])
+    fac = nt.nodes.new('ShaderNodeMath'); fac.operation = 'MULTIPLY'; fac.inputs[1].default_value = amount; nt.links.new(ad.outputs[0], fac.inputs[0])
+    mx = nt.nodes.new('ShaderNodeMix'); mx.data_type = 'RGBA'; nt.links.new(fac.outputs[0], mx.inputs['Factor'])
+    if src: nt.links.new(src, mx.inputs['A'])
+    else: mx.inputs['A'].default_value = b.inputs['Base Color'].default_value
+    mx.inputs['B'].default_value = (*dirt, 1); nt.links.new(mx.outputs['Result'], b.inputs['Base Color'])
+    return m
+
 M = {}
 def materials():
     M['container'] = mat('Containerblech', (0.40, 0.42, 0.41), 0.38, 0.0, bump='corrugate', bump_scale=3.4, bump_strength=0.9)
@@ -243,6 +266,13 @@ def materials():
     M['rape'] = pbr('Raps', 'aerial_grass_rock', size=31.0, sat=1.3, val=0.55, tint=(0.45, 0.95, 0.30), var=0.15, var_scale=0.005)
     M['plough'] = pbr('Acker', 'dirt_aerial_02', size=43.0, sat=0.8, val=0.42, var=0.15, var_scale=0.006, stripes='Y')
     M['stubble'] = pbr('Stoppel', 'dirt_aerial_02', size=43.0, sat=0.65, val=0.75, tint=(1.0, 0.92, 0.62), var=0.12, var_scale=0.006, stripes='X')
+    age(M['container'], height=1.1, amount=0.5); age(M['hvac'], height=1.4, amount=0.4); age(M['door'], height=1.0, amount=0.45)
+    M['porcelain'] = mat('Porzellan', (0.20, 0.07, 0.04), 0.12)
+    M['composite'] = mat('Verbundisolator', (0.42, 0.43, 0.44), 0.35)
+    M['alu'] = mat('Aluminium', (0.70, 0.71, 0.72), 0.3, 1.0)
+    M['firewall'] = pbr('Brandschutzwand', 'concrete_floor_02', size=2.5, sat=0.3, val=0.85)
+    M['earthcable'] = mat('Erdungsleiter', (0.35, 0.40, 0.05), 0.5)
+    M['label'] = mat('Typschild', (0.75, 0.76, 0.74), 0.4)
     M['earth'] = pbr('Wall', 'aerial_grass_rock', size=6.0, sat=0.9, val=0.45, tint=(0.7, 0.85, 0.5))
     M['tank'] = mat('Löschwasserbehälter', (0.12, 0.17, 0.14), 0.5)
     M['rubber'] = mat('Dichtung', (0.02, 0.02, 0.02), 0.6)
@@ -302,7 +332,21 @@ def proto_container():
             parts.append(box('c_hinge', (0.05, 0.05, 0.12), (x + 0.05, -W / 2 - 0.04, z), M['steel']))
     for k in range(5):
         parts.append(cyl('c_gland', 0.05, 0.12, (-L / 2 + 1.0 + k * 0.25, W / 2 + 0.05, 0.6), M['rubber'], rot=(math.pi / 2, 0, 0), verts=12))
+    for i in range(4):
+        x = -L / 2 + 0.55 + i * 1.32
+        for dz in (0.42, 2.78):
+            parts.append(box('c_seal', (1.2, 0.02, 0.025), (x + 0.59, -W / 2 - 0.03, dz), M['rubber']))
+        for dx in (-0.01, 1.19):
+            parts.append(box('c_seal', (0.025, 0.02, 2.36), (x + dx, -W / 2 - 0.03, 1.6), M['rubber']))
+    parts.append(box('c_plate', (0.32, 0.01, 0.2), (L / 2 - 0.5, -W / 2 - 0.035, 2.4), M['label']))
+    parts.append(cyl('c_earth', 0.012, 0.5, (-L / 2 + 0.25, -W / 2 - 0.08, 0.2), M['earthcable'], verts=8))
     parts.append(box('c_hvac', (0.42, 1.9, 2.1), (L / 2 + 0.21, 0, 1.55), M['hvac'], bevel=0.02))
+    for z in (1.05, 1.95):
+        for rr_ in (0.34, 0.24, 0.14):
+            bpy.ops.mesh.primitive_torus_add(major_radius=rr_, minor_radius=0.008, location=(L / 2 + 0.445, 0, z), rotation=(0, math.pi / 2, 0))
+            t = bpy.context.object; t.data.materials.append(M['steel']); parts.append(t)
+    for k in range(9):
+        parts.append(box('c_slat', (0.03, 1.7, 0.035), (L / 2 + 0.43, 0, 0.55 + k * 0.05), M['dark']))
     for z in (1.05, 1.95):
         parts.append(cyl('c_fan', 0.32, 0.03, (L / 2 + 0.43, 0, z), M['dark'], rot=(0, math.pi / 2, 0)))
     parts.append(box('c_louvre', (0.7, 0.03, 0.4), (-L / 2 + 0.6, W / 2 + 0.012, 2.8), M['dark']))
@@ -603,7 +647,8 @@ def bess_plant(cx=0.0, cy=0.0, rows=6, per_row=8, lit=False):
             inst(cont, (x, y, 0))
         inst(pcs, (x0 + 8 + pitch_x / 2 + (per_row // 2) * pitch_x, y, 0))
         # Kabelpritsche entlang der Reihe
-        box('Kabelpritsche', (per_row * pitch_x - 4, 0.4, 0.08), (cx, y + 1.9, 0.5), M['tray'])
+        for k in range(int((per_row * pitch_x - 4) / 1.0)):
+            box('Kabelkanal', (0.96, 0.6, 0.06), (x0 + 10 + k * 1.0, y + 1.95, 0.05), M['concrete'])
     # Übergabe / Mittelspannungsschaltanlage und Betriebsgebäude
     box('Übergabestation', (8, 3, 3), (x0 + 12, y0 + 6, 1.5), M['hvac'], bevel=0.03)
     box('Betriebsgebäude', (6, 3, 3), (x0 + 24, y0 + 6, 1.5), M['container'], bevel=0.03)
@@ -620,6 +665,109 @@ def bess_plant(cx=0.0, cy=0.0, rows=6, per_row=8, lit=False):
     rb = bpy.context.object; rb.name = 'Rückhaltebecken'; rb.scale = (8.0, 3.8, 1); rb.data.materials.append(M['water'])
     fence(x0 - 3, y0 - 3, x0 + W + 3, y0 + Hh + 3)
     return (x0, y0, W, Hh)
+
+def sheds(x, y, z0, h, r, n, m, rot=None):
+    """Isolator mit Schirmen (Porzellan/Verbund): Kern plus abwechselnd große und kleine Schirme."""
+    parts = [cyl('kern', r * 0.45, h, (x, y, z0 + h / 2), m, verts=16)]
+    for k in range(n):
+        rr_ = r if k % 2 == 0 else r * 0.75
+        parts.append(cyl('schirm', rr_, h / n * 0.28, (x, y, z0 + (k + 0.5) * h / n), m, verts=20))
+    parts.append(cyl('kappe', r * 0.55, 0.12, (x, y, z0 + h + 0.06), M['alu'], verts=16))
+    return parts
+
+def transformer(x, y):
+    """Netztransformator (Freiluft, ölgefüllt): Kessel mit Versteifungen, Radiatorbatterien, Ausdehnungsgefäß,
+    OS-/US-Durchführungen, Überspannungsableiter, Steuerschrank, Ölauffangwanne. Herstellerneutral."""
+    P = []
+    P.append(box('Fundament', (8.5, 6.5, 0.35), (x, y, 0.175), M['concrete']))
+    for dx, dy, sx, sy in ((0, 3.15, 8.5, 0.2), (0, -3.15, 8.5, 0.2), (4.15, 0, 0.2, 6.5), (-4.15, 0, 0.2, 6.5)):
+        P.append(box('Wannenrand', (sx, sy, 0.3), (x + dx, y + dy, 0.5), M['concrete']))
+    P.append(box('Kessel', (5.6, 2.6, 3.2), (x, y, 2.05), M['tx'], bevel=0.04))
+    for k in range(7):
+        for sy in (-1, 1):
+            P.append(box('Versteifung', (0.1, 0.08, 3.1), (x - 2.6 + k * 0.87, y + sy * 1.33, 2.05), M['tx']))
+    P.append(box('Deckel', (5.8, 2.8, 0.12), (x, y, 3.71), M['tx']))
+    for sy in (-1, 1):
+        for k in range(12):
+            P.append(box('Radiator', (0.05, 0.55, 2.5), (x - 2.2 + k * 0.4, y + sy * 1.75, 2.0), M['tx']))
+        for z in (0.85, 3.15):
+            P.append(cyl('Sammelrohr', 0.07, 4.8, (x, y + sy * 1.45, z), M['tx'], rot=(0, math.pi / 2, 0), verts=12))
+    P.append(cyl('Ausdehnungsgefäß', 0.42, 2.6, (x - 1.8, y + 0.9, 4.75), M['tx'], rot=(0, math.pi / 2, 0), verts=24))
+    for dx in (-2.8, -0.8):
+        P.append(box('Konsole', (0.1, 0.1, 1.0), (x + dx, y + 0.9, 4.2), M['steel']))
+    P.append(cyl('Ölleitung', 0.04, 1.0, (x - 0.5, y + 0.9, 4.25), M['tx'], verts=8))
+    for k, dx in enumerate((-0.9, 0.4, 1.7)):
+        P += sheds(x + dx, y - 0.6, 3.77, 2.4, 0.26, 12, M['porcelain'])
+    for dx in (-0.9, 0.4, 1.7):
+        P += sheds(x + dx + 0.3, y + 0.75, 3.77, 0.8, 0.14, 5, M['porcelain'])
+    for dx in (-0.9, 0.4, 1.7):
+        P.append(cyl('Ableitergestell', 0.08, 3.4, (x + dx, y - 4.0, 1.7), M['steel'], verts=8))
+        P += sheds(x + dx, y - 4.0, 3.4, 1.6, 0.18, 9, M['composite'])
+    P.append(box('Steuerschrank', (0.8, 0.5, 1.4), (x + 2.6, y - 1.6, 1.05), M['hvac']))
+    P.append(box('Typschild', (0.4, 0.01, 0.3), (x + 1.2, y - 1.31, 2.4), M['label']))
+    return P
+
+def lattice_beam(p0, p1, w=1.0, h=1.2, m=None):
+    """Gitterträger (Portalriegel) als Fachwerk über Wireframe-Modifikator."""
+    p0, p1 = Vector(p0), Vector(p1); d = p1 - p0
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(p0 + p1) / 2)
+    o = bpy.context.object; o.scale = (d.length, w, h); bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    o.rotation_euler.z = math.atan2(d.y, d.x)
+    sb = o.modifiers.new('s', 'SUBSURF'); sb.subdivision_type = 'SIMPLE'; sb.levels = sb.render_levels = 4
+    wf = o.modifiers.new('wf', 'WIREFRAME'); wf.thickness = 0.06
+    o.data.materials.append(m or M['steel']); return o
+
+def lattice_column(x, y, h=14, w=0.9):
+    bpy.ops.mesh.primitive_cube_add(size=1, location=(x, y, h / 2))
+    o = bpy.context.object; o.scale = (w, w, h); bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    sb = o.modifiers.new('s', 'SUBSURF'); sb.subdivision_type = 'SIMPLE'; sb.levels = sb.render_levels = 4
+    wf = o.modifiers.new('wf', 'WIREFRAME'); wf.thickness = 0.06
+    o.data.materials.append(M['steel']); return o
+
+def substation_detail(cx, cy):
+    """Umspannwerk, Detailfassung für Nahaufnahmen: zwei Transformatoren mit Brandschutzwand,
+    Gitterportale mit Abspannketten, Rohrsammelschienen auf Stützisolatoren, Trenner, Schaltgebäude."""
+    plane('UW-Schotter', 80, 56, (cx, cy, 0.03), M['gravel'])
+    plane('UW-Fahrweg', 80, 5, (cx, cy - 15, 0.045), M['asphalt'])
+    for x in (cx - 9, cx + 9):
+        transformer(x, cy - 4)
+    box('Brandschutzwand', (0.35, 8.0, 7.5), (cx, cy - 4, 3.75), M['firewall'])
+    for px in (cx - 27, cx - 9, cx + 9, cx + 27):
+        for py in (cy + 8, cy + 20):
+            lattice_column(px, py)
+        lattice_beam((px, cy + 8, 13.4), (px, cy + 20, 13.4))
+    for py in (cy + 10, cy + 14, cy + 18):
+        bpy.ops.mesh.primitive_cylinder_add(radius=0.08, depth=56, location=(cx, py, 6.2), rotation=(0, math.pi / 2, 0), vertices=16)
+        o = bpy.context.object; o.data.materials.append(M['alu'])
+        for px in (cx - 24, cx - 14, cx - 4, cx + 4, cx + 14, cx + 24):
+            box('Stützgerüst', (0.35, 0.35, 3.0), (px, py, 1.5), M['steel'])
+            for o2 in sheds(px, py, 3.0, 3.0, 0.2, 12, M['porcelain']): pass
+        for px in (cx - 27, cx - 9, cx + 9, cx + 27):
+            for o2 in sheds(px, py, 10.4, 1.8, 0.16, 10, M['composite']): pass
+            wire([(px, py, 10.4), (px + 1.5, py, 6.25)], r=0.03, sag=0.2)
+    for x in (cx - 9, cx + 9):
+        for k, dx in enumerate((-0.9, 0.4, 1.7)):
+            wire([(x + dx, cy - 4.6, 6.3), (x + dx, cy + 3, 7.5), (x + dx, cy + 10 + k * 4, 6.25)], r=0.035, sag=0.3)
+    for py in (cy + 10, cy + 14, cy + 18):
+        wire([(cx - 40, py, 13.0), (cx - 27, py, 12.8), (cx + 27, py, 12.8), (cx + 40, py, 13.0)], r=0.03, sag=0.6)
+    box('Schaltgebäude', (16, 9, 5), (cx - 30, cy - 16, 2.5), M['brick'])
+    box('Schaltgebäude Dach', (16.6, 9.6, 0.4), (cx - 30, cy - 16, 5.2), M['roof2'])
+    fence(cx - 40, cy - 28, cx + 40, cy + 28, h=2.2)
+
+def photo_post(vignette=0.0, dispersion=0.004):
+    """Kameracharakter: leichte Farbsäume, Vignette."""
+    nt = bpy.context.scene.node_tree
+    comp = next(n for n in nt.nodes if n.type == 'COMPOSITE'); src = comp.inputs['Image'].links[0].from_socket
+    ld = nt.nodes.new('CompositorNodeLensdist'); ld.inputs['Dispersion'].default_value = dispersion
+    if not vignette:
+        nt.links.new(src, ld.inputs['Image']); nt.links.new(ld.outputs['Image'], comp.inputs['Image']); return
+    el = nt.nodes.new('CompositorNodeEllipseMask'); el.width = 0.95; el.height = 0.9
+    bl = nt.nodes.new('CompositorNodeBlur'); bl.filter_type = 'FAST_GAUSS'; bl.use_relative = True; bl.factor_x = bl.factor_y = 0.35
+    mr = nt.nodes.new('CompositorNodeMapRange'); mr.inputs['To Min'].default_value = 1 - vignette
+    mu = nt.nodes.new('CompositorNodeMixRGB'); mu.blend_type = 'MULTIPLY'; mu.inputs['Fac'].default_value = 1.0
+    nt.links.new(src, ld.inputs['Image']); nt.links.new(el.outputs['Mask'], bl.inputs['Image'])
+    nt.links.new(bl.outputs['Image'], mr.inputs['Value']); nt.links.new(ld.outputs['Image'], mu.inputs[1]); nt.links.new(mr.outputs[0], mu.inputs[2])
+    nt.links.new(mu.outputs[0], comp.inputs['Image'])
 
 def substation(cx, cy):
     """Umspannwerk (Freiluft): zwei Netztransformatoren, Portale, Sammelschienen, Isolatoren, Schaltgebäude."""
@@ -818,6 +966,37 @@ def shot_modul():
     camera((x0 + 13, y0 + 23.2, 1.7), (x0 + 60, y0 + 22.0, 1.75), lens=26)
     haze(start=200, depth=2000, amount=0.3)
 
+def shot_modul_v2():
+    """Motiv 3 v2: Nahaufnahme einer Containerreihe mit Klimageräten, Wartungstüren und PCS-Station."""
+    global HDRI_KIND
+    HDRI_KIND = 'day'
+    materials(); common_landscape(turbines=False)
+    x0, y0, W, H = bess_plant(0, 0, rows=3, per_row=7)
+    hedge((x0 - 14, y0 + H + 16), (x0 + W + 14, y0 + H + 16), seed=21, density=0.35, h=(8, 14))
+    hedge((x0 + W + 16, y0 - 14), (x0 + W + 16, y0 + H + 14), seed=22, density=0.35, h=(8, 13))
+    x2 = x0 + 8 + 9.06 / 2 + 2 * 9.06; yr = y0 + 18
+    sky(sun_elev=24, sun_rot=250)
+    c = camera((x2 + 9.5, yr + 7.6, 1.6), (x2 - 14.0, yr + 6.9, 0.7), lens=28)
+    c.data.dof.use_dof = True; c.data.dof.focus_distance = 6.0; c.data.dof.aperture_fstop = 4.0
+    haze(start=300, depth=2500, amount=0.15)
+    try: photo_post()
+    except Exception as e: print("POST", e)
+
+def shot_netz_v2():
+    """Motiv 4 v2: Netztransformatoren mit Brandschutzwand vor Gitterportalen, Blick von außerhalb des Zauns."""
+    global HDRI_KIND
+    HDRI_KIND = 'day'
+    materials(); common_landscape(turbines=True)
+    substation_detail(0, 0)
+    for i in range(8):
+        lattice_pylon((0, 70 + i * 320), h=52)
+    sky(sun_elev=24, sun_rot=225)
+    c = camera((24, -19.5, 1.7), (5, -3, 4.4), lens=30)
+    c.data.dof.use_dof = True; c.data.dof.focus_distance = 19; c.data.dof.aperture_fstop = 8.0
+    haze(start=300, depth=3000, amount=0.2)
+    try: photo_post()
+    except Exception as e: print("POST", e)
+
 def shot_netz():
     materials(); common_landscape(turbines=True)
     substation(0, 0)
@@ -952,7 +1131,7 @@ def shot_betrieb():
     camera((1.9, ry - 5.2, 4.75), (-0.6, ry + 25, 2.8), lens=24)
     haze(start=80, depth=2000, amount=0.3)
 
-SHOTS = {'hero': shot_hero, 'feld': shot_feld, 'modul': shot_modul, 'netz': shot_netz, 'planung': shot_planung,
+SHOTS = {'modul2': shot_modul_v2, 'netz2': shot_netz_v2, 'hero': shot_hero, 'feld': shot_feld, 'modul': shot_modul, 'netz': shot_netz, 'planung': shot_planung,
          'investor': shot_investor, 'kommune': shot_kommune, 'betrieb': shot_betrieb}
 
 if __name__ == '__main__':

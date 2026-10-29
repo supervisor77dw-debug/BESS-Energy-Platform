@@ -112,7 +112,7 @@ export function home() {
       <p>Batteriesysteme, Wechselrichter, Transformatoren, Brandschutz und Betriebsführung: Wir erklären, wie eine Anlage funktioniert, welche Sicherheitsvorkehrungen dazugehören und wo ihre Grenzen liegen.</p>
       <p><a class="link link-light" href="/technologie">Batteriespeicher und Technologie</a></p>
     </div>
-    ${photo('modul', 'Visualisierung: Reihe modularer Batteriecontainer mit Wartungstüren, Klimageräten an der Stirnseite, Kabelpritsche und einer Leistungselektronik-Station', 'Batteriecontainer mit Klimatisierung und Leistungselektronik. Herstellerneutrale Darstellung.', { cls: 'photo-dark' }) || illus('schnitt-batteriesystem.svg', 'Schnitt durch ein Batteriesystem mit Modulen, Batteriemanagement, Klimatisierung, Brandschutz, Wechselrichter und Transformator', 'Aufbau eines containerisierten Systems.', 'illus-dark')}
+    ${photo('modul', 'Visualisierung: Reihe modularer Batteriecontainer mit Wartungstüren, Klimageräten an der Stirnseite, Typschildern und bodengleichen Kabelkanalabdeckungen', 'Batteriecontainer mit Klimatisierung und Leistungselektronik. Herstellerneutrale Darstellung.', { cls: 'photo-dark' }) || illus('schnitt-batteriesystem.svg', 'Schnitt durch ein Batteriesystem mit Modulen, Batteriemanagement, Klimatisierung, Brandschutz, Wechselrichter und Transformator', 'Aufbau eines containerisierten Systems.', 'illus-dark')}
   </div>
 </section>
 
@@ -187,7 +187,7 @@ export function technologie() {
   <h1>Batteriespeicher und Technologie</h1>
   <p class="lead">Ein Batterie-Großspeicher besteht aus vielen Batteriemodulen, Leistungselektronik und einem Netzanschluss. Hier erklären wir, wie die Teile zusammenspielen, wie die Anlage sicher betrieben wird und wo ihre Grenzen liegen.</p>
 </div></section>
-${band('modul', 'Visualisierung: Gasse zwischen Batteriecontainern mit Wartungstüren, Klimageräten, Signalleuchten und Kabelpritsche; dahinter eine Leistungselektronik-Station', 'Containerisierte Batteriesysteme mit Klimatisierung, Wartungszugang und Leistungselektronik. Herstellerneutrale Darstellung.')}
+${band('modul', 'Visualisierung: Gasse zwischen Batteriecontainern mit Wartungstüren, Klimageräten, Signalleuchten und bodengleichen Kabelkanalabdeckungen in der Wartungsgasse', 'Containerisierte Batteriesysteme mit Klimatisierung, Wartungszugang und Leistungselektronik. Herstellerneutrale Darstellung.')}
 <section class="section"><div class="wrap">
   ${illus('energiefluss.svg', 'Schema: Wind und Photovoltaik speisen ins Netz, der Speicher lädt bei Überschuss und speist bei Bedarf ein; Verbraucher werden aus dem Netz versorgt', 'Stromflüsse zwischen Erzeugung, Netz, Verbrauch und Speicher.', 'illus-wide')}
 </div></section>
@@ -199,7 +199,7 @@ ${band('modul', 'Visualisierung: Gasse zwischen Batteriecontainern mit Wartungst
   <article id="netzstabilitaet"><h2>Netzstabilisierung</h2><p>Speicher können Regelleistung bereitstellen, mit der die Netzfrequenz bei 50 Hertz gehalten wird, und Blindleistung zur Spannungshaltung liefern. Welche Dienste ein Speicher erbringt, hängt von Präqualifikation, Vermarktung und den Vorgaben des Netzbetreibers ab.</p></article>
   <article id="erneuerbare"><h2>Erneuerbare Energien</h2><p>In windreichen Regionen wie Schleswig-Holstein werden Anlagen regelmäßig abgeregelt, weil das Netz den Strom nicht abtransportieren kann. Ein Speicher kann diese Energie aufnehmen und zeitversetzt abgeben – wenn er auf der richtigen Seite des Engpasses steht und netzdienlich betrieben wird. Den Netzausbau ersetzt er nicht.</p></article>
   <article id="betrieb"><h2>Betriebsführung</h2><p>Ein Energiemanagementsystem steuert den Speicher nach Fahrplan und Marktsignalen. Eine Leitwarte überwacht Ladezustand, Temperaturen und Sicherheitstechnik rund um die Uhr und kann die Anlage aus der Ferne abschalten. Vor Ort ist im Normalbetrieb kein Personal nötig.</p></article>
-  <article id="sicherheit"><h2>Sicherheit und Brandschutz</h2><p>Jede Anlage erhält ein eigenes Brandschutzkonzept, abgestimmt mit Bauaufsicht und Feuerwehr. Dazu gehören Zellüberwachung durch das Batteriemanagement, Gas- und Rauchdetektion, Druckentlastung der Gehäuse, Abstände oder Brandschutzwände zwischen Einheiten, Zufahrten und ein Löschwasserkonzept. Bewertet werden Prüfnachweise der Hersteller zum Brandverhalten, etwa nach UL 9540A. Vor Inbetriebnahme wird die örtliche Feuerwehr eingewiesen.</p></article>
+  <article id="sicherheit"><h2>Sicherheit und Brandschutz</h2><p>Jede Anlage erhält ein eigenes Brandschutzkonzept, abgestimmt mit Bauaufsicht und Feuerwehr. Dazu gehören Zellüberwachung durch das Batteriemanagement, Gas- und Rauchdetektion, Druckentlastung der Gehäuse, Abstände oder Brandschutzwände zwischen Einheiten, Zufahrten und ein Löschwasserkonzept. Bewertet werden Prüfnachweise der Hersteller zum Brandverhalten, etwa Ergebnisse nach dem Prüfverfahren UL 9540A. Ein solcher Test beschreibt das Verhalten bei einem Zellbrand unter Laborbedingungen; er ist keine Zertifizierung der gesamten Anlage und ersetzt nicht das Brandschutzkonzept. Vor Inbetriebnahme wird die örtliche Feuerwehr eingewiesen.</p></article>
   <article id="schall"><h2>Schall</h2><p>Klimageräte, Wechselrichter und Transformatoren erzeugen Geräusche. Ein Schallgutachten weist nach, dass die Immissionsrichtwerte der TA Lärm an der nächsten Bebauung eingehalten werden – auch nachts. Wo nötig, helfen Abstand, Schallschutzwände oder leisere Komponenten.</p></article>
   <article id="wartung"><h2>Wartung und Rückbau</h2><p>Wiederkehrende Prüfungen, Austausch von Verschleißteilen und Software-Updates gehören zur Betriebsführung. Am Ende der Laufzeit werden Anlage, Fundamente und Leitungen zurückgebaut, Batterien gehen in die Verwertung. Die Rückbauverpflichtung wird vor Baubeginn vertraglich abgesichert.</p></article>
 </div></section>
@@ -210,7 +210,7 @@ ${band('modul', 'Visualisierung: Gasse zwischen Batteriecontainern mit Wartungst
   <p class="small muted">Die konkrete Auslegung und Herstellerwahl erfolgt je Projekt nach technischer und wirtschaftlicher Prüfung.</p></div>
 </div></section>
 <section class="section"><div class="wrap split split-media">
-  ${photo('netz', 'Visualisierung: Freiluft-Umspannwerk mit zwei Netztransformatoren, Portalen, Sammelschienen und Isolatoren; im Hintergrund Freileitungsmasten und Windenergieanlagen', 'Umspannwerk mit Netztransformatoren: Hier wird ein Großspeicher an das Hoch- oder Mittelspannungsnetz angeschlossen.')}
+  ${photo('netz', 'Visualisierung: Freiluft-Umspannwerk mit zwei Netztransformatoren mit Radiatoren, Ausdehnungsgefäß und Durchführungen, getrennt durch eine Brandschutzwand; dahinter Portale mit Isolatorketten und Rohrsammelschienen', 'Umspannwerk mit Netztransformatoren: Hier wird ein Großspeicher an das Hoch- oder Mittelspannungsnetz angeschlossen.')}
   <div><h2>Vom Speicher ins Netz</h2><p>Zwischen Batterie und Netz liegen mehrere Stufen: Wechselrichter, Mittelspannungstransformatoren in der Anlage, eine Kabeltrasse und die Übergabe an den Netzbetreiber – häufig in einem bestehenden Umspannwerk. Länge der Trasse und freie Kapazität am Anschlusspunkt bestimmen Kosten und Zeitplan maßgeblich.</p></div>
 </div></section>
 <section class="section section-tint"><div class="wrap split split-media">
@@ -344,7 +344,7 @@ ${band('feld', 'Visualisierung: Blick über ein Getreidefeld auf eine Speicheran
 <section class="section"><div class="wrap narrow">
   <h2>Häufige Fragen</h2>
   <div class="faq">${FAQ_OWNER.map(([q, a]) => html`<details><summary>${q}</summary><p>${a}</p></details>`)}</div>
-  <p class="small muted">Diese Seite gibt einen allgemeinen Überblick über unser Vertragsmodell. Verbindlich ist allein der unterzeichnete Vertrag. Wir machen keine Preis- oder Pachtzusagen über diese Website.</p>
+  <p class="small muted">Diese Seite gibt einen allgemeinen Überblick über unser Vertragsmodell (Arbeitsstand, Änderungen vorbehalten). Verbindlich ist allein der unterzeichnete Vertrag. Wir machen keine Preis- oder Pachtzusagen über diese Website.</p>
 </div></section>
 
 <section class="section section-tint"><div class="wrap contact-cta">
