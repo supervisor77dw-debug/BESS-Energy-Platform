@@ -24,11 +24,11 @@ export function applyAccounts(db, acc, hash) {
     const a = byId.get(u.id);
     if (!a || !/^scrypt\$/.test(a.pw || '')) { u.active = false; continue; } // nicht mehr aufgeführt: gesperrt, Passwort bleibt für eine spätere Reaktivierung erhalten
     u.active = true;
+    // Persönlich übernommene Konten (selbst gesetztes Passwort) bleiben unverändert – Passwort, Anmeldeadresse, Name (AW-014).
+    // Ein Abgleich setzt nur Startzugänge, die noch nicht persönlich übernommen wurden; Reset nur mit Eintrag "reset": true.
+    if (u.passwordChangedAt && !u.mustChangePassword && u.pw && a.reset !== true) continue;
     u.email = a.email || u.email;
     u.name = a.name || u.name;
-    // Selbst gesetzte Passwörter bleiben bestehen (AW-014): Ein Abgleich setzt nur Startzugänge, die noch nicht persönlich
-    // übernommen wurden. Ein Rücksetzen erfolgt ausschließlich auf ausdrücklichen Wunsch (Eintrag "reset": true).
-    if (u.passwordChangedAt && !u.mustChangePassword && u.pw && a.reset !== true) continue;
     u.pw = a.pw;
     u.mustChangePassword = a.mustChangePassword !== false;
     geaendert = true;
