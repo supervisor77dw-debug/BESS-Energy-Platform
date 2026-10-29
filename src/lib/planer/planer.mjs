@@ -385,7 +385,7 @@ export function rechneVariante({ stand, v, katalog, angebote, basis, ergebnisse 
   if (finFehler.length) return { v, sys, dim, pos, fehler: finFehler };
   const finErg = finanzierung(basisSumme, stand.finanzierung, stand.annahmen.reserveAnteil);
   const referenz = v.erloesQuelle?.startsWith('b2_') && ergebnisse ? erloesReferenz(ergebnisse, dim.dauerH, v.erloesQuelle === 'b2_A' ? 'befreit' : 'ohne_befreiung') : null;
-  const erloesQuelleTatsaechlich = v.erloesQuelle?.startsWith('b2_') && referenz && !referenz.fehler ? v.erloesQuelle : 'wm';
+  const erloesQuelleTatsaechlich = dim.wirtschaftlichkeitSperre ? null : (v.erloesQuelle?.startsWith('b2_') && referenz && !referenz.fehler ? v.erloesQuelle : 'wm');
   const hinweise = [];
   if (referenz?.fehler) hinweise.push(`Erlösreferenz nicht anwendbar: ${referenz.fehler} Es gelten die Erlösannahmen der STROMKAI-WM-Version.`);
   if (!basis) hinweise.push('Für dieses Projekt gibt es keine STROMKAI-WM-Version: Betriebskosten, Erlöse und Bewertung fehlen, Wirtschaftlichkeit nicht berechenbar.');
