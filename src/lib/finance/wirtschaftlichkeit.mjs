@@ -25,6 +25,7 @@ const fehlerListe = (p) => {
   pos(t.leistungMW, 'Leistung'); pos(t.kapazitaetMWh, 'Kapazität'); quote(t.nutzbarAnteil, 'Nutzbarer Anteil'); quote(t.wirkungsgrad, 'Wirkungsgrad');
   quote(t.verfuegbarkeit, 'Verfügbarkeit'); quote(t.degradationJahr, 'Degradation'); pos(t.betriebsjahre, 'Betriebsdauer');
   if (!(t.zyklenJahr >= 0)) f.push('Zyklen je Jahr müssen ≥ 0 sein.');
+  if (t.verschleissEURMWh != null && !(t.verschleissEURMWh >= 0)) f.push('Batterieverschleiß muss ≥ 0 EUR/MWh sein.');
   if (t.wirkungsgrad === 0) f.push('Wirkungsgrad darf nicht 0 sein.');
   const anteile = sum((p.einnahmen || []).filter((e) => e.art !== 'fix').map((e) => e.anteil || 0));
   if (anteile > 1 + 1e-9) f.push(`Die Vermarktungsanteile ergeben ${Math.round(anteile * 100)} % der Speicherleistung. Mehr als 100 % würde parallel vermarktete Leistung doppelt zählen.`);
@@ -103,6 +104,9 @@ export function berechne(params, szenarioKey = 'basis', { quelle = 'Eingabe Port
     const vermarktung = brutto * (params.opex?.vermarktungAnteil || 0);
     const esk = Math.pow(1 + (params.opex?.steigerung || 0), j - 1);
     const opexPosten = OPEX_POSTEN.map(([k, nm]) => ({ key: k, name: nm, betrag: (params.opex?.[k] || 0) * sz.opex * esk }));
+    // Batterieverschleiß als Zyklenkosten je ausgespeicherter MWh (Rücklage für Zelltausch/Augmentierung); Kapazitätsverlust bildet die Degradation ab
+    const verschleissMWh = sum(erloese.map((x) => x.ausMWh));
+    opexPosten.push({ key: 'verschleiss', name: 'Batterieverschleiß (Zyklenkosten)', betrag: verschleissMWh * (t.verschleissEURMWh || 0) * sz.opex * esk });
     const opex = sum(opexPosten.map((x) => x.betrag));
     const ebitda = brutto - vermarktung - opex;
     let zinsen = 0, tilgung = 0;

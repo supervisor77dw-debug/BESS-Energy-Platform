@@ -37,7 +37,8 @@ export const FELDER = [
   F('standort', 'grundstueck', 'Grundstück', '', 'text'), F('standort', 'flaecheHa', 'Flächengröße', 'ha'), F('standort', 'optionsflaecheHa', 'Optionsfläche', 'ha'), F('standort', 'betriebsflaecheHa', 'Betriebsfläche', 'ha'),
   F('standort', 'netzanschluss', 'Netzanschlussstandort', '', 'text'), F('standort', 'grundstuecksmodell', 'Grundstücksmodell', '', 'auswahl'),
   F('technik', 'leistungMW', 'Leistung', 'MW'), F('technik', 'kapazitaetMWh', 'Kapazität', 'MWh'), F('technik', 'nutzbarAnteil', 'Nutzbare Kapazität', '%', 'prozent'),
-  F('technik', 'wirkungsgrad', 'Wirkungsgrad (Zyklus)', '%', 'prozent', 'Ein- und Ausspeicherung zusammen; bildet die Speicherverluste ab'), F('technik', 'degradationJahr', 'Degradation', '% p. a.', 'prozent'),
+  F('technik', 'wirkungsgrad', 'Wirkungsgrad (Zyklus)', '%', 'prozent', 'Ein- und Ausspeicherung zusammen; bildet die Speicherverluste ab'), F('technik', 'degradationJahr', 'Degradation', '% p. a.', 'prozent', 'Kapazitätsverlust; bei Augmentierung auf 0 setzen'),
+  F('technik', 'verschleissEURMWh', 'Batterieverschleiß', 'EUR je ausgespeicherter MWh', 'zahl', 'Zyklenkosten als Rücklage für Zelltausch und Augmentierung; erscheint unter den Betriebskosten'),
   F('technik', 'zyklenJahr', 'Zyklen', 'je Jahr'), F('technik', 'betriebsjahre', 'Betriebsdauer', 'Jahre'), F('technik', 'verfuegbarkeit', 'Verfügbarkeit', '%', 'prozent'),
   ...WM.CAPEX_POSTEN.map(([k, n]) => F('capex', k, n, 'EUR')), F('capex', 'reserveAnteil', 'Reserve', '% der Investition', 'prozent'),
   ...WM.OPEX_POSTEN.map(([k, n]) => F('opex', k, n, 'EUR/Jahr')), F('opex', 'vermarktungAnteil', 'Vermarktung', '% der Bruttoerlöse', 'prozent'), F('opex', 'steigerung', 'Kostensteigerung', '% p. a.', 'prozent'),
@@ -177,7 +178,7 @@ export async function handleFinanzen({ req, res, url, path, method, u, s, view, 
       const betrag = parseZahl(fields.betrag);
       if (!(betrag > 0)) throw new HttpError(400, 'Bitte einen positiven Betrag eingeben.');
       // In Entwicklungs- und Abnahmestufen sind alle Zahlungen synthetisch und nie als real geleistet gekennzeichnet.
-      const synthetisch = config.mode !== 'production' || fields.synthetisch !== 'nein';
+      const synthetisch = config.mode !== 'production' || !!stand.synthetisch || fields.synthetisch !== 'nein';
       db.zahlungen.push({ id: newId('z'), vertragId: stand.vertragId, anspruchKey: anspruch.key, betrag: cent(betrag), bezahltAm: String(fields.datum || heute()).slice(0, 10), referenz: String(fields.referenz || '').slice(0, 80), synthetisch, erfasstVon: u.id, erfasstAm: now() });
       persist(); audit('zahlung_erfasst', u, { projekt: p.id, vertrag: stand.vertragId, anspruch: anspruch.key, synthetisch: String(synthetisch) });
       return redirect(res, `/portal/verguetung/${p.id}?m=zahlung`);
@@ -197,7 +198,7 @@ export async function handleFinanzen({ req, res, url, path, method, u, s, view, 
     if (!erlaubt) throw nf();
     const p = projekt(db, stand.projectId);
     const kontakt = db.contacts.find((c) => c.id === stand.ownerContactId);
-    const pdf = verguetungPdf({ eigentuemer: kontakt?.name || '–', projekt: `${p.code} ${p.name}`, stand, ansprueche: anspruecheFuer(db, stand), kauf: VT.kaufpreisregelung(stand), stichtag: heute(), synthetisch: true });
+    const pdf = verguetungPdf({ eigentuemer: kontakt?.name || '–', projekt: `${p.code} ${p.name}`, stand, ansprueche: anspruecheFuer(db, stand), kauf: VT.kaufpreisregelung(stand), stichtag: heute(), synthetisch: config.mode !== 'production' || !!stand.synthetisch });
     audit('verguetung_pdf', u, { vertrag: stand.vertragId });
     res.setHeader('Content-Disposition', `attachment; filename="Verguetungsuebersicht_${p.code}.pdf"`);
     return send(res, 200, pdf, 'application/pdf');
@@ -370,7 +371,7 @@ function vertragBlock(db, u, s, p, vid) {
   const anspr = gueltig ? anspruecheFuer(db, gueltig) : [];
   const econ = darfWirtschaftlichkeit(u, p.id);
   const zahl = db.zahlungen.filter((z) => z.vertragId === vid);
-  return html`<article class="contract"><header><h3>${kontakt?.name || '–'} · ${VT.VERTRAGSTYPEN[(gueltig || angebote[0]).typ]}</h3>${gueltig ? html`<span class="mark mark-ok">${VT.STUFEN[gueltig.stufe].name} · V${gueltig.version}</span>` : html`<span class="mark mark-aud">noch nicht verbindlich</span>`} ${synth()}</header>
+  return html`<article class="contract"><header><h3>${kontakt?.name || '–'} · ${VT.VERTRAGSTYPEN[(gueltig || angebote[0]).typ]}</h3>${gueltig ? html`<span class="mark mark-ok">${VT.STUFEN[gueltig.stufe].name} · V${gueltig.version}</span>` : html`<span class="mark mark-aud">noch nicht verbindlich</span>`} ${(gueltig || angebote[0]).synthetisch ? synth() : ''}</header>
 ${staende.length ? html`<div class="tbl-wrap"><table class="tbl tbl-compact"><thead><tr><th>Version</th><th>Stufe</th><th>Dokument</th><th>Gültig ab</th><th>Für Eigentümer sichtbar</th><th>Angelegt</th></tr></thead><tbody>${staende.map((x) => html`<tr${x.id === gueltig.id ? raw(' class="row-current"') : ''}><td>V${x.version}${x.id === gueltig.id ? ' (gültig)' : ''}</td><td>${VT.STUFEN[x.stufe].name}</td><td>${x.dokumentRef ? html`<code>${x.dokumentRef}</code>` : '–'}</td><td>${x.gueltigAb ? fmtDate(x.gueltigAb) : '–'}</td><td>${x.freigabeEigentuemer ? 'ja' : 'nein'}</td><td class="small">${fmtDate(x.erstelltAm)}${x.notiz ? ` · ${x.notiz}` : ''}</td></tr>`)}</tbody></table></div>` : ''}
 ${anspr.length ? html`<details open><summary>Ansprüche aus dem gültigen Stand</summary>${anspruchTabelle(anspr)}</details>` : ''}
 ${angebote.length ? html`<details><summary>Simulationen und Vorschläge (${angebote.length})</summary><ul class="assume">${angebote.map((a) => html`<li>${VT.STUFEN[a.stufe].name} V${a.version} · ${fmtDate(a.erstelltAm)} · ${db.users.find((x) => x.id === a.erstelltVon)?.name || '–'}${a.bedingungen.pacht ? ` · Pacht ${eur(VG.jahrespacht(a.bedingungen.pacht), true)}/Jahr` : ''}${a.notiz ? ` · ${a.notiz}` : ''}</li>`)}</ul>
@@ -401,7 +402,8 @@ ${staende.map((st) => {
     const kauf = VT.kaufpreisregelung(st);
     const optMonate = b.option ? b.option.grundMonate + (b.option.verlaengerungen || []).slice(0, b.option.verlaengerungenGenutzt || 0).reduce((a, x) => a + x, 0) : null;
     return html`<section class="panel owner-contract" aria-labelledby="oc-${st.id}">
-<div class="panel-head"><h2 id="oc-${st.id}">${p.name}</h2><span class="mark mark-ok">${VT.STUFEN[st.stufe].name}</span></div>
+<div class="panel-head"><h2 id="oc-${st.id}">${p.name}</h2><span class="stack-inline"><span class="mark mark-ok">${VT.STUFEN[st.stufe].name}</span>${st.synthetisch ? html` <span class="mark mark-demo">Demo-Vertrag</span>` : ''}</span></div>
+${st.synthetisch ? html`<p class="demo-note">Synthetischer Demo-Vertrag: Die Beträge zeigen die Rechenlogik und begründen keine Zahlungsansprüche.</p>` : ''}
 <p class="meta-line">${VT.VERTRAGSTYPEN[st.typ]} · Version ${st.version}${st.dokumentRef ? ` · Dokument ${st.dokumentRef}` : ''}${st.gueltigAb ? ` · gültig ab ${fmtDate(st.gueltigAb)}` : ''}</p>
 <div class="status-strip" role="list">${[['vereinbart', 'Vereinbart'], ['faellig', 'Fällig'], ['bezahlt', 'Bezahlt'], ['prognose', 'Prognose']].map(([k, l]) => html`<div role="listitem" class="st st-${k}"><span>${l}</span><strong class="num">${eur(summen[k])}</strong></div>`)}</div>
 ${summen.demo ? html`<p class="small demo-note">Zusätzlich ${eur(summen.demo)} als Demo-Buchung abgerechnet – <strong>keine reale Zahlung</strong>.</p>` : ''}

@@ -9,6 +9,7 @@ import * as WM from '../src/lib/finance/wirtschaftlichkeit.mjs';
 import * as VT from '../src/lib/finance/vertraege.mjs';
 import * as HD from '../src/lib/finance/handelsdaten.mjs';
 import { berechnungCsv, verguetungPdf } from '../src/lib/finance/export.mjs';
+import { demoParameter } from '../src/lib/finance/demo.mjs';
 
 const near = (a, b, eps = 0.01, msg) => assert.ok(Math.abs(a - b) <= eps, `${msg || ''} erwartet ${b}, erhalten ${a}`);
 
@@ -213,4 +214,47 @@ test('Export: CSV (Semikolon, Dezimalkomma, Metadaten) und PDF-Vergütungsübers
   const pdf = verguetungPdf({ eigentuemer: 'Eigentümer A', projekt: 'Demo', stand: s, ansprueche: VT.ansprueche(s, { heute: '2026-06-01' }), kauf: null, stichtag: '2026-06-01', synthetisch: true });
   const t = pdf.toString('latin1');
   assert.ok(t.startsWith('%PDF-1.4')); assert.match(t, /SYNTHETISCHE DEMO-DATEN/); assert.match(t, /Eigentuemer A/); assert.doesNotMatch(t, /€/);
+});
+
+test('Batterieverschleiß: Zyklenkosten je ausgespeicherter MWh mindern EBITDA, ohne Doppelzählung mit den Erlösen', () => {
+  const p = demoParameter(20, 40, 0);
+  const ohne = WM.berechne({ ...p, technik: { ...p.technik, verschleissEURMWh: 0 } }, 'basis', { berechnetAm: 'x' });
+  const mit = WM.berechne({ ...p, technik: { ...p.technik, verschleissEURMWh: 10 } }, 'basis', { berechnetAm: 'x' });
+  const j1o = ohne.jahre[0], j1m = mit.jahre[0];
+  const v = j1m.opexPosten.find((x) => x.key === 'verschleiss');
+  assert.ok(Math.abs(v.betrag - j1m.ausgespeichertMWh * 10) < 1e-6, 'Kosten = ausgespeicherte MWh × Satz');
+  assert.ok(Math.abs((j1o.ebitda - j1m.ebitda) - v.betrag) < 1e-6, 'EBITDA sinkt genau um die Verschleißkosten');
+  assert.equal(j1m.brutto, j1o.brutto, 'Erlöse unverändert');
+  // Jahr 2: Kosten folgen Durchsatz (Degradation) und Kostensteigerung
+  const v2 = mit.jahre[1].opexPosten.find((x) => x.key === 'verschleiss').betrag;
+  assert.ok(Math.abs(v2 - mit.jahre[1].ausgespeichertMWh * 10 * (1 + p.opex.steigerung)) < 1e-6);
+  assert.throws(() => WM.berechne({ ...p, technik: { ...p.technik, verschleissEURMWh: -1 } }), /Batterieverschleiß/);
+});
+
+test('Variable Vergütung: Verschleißabzug nur bei ausdrücklicher Vertragsgrundlage', () => {
+  const per = [{ realisierterErtrag: 100000, handelskosten: 30000, gebuehren: 5000, verschleissKosten: 15000 }];
+  const basis = { typ: 'variabel', variabel: { anteil: 0.1 } };
+  assert.equal(VG.variableVerguetung(basis, per).basis, 65000);
+  assert.equal(VG.variableVerguetung({ typ: 'variabel', variabel: { anteil: 0.1, verschleissAbziehen: true } }, per).basis, 50000);
+});
+
+test('Demo-Kennzeichen vererbt sich auf neue verbindliche Stände und erzwingt synthetische Zahlungen', () => {
+  const db = { vertragsstaende: [], verguetungsangebote: [] };
+  const bed = { pacht: { flaecheHa: 1, pachtJeHa: 10000, laufzeitJahre: 20 } };
+  VT.neuerStand(db, { vertragId: 'd1', stufe: 'simulation', typ: 'festpacht', bedingungen: bed, von: 'u', synthetisch: true });
+  const s = VT.neuerStand(db, { vertragId: 'd1', stufe: 'unterzeichnet', typ: 'festpacht', bedingungen: bed, dokumentRef: 'x', von: 'u' });
+  assert.equal(s.synthetisch, true);
+  const echt = VT.neuerStand(db, { vertragId: 'e1', stufe: 'eckdaten', typ: 'festpacht', bedingungen: bed, von: 'u' });
+  assert.equal(echt.synthetisch, false);
+});
+
+test('Demo-Bestand Stand 1 wird nur nachgekennzeichnet, Werte und Versionen bleiben', async () => {
+  const { ensureFinanceDemo } = await import('../src/lib/finance/demo.mjs');
+  const alt = { vertragId: 'k-1', version: 3, bedingungen: { pacht: { pachtJeHa: 22000 } } };
+  const echt = { vertragId: 'k-real', version: 1, bedingungen: {} };
+  const db = { meta: { finanzDemo: 1 }, projects: [{ id: 'p-n01' }], finanzmodelle: [{ id: 'fm-x', params: { technik: {} } }], vertragsstaende: [alt, echt], verguetungsangebote: [], zahlungen: [], handelsdaten: [], finanzFreigaben: [] };
+  ensureFinanceDemo(db);
+  assert.equal(alt.synthetisch, true); assert.equal(echt.synthetisch, undefined);
+  assert.equal(alt.version, 3); assert.equal(alt.bedingungen.pacht.pachtJeHa, 22000);
+  assert.equal(db.finanzmodelle.length, 1, 'keine neuen Demo-Modelle'); assert.equal(db.meta.finanzDemo, 2);
 });

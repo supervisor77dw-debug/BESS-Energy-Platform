@@ -71,7 +71,7 @@ Bemessungsgrundlage je Abrechnungsjahr = Σ (realisierter Ertrag − Handelskost
 
 Vergütung = max(0, Grundlage) × vereinbarter Anteil, mindestens Mindestbetrag, höchstens Deckel.
 
-Die Fälligkeit liegt am 31.03. des Folgejahres (Demo-Annahme, vertraglich festzulegen). Liegen weniger als zwölf Monatsdatensätze vor, erscheint der Anspruch als „Prognose“ mit dem Hinweis „vorläufiger Wert“, nie als „Fällig“. Ob Verschleißkosten abgezogen werden, ist Vertragssache (KLÄRUNGSBEDARF); das Modell zieht sie derzeit nicht ab.
+Die Fälligkeit liegt am 31.03. des Folgejahres (Demo-Annahme, vertraglich festzulegen). Liegen weniger als zwölf Monatsdatensätze vor, erscheint der Anspruch als „Prognose“ mit dem Hinweis „vorläufiger Wert“, nie als „Fällig“. Ob Verschleißkosten abgezogen werden, regelt allein der jeweilige Vertrag (Schalter `verschleissAbziehen`, Standard: nein). Das Demo-Beispiel zieht sie nicht ab.
 
 ## Rechte
 

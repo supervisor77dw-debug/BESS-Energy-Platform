@@ -110,8 +110,9 @@ export function variantenvergleich({ startpacht, kaufpreisHeute, laufzeitJahre, 
 // Bemessungsgrundlage: realisierter Handelsertrag nach Kosten und Gebühren aus der Handelsdaten-Schnittstelle.
 export function variableVerguetung(vertrag, perioden) {
   if (vertrag?.typ !== 'variabel') throw new RangeError('Variable Vergütung nur für Verträge vom Typ „variabel“ – eine Festpacht ist nicht am Handelsergebnis beteiligt.');
-  const { anteil, mindestbetrag = 0, deckel = Infinity } = vertrag.variabel;
-  const basis = sum(perioden.map((p) => p.realisierterErtrag - p.handelskosten - p.gebuehren));
+  const { anteil, mindestbetrag = 0, deckel = Infinity, verschleissAbziehen = false } = vertrag.variabel;
+  // Bemessung streng nach Vertragsgrundlage: Verschleiß wird nur abgezogen, wenn der Vertrag es ausdrücklich vorsieht
+  const basis = sum(perioden.map((p) => p.realisierterErtrag - p.handelskosten - p.gebuehren - (verschleissAbziehen ? p.verschleissKosten || 0 : 0)));
   const roh = Math.max(0, basis) * anteil;
   return { basis: cent(basis), betrag: cent(Math.min(Math.max(roh, mindestbetrag), deckel)) };
 }

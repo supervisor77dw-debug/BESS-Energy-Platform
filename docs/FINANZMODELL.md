@@ -28,7 +28,7 @@ Die Module sind reine Funktionen ohne Speicherzugriff. Ausnahme: `neuerStand`, `
 | Gruppe | Felder (Auszug) |
 |---|---|
 | Standort | Grundstück, Fläche/Options-/Betriebsfläche ha, Netzanschlussstandort, Grundstücksmodell (Pacht/Kauf) |
-| Batterietechnik | Leistung MW, Kapazität MWh, nutzbarer Anteil, Zyklus-Wirkungsgrad, Verfügbarkeit, Degradation p. a., Zyklen/Jahr, Betriebsdauer |
+| Batterietechnik | Leistung MW, Kapazität MWh, nutzbarer Anteil, Zyklus-Wirkungsgrad, Verfügbarkeit, Degradation p. a., Zyklen/Jahr, Betriebsdauer, Batterieverschleiß EUR je ausgespeicherter MWh |
 | CAPEX | Batterie, PCS, Trafo, Netzanschluss inkl. BKZ, Bau, Erschließung, Brandschutz, Planung, Genehmigung, Nebenkosten, Reserve % |
 | OPEX | Wartung, Versicherung, Grundstück (Pacht), Netz/Messung, IT, Monitoring/Betriebsführung, Ersatzteile, Rückbauvorsorge, Vermarktung % der Bruttoerlöse, Kostensteigerung p. a. |
 | Finanzierung | Fremdkapitalanteil, Zins, Laufzeit (Annuität), Finanzierungskosten % des Kredits, Schuldendienstreserve (Monate) |
@@ -46,6 +46,11 @@ Die Module sind reine Funktionen ohne Speicherzugriff. Ausnahme: `neuerStand`, `
 - **Keine Doppelzählung:** Die Summe der Anteile aller Vermarktungswege muss ≤ 100 % sein, sonst wird die Berechnung abgewiesen (HTTP 422). Parallel vermarktete Leistung wird damit nur einmal gezählt.
 - Vermarktungskosten = Bruttoerlöse × Vermarktungsanteil
 - OPEX = Summe der Posten × (1 + Kostensteigerung)^(j−1)
+- **Batterieverschleiß** (ab AW-011): ausgespeicherte MWh des Jahres × Verschleißsatz × (1 + Kostensteigerung)^(j−1). Er erscheint als eigener Betriebskostenposten „Batterieverschleiß (Zyklenkosten)“. Physikalisch wirkt der Verschleiß doppelt, aber ohne Doppelzählung:
+  - als Kapazitätsverlust über die Degradation (weniger Durchsatz und Erlös);
+  - als Kosten über den Zyklensatz (Rücklage für Zelltausch und Augmentierung).
+
+  Hält eine Augmentierung die Kapazität konstant, ist die Degradation auf 0 zu setzen und der Satz entsprechend zu erhöhen.
 - EBITDA = Brutto − Vermarktung − OPEX. Der operative Cashflow ist gleich EBITDA (vor Steuern, ohne Working Capital).
 - Kredit:
   - Fremdkapital = Gesamtinvestition × FK-Anteil
@@ -95,7 +100,7 @@ Die Module sind reine Funktionen ohne Speicherzugriff. Ausnahme: `neuerStand`, `
 | Kaufpreis je m² | Referenz-Bodenwert × Bodenwertfaktor + Standortprämie, begrenzt auf [Mindestpreis, Höchstpreis (Cap)]; Cap < Mindestpreis wird abgewiesen | § 11 |
 | Kaufpreis gesamt | m² × Preis je m² × (1 + Indexierung)^Jahre bis Ausübung | § 11/12 |
 | Variantenvergleich | Pacht / Kauf / Pacht mit Kauf im Jahr k, nominal und Barwert (nachschüssig) | – |
-| Variable Vergütung | Nur Vertragstyp `variabel`: Anteil × (realisierter Ertrag − Handelskosten − Gebühren), mindestens 0, mit Mindestbetrag und Deckel. Eine Festpacht ist nie an Handelsergebnisse gekoppelt (Funktion wirft für andere Typen) | gesondert zu vereinbaren |
+| Variable Vergütung | Nur Vertragstyp `variabel`: Anteil × (realisierter Ertrag − Handelskosten − Gebühren − Batterieverschleiß, Letzteres nur wenn der Vertrag `verschleissAbziehen` ausdrücklich vorsieht), mindestens 0, mit Mindestbetrag und Deckel. Eine Festpacht ist nie an Handelsergebnisse gekoppelt (Funktion wirft für andere Typen) | gesondert zu vereinbaren |
 
 Beträge, die Ansprüche werden, sind auf Cent gerundet.
 
@@ -111,6 +116,10 @@ Beträge, die Ansprüche werden, sind auf Cent gerundet.
 | 6 | Abgerechnete Zahlungen | – | `zahlungen` | nur Administration; in der Vorschau immer `synthetisch` |
 
 - Stände werden nur angefügt und nie geändert. Die Bedingungen sind eingefroren.
+- **Demo-Kennzeichen** (`synthetisch`) vererbt sich je Vertrag:
+  - Aus einem synthetischen Vertrag entsteht nie ein echter verbindlicher Stand.
+  - Zahlungen zu ihm sind immer synthetisch.
+  - Eigentümer sehen „Demo-Vertrag“ mit dem Hinweis, dass keine Zahlungsansprüche entstehen.
 - Ansprüche entstehen ausschließlich aus dem jüngsten verbindlichen Stand. **Eine Simulation ändert nie einen Vertrag.**
 - Anspruchsstatus:
   - Vereinbart
@@ -172,7 +181,13 @@ Optionsentgelte je Jahr, Pacht mit Mindestpacht, VPI-Weitergabe, Kaufpreisformel
 - drei Demo-Zahlungen (`synthetisch: true`, Anzeige „keine reale Zahlung“);
 - zwölf Monate synthetische Handelsdaten.
 
-Demo-Annahmen Basis Nord A: Batterie 120 €/kWh, 365 Zyklen, 1,5 % Degradation, Spreads 165/50 und 180/55 €/MWh, Regelreserve 135.000 €/MW/Jahr. Ergebnis: DSCR min. 1,26, Projekt-IRR 8,3 %. Das sind keine Marktdaten.
+Demo-Annahmen Basis Nord A: Batterie 120 €/kWh, 365 Zyklen, 1,5 % Degradation, Batterieverschleiß 8 €/MWh, Spreads 165/50 und 180/55 €/MWh, Regelreserve 135.000 €/MW/Jahr.
+
+Ergebnis ab AW-011 (mit Verschleiß): DSCR min. 1,15, Projekt-IRR 7,2 %. Unter AW-010 (ohne Verschleiß) waren es 1,26 und 8,3 %.
+
+**Diese Werte sind synthetische Rechenbeispiele, keine Marktdaten und keine Marktprognose.**
+
+Bestehende Demo-Bestände (Kennzeichen 1) werden beim Laden nur nachgekennzeichnet: Demo-Verträge erhalten `synthetisch`. Werte und Versionen bleiben unverändert.
 
 **Vor Echtbetrieb:**
 1. Den Aufruf `ensureFinanceDemo` in `src/lib/store.mjs` entfernen.

@@ -24,7 +24,7 @@ const addMonths = (iso, m) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTC
 const addYears = (iso, y) => addMonths(iso, 12 * y);
 
 // Neuen Stand anlegen (Angebot oder verbindlicher Vertragsstand). Bestehende Stände werden nie verändert.
-export function neuerStand(db, { vertragId, projectId, ownerContactId, stufe, typ, bedingungen, dokumentRef, gueltigAb, notiz, von, freigabeEigentuemer = false }) {
+export function neuerStand(db, { vertragId, projectId, ownerContactId, stufe, typ, bedingungen, dokumentRef, gueltigAb, notiz, von, freigabeEigentuemer = false, synthetisch = false }) {
   if (!STUFEN[stufe]) throw new RangeError('Unbekannte Vertragsstufe.');
   if (!VERTRAGSTYPEN[typ]) throw new RangeError('Unbekannter Vertragstyp.');
   const verbindlich = STUFEN[stufe].verbindlich;
@@ -34,7 +34,9 @@ export function neuerStand(db, { vertragId, projectId, ownerContactId, stufe, ty
   const version = 1 + Math.max(0, ...sammlung.filter((x) => x.vertragId === vertragId).map((x) => x.version));
   const stand = { id: `${verbindlich ? 'vs' : 'va'}-${vertragId}-${version}`, vertragId, projectId, ownerContactId, stufe, typ, version,
     bedingungen: structuredClone(bedingungen), dokumentRef: dokumentRef || null, gueltigAb: gueltigAb || null, notiz: notiz || '', erstelltVon: von, erstelltAm: new Date().toISOString(),
-    freigabeEigentuemer: verbindlich ? !!freigabeEigentuemer : false };
+    freigabeEigentuemer: verbindlich ? !!freigabeEigentuemer : false,
+    // Demo-Kennzeichen vererbt sich: Aus einem synthetischen Vertrag entsteht nie ein echter verbindlicher Stand
+    synthetisch: !!synthetisch || [...db.vertragsstaende, ...db.verguetungsangebote].some((x) => x.vertragId === vertragId && x.synthetisch) };
   Object.freeze(stand.bedingungen);
   sammlung.push(stand);
   return stand;
