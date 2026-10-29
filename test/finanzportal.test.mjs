@@ -51,10 +51,10 @@ test('Demo-Daten: drei Projektgesellschaften mit unterschiedlichen Modellen und 
 test('Administration: Projektakte mit Szenarien, Metadaten und CSV-Export', async () => {
   const { r, body } = await admin.text('/portal/wirtschaftlichkeit/p-n01');
   assert.equal(r.status, 200);
-  for (const t of ['Konservativ', 'Basis', 'Optimistisch', 'Projekt-IRR', 'Eigenkapital-IRR', 'DSCR minimal', 'Kapitalwert', 'STROMKAI-WM 1.0', 'synthetisch', 'Prüfsumme']) assert.match(body, new RegExp(t));
+  for (const t of ['Konservativ', 'Basis', 'Optimistisch', 'Projekt-IRR', 'Eigenkapital-IRR', 'DSCR minimal', 'Kapitalwert', 'STROMKAI-WM 1.1', 'synthetisch', 'Prüfsumme']) assert.match(body, new RegExp(t));
   const csv = await admin.req('/portal/wirtschaftlichkeit/p-n01/export.csv?s=konservativ');
   assert.equal(csv.status, 200); assert.match(csv.headers.get('content-type'), /text\/csv/);
-  const t = await csv.text(); assert.match(t, /Szenario;Konservativ/); assert.match(t, /Modellversion;STROMKAI-WM 1\.0/);
+  const t = await csv.text(); assert.match(t, /Szenario;Konservativ/); assert.match(t, /Modellversion;STROMKAI-WM 1.1/);
 });
 
 test('Neu berechnen erzeugt eine neue Version; ungültige Eingaben (Doppelzählung) werden abgewiesen', async () => {

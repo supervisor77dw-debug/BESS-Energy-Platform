@@ -57,13 +57,13 @@ if (a) {
   const [r1, b1] = await a.text('/portal/wirtschaftlichkeit');
   check('Admin: Übersicht Wirtschaftlichkeit mit allen Demo-SPVs', r1.status === 200 && /DEMO-N01/.test(b1) && /DEMO-S01/.test(b1));
   const [r2, b2] = await a.text('/portal/wirtschaftlichkeit/p-n01');
-  check('Admin: Projektakte mit Szenarien, Kennzahlen und Metadaten', r2.status === 200 && ['Konservativ', 'Basis', 'Optimistisch', 'DSCR minimal', 'Projekt-IRR', 'Eigenkapital-IRR', 'Kapitalwert', 'STROMKAI-WM 1.0', 'Prüfsumme', 'synthetisch'].every((t) => b2.includes(t)));
+  check('Admin: Projektakte mit Szenarien, Kennzahlen und Metadaten', r2.status === 200 && ['Konservativ', 'Basis', 'Optimistisch', 'DSCR minimal', 'Projekt-IRR', 'Eigenkapital-IRR', 'Kapitalwert', 'STROMKAI-WM 1.1', 'Prüfsumme', 'synthetisch'].every((t) => b2.includes(t)));
   const dscr = arg('--dscr');
   if (dscr) check(`Admin: Basis-DSCR der Demo ${dscr}×`, b2.includes(`${dscr}×`));
   check('Admin: Eingabe Batterieverschleiß vorhanden', /Batterieverschleiß/.test(b2));
   const csv = await a.req('/portal/wirtschaftlichkeit/p-n01/export.csv');
   const ct = await csv.text();
-  check('Admin: CSV-Export mit Modellversion und Semikolon', csv.status === 200 && /text\/csv/.test(csv.headers.get('content-type') || '') && /STROMKAI-WM 1\.0/.test(ct) && ct.includes(';'));
+  check('Admin: CSV-Export mit Modellversion und Semikolon', csv.status === 200 && /text\/csv/.test(csv.headers.get('content-type') || '') && /STROMKAI-WM 1.1/.test(ct) && ct.includes(';'));
   const [r3, b3] = await a.text('/portal/verguetung/p-s01');
   check('Admin: Vergütung intern mit Vertragsstufen und Nachtrag', r3.status === 200 && /Unterzeichneter Vertrag/.test(b3) && /Nachtrag/.test(b3));
   const [r4, b4] = await a.text('/portal/admin/handelsdaten');

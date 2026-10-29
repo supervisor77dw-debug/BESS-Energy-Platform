@@ -3,10 +3,13 @@
 // Energieerlöse = ausgespeicherte Energie × Verkaufspreis − eingespeicherte Energie (inkl. Wirkungsgradverluste) × Einkaufspreis;
 // Leistungserlöse (Regelreserve) je MW und Jahr. Jede Vermarktung belegt einen Anteil der Speicherleistung; die Summe der
 // Anteile darf 100 % nicht überschreiten (keine Doppelzählung parallel vermarkteter Leistung). Keine Steuern, kein Restwert.
+// 1.1 (AW-STROMKAI-20261029-INVESTITIONSPLANER-016): optionale Positionen Leittechnik/EMS, Bauzeitzinsen und Sonstige;
+// optionale variable Handelskosten je ausgespeicherter MWh; optionaler Schuldendienstplan (Tranchen, tilgungsfreie Jahre)
+// aus dem Finanzierungsrechner des Investitionsplaners. Ohne diese Angaben rechnet 1.1 identisch zu 1.0 (Regressionstest).
 import { createHash } from 'node:crypto';
 import { cent, sum } from './geld.mjs';
 
-export const MODELL_VERSION = 'STROMKAI-WM 1.0';
+export const MODELL_VERSION = 'STROMKAI-WM 1.1';
 
 export const SZENARIEN = {
   konservativ: { name: 'Konservativ', erloes: 0.8, capex: 1.1, opex: 1.1, zinsDelta: 0.01, degradationDelta: 0.005 },
@@ -14,7 +17,7 @@ export const SZENARIEN = {
   optimistisch: { name: 'Optimistisch', erloes: 1.15, capex: 0.95, opex: 0.95, zinsDelta: -0.005, degradationDelta: -0.003 },
 };
 
-export const CAPEX_POSTEN = [['batterie', 'Batteriesysteme'], ['pcs', 'Wechselrichter (PCS)'], ['trafo', 'Transformatoren'], ['netzanschluss', 'Netzanschluss inkl. Baukostenzuschuss'], ['bau', 'Bau und Montage'], ['erschliessung', 'Erschließung'], ['brandschutz', 'Brandschutz'], ['planung', 'Planung'], ['genehmigung', 'Genehmigungen und Gutachten'], ['nebenkosten', 'Nebenkosten']];
+export const CAPEX_POSTEN = [['batterie', 'Batteriesysteme'], ['pcs', 'Wechselrichter (PCS)'], ['trafo', 'Transformatoren'], ['netzanschluss', 'Netzanschluss inkl. Baukostenzuschuss'], ['bau', 'Bau und Montage'], ['erschliessung', 'Erschließung'], ['brandschutz', 'Brandschutz'], ['planung', 'Planung'], ['genehmigung', 'Genehmigungen und Gutachten'], ['nebenkosten', 'Nebenkosten'], ['leittechnik', 'Mess-, Steuer- und Leittechnik, EMS'], ['bauzeitzinsen', 'Finanzierungskosten der Bauphase'], ['sonstige', 'Sonstige Projektkosten']];
 export const OPEX_POSTEN = [['wartung', 'Wartung'], ['versicherung', 'Versicherung'], ['grundstueck', 'Grundstückskosten (Pacht)'], ['netzMess', 'Netz- und Messkosten'], ['it', 'IT und Kommunikation'], ['monitoring', 'Monitoring und Betriebsführung'], ['ersatzteile', 'Ersatzteile'], ['rueckbau', 'Rückbauvorsorge']];
 
 const fehlerListe = (p) => {
@@ -34,6 +37,13 @@ const fehlerListe = (p) => {
   quote(fin.fkAnteil, 'Fremdkapitalanteil');
   if (fin.fkAnteil > 0) { if (!(fin.laufzeitJahre >= 1)) f.push('Kreditlaufzeit muss ≥ 1 Jahr sein.'); if (!(fin.zins >= 0)) f.push('Zins muss ≥ 0 sein.'); }
   if (fin.laufzeitJahre > t.betriebsjahre) f.push('Die Kreditlaufzeit ist länger als die Betriebsdauer.');
+  for (const e of p.einnahmen || []) if (e.variableKostenEURMWh != null && !(e.variableKostenEURMWh >= 0)) f.push(`Variable Kosten „${e.name}“ müssen ≥ 0 EUR/MWh sein.`);
+  if (fin.schuldendienstplan != null) {
+    const plan = fin.schuldendienstplan;
+    if (!Array.isArray(plan) || plan.some((x) => !(x.zinsen >= 0) || !(x.tilgung >= 0))) f.push('Schuldendienstplan: Zinsen und Tilgung je Jahr müssen ≥ 0 sein.');
+    else if (plan.length > t.betriebsjahre) f.push('Der Schuldendienstplan ist länger als die Betriebsdauer.');
+    else if (Math.abs(sum(plan.map((x) => x.tilgung)) - 1) > 1e-6) f.push('Schuldendienstplan: Die Tilgungsanteile müssen zusammen 100 % des Fremdkapitals ergeben.');
+  }
   return f;
 };
 export const pruefeParameter = fehlerListe;
@@ -80,7 +90,11 @@ export function berechne(params, szenarioKey = 'basis', { quelle = 'Eingabe Port
   const gesamtinvestition = capexOhneReserve + reserve;
   const fk = gesamtinvestition * (fin.fkAnteil || 0);
   const finanzierungskosten = fk * (fin.finanzierungskostenAnteil || 0);
-  const rate = annuitaet(fk, zins, fin.laufzeitJahre || 1);
+  // Schuldendienstplan (1.1): Anteile am Fremdkapital je Betriebsjahr; Zinsen als Satz auf das Fremdkapital (aus dem Finanzierungsrechner)
+  // Szenarien verschieben den Zins; bei festem Tilgungsverlauf sind die Zinsen proportional zum Satz
+  const zinsFaktor = fin.zins > 0 ? zins / fin.zins : 1;
+  const plan = fin.schuldendienstplan ? fin.schuldendienstplan.map((x) => ({ zinsen: x.zinsen * fk * zinsFaktor, tilgung: x.tilgung * fk })) : null;
+  const rate = plan ? Math.max(0, ...plan.map((x) => x.zinsen + x.tilgung)) : annuitaet(fk, zins, fin.laufzeitJahre || 1);
   const dsra = rate * (fin.dsraMonate || 0) / 12; // Schuldendienstreserve, aus Eigenkapital, Freigabe nach Kreditende
   const ekBedarf = gesamtinvestition - fk + finanzierungskosten + dsra;
 
@@ -98,7 +112,7 @@ export function berechne(params, szenarioKey = 'basis', { quelle = 'Eingabe Port
         betrag = (ausMWh * e.verkaufEURMWh - einMWh * e.einkaufEURMWh) * sz.erloes;
       } else if (e.art === 'leistung') betrag = t.leistungMW * e.anteil * e.eurJeMWJahr * t.verfuegbarkeit * sz.erloes;
       else betrag = (e.eurJahr || 0) * sz.erloes;
-      return { key: e.key, name: e.name, betrag, ausMWh, einMWh };
+      return { key: e.key, name: e.name, betrag, ausMWh, einMWh, variableKostenEURMWh: e.variableKostenEURMWh || 0 };
     });
     const brutto = sum(erloese.map((x) => x.betrag));
     const vermarktung = brutto * (params.opex?.vermarktungAnteil || 0);
@@ -107,12 +121,15 @@ export function berechne(params, szenarioKey = 'basis', { quelle = 'Eingabe Port
     // Batterieverschleiß als Zyklenkosten je ausgespeicherter MWh (Rücklage für Zelltausch/Augmentierung); Kapazitätsverlust bildet die Degradation ab
     const verschleissMWh = sum(erloese.map((x) => x.ausMWh));
     opexPosten.push({ key: 'verschleiss', name: 'Batterieverschleiß (Zyklenkosten)', betrag: verschleissMWh * (t.verschleissEURMWh || 0) * sz.opex * esk });
+    const variabel = sum(erloese.map((x) => x.ausMWh * (x.variableKostenEURMWh || 0)));
+    if (variabel > 0) opexPosten.push({ key: 'variabel', name: 'Variable Handelskosten (Netzentgelt-Arbeitspreis, Hilfsenergie, Börse, Bilanzierung)', betrag: variabel * sz.opex * esk });
     const opex = sum(opexPosten.map((x) => x.betrag));
     const ebitda = brutto - vermarktung - opex;
     let zinsen = 0, tilgung = 0;
-    if (j <= (fin.laufzeitJahre || 0) && restschuld > 1e-9) { zinsen = restschuld * zins; tilgung = rate - zinsen; restschuld -= tilgung; }
+    if (plan) { const x = plan[j - 1]; if (x) { zinsen = x.zinsen; tilgung = Math.min(x.tilgung, restschuld); restschuld -= tilgung; } }
+    else if (j <= (fin.laufzeitJahre || 0) && restschuld > 1e-9) { zinsen = restschuld * zins; tilgung = rate - zinsen; restschuld -= tilgung; }
     const schuldendienst = zinsen + tilgung;
-    const dsraFreigabe = j === fin.laufzeitJahre ? dsra : 0;
+    const dsraFreigabe = j === (plan ? plan.length : fin.laufzeitJahre) ? dsra : 0;
     const operativerCF = ebitda; // vor Steuern, ohne Veränderung des Umlaufvermögens
     jahre.push({ jahr: j, kapazitaetsfaktor: kapFaktor, erloese, brutto, vermarktung, opexPosten, opex, ebitda, operativerCF, zinsen, tilgung, schuldendienst, restschuld: Math.max(0, restschuld),
       dscr: schuldendienst > 0 ? operativerCF / schuldendienst : null, ekCF: operativerCF - schuldendienst + dsraFreigabe,

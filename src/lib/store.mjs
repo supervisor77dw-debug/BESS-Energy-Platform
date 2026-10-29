@@ -5,6 +5,7 @@
 // Zugriff ausschließlich über die Repository-Funktionen in policy.mjs, die jede Abfrage an den Nutzer binden.
 // Ablauf je Anfrage: refresh() → Handler (ändert db, ruft persist()) → flush() vor dem Senden der Antwort.
 import { ensureFinanceDemo } from './finance/demo.mjs';
+import { KATALOG_START } from './planer/planer.mjs';
 import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -18,7 +19,9 @@ let driver = null;    // { kind, ... }
 let STATE = 'state/db.json';
 let FILES = 'files/';
 // Finanzmodul: Sammlungen anlegen und synthetische Demo-Daten einmalig ergänzen (Entwicklungs- und Abnahmephase)
-const ensureCollections = (d) => { for (const k of ['audit', 'downloads', 'inquiries', 'messages', 'approvals', 'uploads', 'revoked', 'gateUsers', 'invitations', 'grants']) d[k] ??= []; d.meta ??= {}; ensureFinanceDemo(d); return d; };
+const ensureCollections = (d) => { for (const k of ['audit', 'downloads', 'inquiries', 'messages', 'approvals', 'uploads', 'revoked', 'gateUsers', 'invitations', 'grants']) d[k] ??= []; d.meta ??= {}; ensureFinanceDemo(d); ensurePlaner(d); return d; };
+// Investitionsplaner (AW-016): Sammlungen anlegen, Platzhalter-Katalog einmalig ergänzen (ohne Herstellerbezug und ohne Preise)
+const ensurePlaner = (d) => { for (const k of ['planerStaende', 'planerKatalog', 'planerAngebote']) d[k] ??= []; if (!d.meta.planerKatalog) { for (const x of KATALOG_START) if (!d.planerKatalog.some((y) => y.id === x.id)) d.planerKatalog.push(structuredClone(x)); d.meta.planerKatalog = 1; } };
 
 export async function openStore(opts) {
   if (typeof opts === 'string') opts = { kind: 'file', dataDir: opts };

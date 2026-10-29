@@ -333,3 +333,44 @@ details[open] > summary { margin-bottom: 6px; }
 @media (max-width: 560px) { .modul-grid { grid-template-columns: 1fr; } .modul { min-height: 44px; } }
 .kv > div > span { display: block; color: var(--muted); font-size: 12.5px; } .kv > div > strong { font-weight: 500; }
 .row-current th { background: color-mix(in srgb, var(--ok-bg) 70%, transparent); }
+
+/* Anlagenplanung & Investition (AW-STROMKAI-20261029-INVESTITIONSPLANER-016) */
+.ip-marken { display: flex; gap: 6px; flex-wrap: wrap; }
+.ip-schritte { list-style: none; margin: var(--space-3) 0 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; counter-reset: none; }
+.ip-schritte a { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 8px; min-height: 44px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--r2); color: var(--text-2); text-decoration: none; font-size: 13px; line-height: 1.25; background: var(--panel); }
+.ip-schritte a:hover { border-color: var(--ctl-line); background: var(--panel-2); }
+.ip-schritte a[aria-current="step"] { border-color: var(--brand-action); background: var(--brand-action); color: var(--brand-on-action); font-weight: 600; }
+.ip-nr { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; border: 1px solid currentColor; font-size: 12px; font-weight: 650; }
+.ip-speichern { display: flex; align-items: end; gap: 12px; flex-wrap: wrap; margin-top: var(--space-3); }
+.ip-speichern .fld { flex: 1 1 280px; }
+.ip-breit { grid-column: 1 / -1; }
+.ip-angabe { grid-template-columns: 1fr; } .ip-angabe select, .ip-angabe input { width: 100%; }
+.ip-eingabe input, .ip-eingabe select, .ip-kosten input, .ip-kosten select { width: 100%; min-width: 0; }
+.ip-kosten td { min-width: 110px; } .ip-kosten td:nth-child(6) { min-width: 200px; } .ip-kosten th[scope="row"] { min-width: 200px; white-space: normal; }
+.ip-kosten td input + input, .ip-kosten td select + input { margin-top: 4px; }
+.ip-klein { max-width: 140px; }
+.ip-geaendert th[scope="row"] { box-shadow: inset 3px 0 0 var(--brand-mark); }
+.ip-summe th, .ip-summe td { font-weight: 650; border-top: 2px solid var(--line); }
+.ip-gruppe th { background: var(--sunken); font-size: 12.5px; color: var(--text-2); }
+.ip-vergleich td.num { white-space: normal; }
+.ip-meldungen { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+.ip-meldungen li { padding: 8px 12px; border-radius: var(--r2); }
+.ip-info { background: var(--info-bg); color: var(--info); } .ip-warn { background: var(--warn-bg); color: var(--warn); } .ip-bad { background: var(--bad-bg); color: var(--bad); }
+.ip-ebenen { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.ip-plan { margin: 0; } .ip-plan svg { width: 100%; height: auto; max-height: 420px; display: block; background: var(--panel-2); border-radius: var(--r2); }
+.ip-plan figcaption { font-size: 12.5px; color: var(--text-2); margin-top: 6px; line-height: 1.5; }
+.ip-grund { fill: color-mix(in srgb, var(--brand-mark) 22%, transparent); stroke: var(--text-2); }
+.ip-innen { fill: var(--panel); stroke: var(--ctl-line); stroke-dasharray: 2 1; }
+.ip-zufahrt { fill: color-mix(in srgb, var(--muted) 35%, transparent); }
+.ip-station { fill: color-mix(in srgb, var(--info) 30%, transparent); }
+.ip-block { fill: var(--brand-rail); }
+.ip-lg-block::before { background: var(--brand-rail); } .ip-lg-zufahrt::before { background: color-mix(in srgb, var(--muted) 35%, transparent); }
+.ip-lg-station::before { background: color-mix(in srgb, var(--info) 30%, transparent); } .ip-lg-abstand::before { background: color-mix(in srgb, var(--brand-mark) 22%, transparent); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ip-block { fill: #7cc4bb; } :root:not([data-theme="light"]) .ip-lg-block::before { background: #7cc4bb; } }
+@media (max-width: 1100px) { .ip-schritte { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .ip-schritte { grid-template-columns: 1fr 1fr; } }
+@media print { .rail, .top, .demo-bar, .ip-schritte, form, .btn { display: none !important; } .app { display: block; } }
+/* Spalten dürfen schrumpfen; breite Tabellen scrollen in ihrem .tbl-wrap statt die Seite zu verbreitern (AW-016) */
+.grid-2 > * { min-width: 0; }
+.stack > * { min-width: 0; } .stack label > select, .stack label > input:not([type="checkbox"]):not([type="radio"]) { display: block; width: 100%; max-width: 100%; }
+@media (max-width: 1100px) { .ip-zweispaltig { grid-template-columns: 1fr; } }

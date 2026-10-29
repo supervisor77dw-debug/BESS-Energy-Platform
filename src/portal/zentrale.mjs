@@ -12,6 +12,7 @@ import * as P from '../lib/policy.mjs';
 import { eur, pct } from '../lib/finance/geld.mjs';
 import * as D from '../lib/strommarkt/daten.mjs';
 import { darfStrommarkt } from './strommarkt.mjs';
+import { MODELL_VERSION as WM_VERSION } from '../lib/finance/wirtschaftlichkeit.mjs';
 
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 const DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'strommarkt-daten');
@@ -20,6 +21,7 @@ const DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'strommarkt-date
 export const MODULE = [
   { key: 'projekte', titel: 'Projekte & Projektgesellschaften', text: 'Projektgesellschaften, technische Auslegung, Bearbeitungsstand', href: '/portal/projekte', status: 'live', daten: 'demo', auftrag: '-005/-009', recht: (u) => P.isInternal(u) },
   { key: 'wirtschaftlichkeit', titel: 'Wirtschaftlichkeitsrechner', text: 'STROMKAI-WM: CAPEX, OPEX, Cashflow, Kapitalwert, IRR, DSCR, Amortisation je Projektgesellschaft', href: '/portal/wirtschaftlichkeit', status: 'live', daten: 'demo', auftrag: '-010/-011', recht: (u) => P.rolesOf(u).some((r) => ['admin', 'projektleitung', 'vertrieb_nord', 'vertrieb_sued'].includes(r)) },
+  { key: 'anlagenplanung', titel: 'Anlagenplanung & Investition', text: 'Grundstück, Speichersystem, Dimensionierung, Investitionskosten und Finanzierung als Eingangsgrößen für STROMKAI-WM', href: '/portal/anlagenplanung', status: 'qa', daten: 'demo', auftrag: '-016', recht: (u) => P.rolesOf(u).some((r) => r === 'admin' || r === 'projektleitung') },
   { key: 'strommarkt', titel: 'Strommarkt', text: 'Historische Day-Ahead-Preise 2024–2026 (SMARD), Kennzahlen, Diagramme, Handelstage', href: '/portal/strommarkt?b=preise', status: 'qa', daten: 'markt', auftrag: '-012/-013', recht: darfStrommarkt },
   { key: 'backtesting', titel: 'Backtesting', text: 'Theoretisches Optimum (A) gegen realistische Strategien (B2 Rolling Horizon), Monate, Jahre, Kosten, Anlagengrößen', href: '/portal/strommarkt?b=vergleich', status: 'qa', daten: 'markt', auftrag: '-012/-013', recht: darfStrommarkt },
   { key: 'ki', titel: 'KI-Handelsanalyse', text: 'B2-Referenz gegen KI-Strategien, Prognosegüte, Modellstände (Out-of-Sample)', href: '/portal/strommarkt?b=modelle', status: 'qa', daten: 'markt', auftrag: '-012/-013', recht: darfStrommarkt },
@@ -67,7 +69,7 @@ function zentrale(u) {
 <section class="panel"><div class="panel-head"><h2>Bereiche</h2><a class="btn btn-small" href="/portal/entwicklungsstand">Entwicklungsstand</a></div>
 <div class="modul-grid">${sichtbar.map((m) => html`<a class="modul" href="${m.href}"><span class="modul-kopf"><strong>${m.titel}</strong>${status(m.status)}</span><span class="modul-text">${m.text}</span><span class="modul-fuss">${DATEN[m.daten]}</span></a>`)}</div></section>
 <section class="panel"><h2>Datenstand</h2><div class="kv">
-<div><span>Wirtschaftlichkeit</span><strong>Modell STROMKAI-WM 1.0 · ${db.finanzmodelle?.length || 0} Berechnungsversionen (synthetisch)</strong></div>
+<div><span>Wirtschaftlichkeit</span><strong>Modell ${WM_VERSION} · ${db.finanzmodelle?.length || 0} Berechnungsversionen (synthetisch)</strong></div>
 <div><span>Strommarkt & Backtesting</span><strong>${meta ? html`Lauf ${fmtDateTime(meta.lauf.berechnet_utc)} · Datenversion ${meta.datenversion} · ${meta.lauf.qualitaetsstatus}` : 'kein Export'}</strong></div>
 <div><span>Shadow-Trading</span><strong>${plan ? html`Plan für ${datum(plan.liefertag)} (${plan.status}) · ${sh.bewertungen.length} Bewertung(en)` : 'noch kein Lauf'}</strong></div>
 <div><span>Handel</span><strong>Keine realen Handelsaufträge, kein Börsenzugang</strong></div></div></section>`;

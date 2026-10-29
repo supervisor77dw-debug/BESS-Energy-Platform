@@ -39,7 +39,7 @@ export function navFor(u) {
   if (hasRole(u, 'eigentuemer')) n.push(['/portal/verguetung', 'Meine Vergütung', 'euro', 'arbeit']);
   n.push(['/portal/nachrichten', 'Nachrichten', 'msg', 'arbeit']);
   if (rolesOf(u).some((r) => ['admin', 'projektleitung', 'vertrieb_nord', 'vertrieb_sued'].includes(r))) n.push(['/portal/wirtschaftlichkeit', 'Wirtschaftlichkeit', 'chart', 'markt']);
-  if (rolesOf(u).some((r) => r === 'admin' || r === 'projektleitung')) n.push(['/portal/strommarkt', 'Strommarkt & Backtesting', 'chart', 'markt'], ['/portal/netzentgelt', 'Netzentgelt-Szenarien', 'chart', 'markt'], ['/portal/shadow-trading', 'Shadow-Trading', 'pipe', 'markt']);
+  if (rolesOf(u).some((r) => r === 'admin' || r === 'projektleitung')) n.push(['/portal/anlagenplanung', 'Anlagenplanung & Investition', 'land', 'markt'], ['/portal/strommarkt', 'Strommarkt & Backtesting', 'chart', 'markt'], ['/portal/netzentgelt', 'Netzentgelt-Szenarien', 'chart', 'markt'], ['/portal/shadow-trading', 'Shadow-Trading', 'pipe', 'markt']);
   if (isInternal(u)) n.push(['/portal/kontakte', 'Kontakte', 'people', 'team'], ['/portal/aufgaben', 'Aufgaben', 'task', 'team'], ['/portal/anfragen', 'Anfragen', 'inbox', 'team'], ['/portal/freigaben', 'Freigaben', 'check', 'team']);
   if (isAdmin(u)) n.push(['/portal/admin/handelsdaten', 'Handelsdaten', 'pipe', 'admin'], ['/portal/admin/benutzer', 'Benutzer & Berechtigungen', 'people', 'admin'], ['/portal/protokoll', 'Protokoll', 'log', 'admin'], ['/portal/admin', 'Verwaltung', 'admin', 'admin'], ['/portal/entwicklungsstand', 'Entwicklungsstand', 'log', 'admin'], ['/portal/ki', 'KI-Assistenz', 'ai', 'admin']);
   return n;

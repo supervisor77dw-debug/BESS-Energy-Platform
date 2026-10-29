@@ -1,7 +1,7 @@
 # Finanzmodell: Projektwirtschaftlichkeit und Eigentümervergütung
 
 Stand 2026-10-29, Auftrag `AW-STROMKAI-20261029-DESIGN-FINANCE-010`. Modellversionen:
-- `STROMKAI-WM 1.0` (Wirtschaftlichkeit)
+- `STROMKAI-WM 1.1` (Wirtschaftlichkeit; 1.1 seit AW-016 mit optionalen Positionen Leittechnik/Bauzeitzinsen/Sonstige, variablen Handelskosten und Schuldendienstplan, siehe `INVESTITIONSPLANER.md`; ohne diese Angaben identisch zu 1.0)
 - `STROMKAI-VG 1.0` (Vergütung)
 - `STROMKAI-HD 1.0` (Handelsdaten, siehe `HANDELSDATEN_SCHNITTSTELLE.md`)
 

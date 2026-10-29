@@ -47,7 +47,7 @@ export const FELDER = [
   F('bewertung', 'diskontsatz', 'Diskontsatz Kapitalwert', '%', 'prozent'),
 ];
 const GRUPPEN = { standort: 'Standort', technik: 'Batterietechnik', capex: 'Investition (CAPEX)', opex: 'Betrieb (OPEX)', finanzierung: 'Finanzierung', einnahmen: 'Einnahmen', bewertung: 'Bewertung' };
-const ERLOES_FELDER = [['anteil', 'Anteil der Leistung', '%', 'prozent'], ['verkaufEURMWh', 'Verkaufspreis', 'EUR/MWh'], ['einkaufEURMWh', 'Einkaufspreis', 'EUR/MWh'], ['eurJeMWJahr', 'Leistungspreis', 'EUR/MW/Jahr'], ['eurJahr', 'Jahreserlös', 'EUR/Jahr']];
+const ERLOES_FELDER = [['anteil', 'Anteil der Leistung', '%', 'prozent'], ['verkaufEURMWh', 'Verkaufspreis', 'EUR/MWh'], ['einkaufEURMWh', 'Einkaufspreis', 'EUR/MWh'], ['eurJeMWJahr', 'Leistungspreis', 'EUR/MW/Jahr'], ['eurJahr', 'Jahreserlös', 'EUR/Jahr'], ['variableKostenEURMWh', 'Variable Handelskosten', 'EUR je ausgespeicherter MWh']];
 
 function paramsAusFormular(fields, alt) {
   const p = structuredClone(alt);
