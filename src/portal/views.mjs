@@ -27,35 +27,45 @@ const ICON = {
 };
 const icon = (k) => raw(`<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${ICON[k]}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></svg>`);
 
+// Gruppen der Seitenleiste; Rollen und Ziele bestimmt allein navFor.
+const NAV_GRUPPEN = { arbeit: 'Arbeitsbereich', markt: 'Wirtschaftlichkeit & Markt', team: 'Zusammenarbeit', admin: 'Administration' };
+
 export function navFor(u) {
-  const n = isAdmin(u) ? [['/portal/zentrale', 'Zentrale', 'home'], ['/portal', 'Übersicht', 'chart']] : [['/portal', 'Übersicht', 'home']];
-  if (isInternal(u)) n.push(['/portal/pipeline', 'Pipeline', 'pipe']);
-  n.push(['/portal/projekte', u.role === 'eigentuemer' ? 'Projekt' : 'Projekte', 'proj']);
-  if (hasRole(u, 'eigentuemer') || isInternal(u)) n.push(['/portal/grundstuecke', 'Grundstücke', 'land']);
-  n.push(['/portal/dokumente', u.role === 'investor' ? 'Datenraum' : 'Dokumente', 'doc']);
-  if (hasRole(u, 'eigentuemer')) n.push(['/portal/verguetung', 'Meine Vergütung', 'euro']);
-  n.push(['/portal/nachrichten', 'Nachrichten', 'msg']);
-  if (rolesOf(u).some((r) => ['admin', 'projektleitung', 'vertrieb_nord', 'vertrieb_sued'].includes(r))) n.push(['/portal/wirtschaftlichkeit', 'Wirtschaftlichkeit', 'chart']);
-  if (rolesOf(u).some((r) => r === 'admin' || r === 'projektleitung')) n.push(['/portal/strommarkt', 'Strommarkt & Backtesting', 'chart'], ['/portal/netzentgelt', 'Netzentgelt-Szenarien', 'chart'], ['/portal/shadow-trading', 'Shadow-Trading', 'pipe']);
-  if (isInternal(u)) n.push(['/portal/kontakte', 'Kontakte', 'people'], ['/portal/aufgaben', 'Aufgaben', 'task'], ['/portal/anfragen', 'Anfragen', 'inbox'], ['/portal/freigaben', 'Freigaben', 'check']);
-  if (isAdmin(u)) n.push(['/portal/admin/handelsdaten', 'Handelsdaten', 'pipe'], ['/portal/admin/benutzer', 'Benutzer & Berechtigungen', 'people'], ['/portal/protokoll', 'Protokoll', 'log'], ['/portal/admin', 'Verwaltung', 'admin'], ['/portal/entwicklungsstand', 'Entwicklungsstand', 'log'], ['/portal/ki', 'KI-Assistenz', 'ai']);
+  const n = isAdmin(u) ? [['/portal/zentrale', 'Zentrale', 'home', 'arbeit'], ['/portal', 'Übersicht', 'chart', 'arbeit']] : [['/portal', 'Übersicht', 'home', 'arbeit']];
+  if (isInternal(u)) n.push(['/portal/pipeline', 'Pipeline', 'pipe', 'arbeit']);
+  n.push(['/portal/projekte', u.role === 'eigentuemer' ? 'Projekt' : 'Projekte', 'proj', 'arbeit']);
+  if (hasRole(u, 'eigentuemer') || isInternal(u)) n.push(['/portal/grundstuecke', 'Grundstücke', 'land', 'arbeit']);
+  n.push(['/portal/dokumente', u.role === 'investor' ? 'Datenraum' : 'Dokumente', 'doc', 'arbeit']);
+  if (hasRole(u, 'eigentuemer')) n.push(['/portal/verguetung', 'Meine Vergütung', 'euro', 'arbeit']);
+  n.push(['/portal/nachrichten', 'Nachrichten', 'msg', 'arbeit']);
+  if (rolesOf(u).some((r) => ['admin', 'projektleitung', 'vertrieb_nord', 'vertrieb_sued'].includes(r))) n.push(['/portal/wirtschaftlichkeit', 'Wirtschaftlichkeit', 'chart', 'markt']);
+  if (rolesOf(u).some((r) => r === 'admin' || r === 'projektleitung')) n.push(['/portal/strommarkt', 'Strommarkt & Backtesting', 'chart', 'markt'], ['/portal/netzentgelt', 'Netzentgelt-Szenarien', 'chart', 'markt'], ['/portal/shadow-trading', 'Shadow-Trading', 'pipe', 'markt']);
+  if (isInternal(u)) n.push(['/portal/kontakte', 'Kontakte', 'people', 'team'], ['/portal/aufgaben', 'Aufgaben', 'task', 'team'], ['/portal/anfragen', 'Anfragen', 'inbox', 'team'], ['/portal/freigaben', 'Freigaben', 'check', 'team']);
+  if (isAdmin(u)) n.push(['/portal/admin/handelsdaten', 'Handelsdaten', 'pipe', 'admin'], ['/portal/admin/benutzer', 'Benutzer & Berechtigungen', 'people', 'admin'], ['/portal/protokoll', 'Protokoll', 'log', 'admin'], ['/portal/admin', 'Verwaltung', 'admin', 'admin'], ['/portal/entwicklungsstand', 'Entwicklungsstand', 'log', 'admin'], ['/portal/ki', 'KI-Assistenz', 'ai', 'admin']);
   return n;
 }
 
 export function shell({ u, s, path, title, context, body, actions }) {
   const nav = navFor(u);
-  const active = (href) => href === '/portal' ? path === '/portal' : path.startsWith(href);
-  const items = nav.map(([href, label, ic]) => html`<li><a href="${href}"${active(href) ? raw(' aria-current="page"') : ''}>${icon(ic)}<span>${label}</span></a></li>`);
+  // Längster passender Pfad ist aktiv (/portal/admin/benutzer markiert nicht zusätzlich /portal/admin)
+  const aktiv = nav.map(([href]) => href).filter((href) => href === '/portal' ? path === '/portal' : path === href || path.startsWith(href + '/')).sort((a, b) => b.length - a.length)[0];
+  const gruppen = [...new Set(nav.map((x) => x[3]))];
+  const mehrere = gruppen.length > 1;
+  const listen = gruppen.map((g) => html`<div class="rail-group">${mehrere ? html`<p class="rail-group-title" id="nav-${g}">${NAV_GRUPPEN[g]}</p>` : ''}<ul${mehrere ? raw(` aria-labelledby="nav-${g}"`) : ''}>${nav.filter((x) => x[3] === g).map(([href, label, ic]) => html`<li><a href="${href}" title="${label}"${href === aktiv ? raw(' aria-current="page"') : ''}>${icon(ic)}<span>${label}</span></a></li>`)}</ul></div>`);
   return html`<!doctype html>
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow, noarchive"><title>${title} · Portal · ${brand.name}</title>
-<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/static/css/portal.css"></head>
+<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/static/css/portal.css"><script src="/static/js/portal.js"></script></head>
 <body>
 <a class="skip" href="#main">Zum Inhalt springen</a>
 <div class="app">
   <nav class="rail" aria-label="Portalbereiche">
-    <a class="rail-brand" href="/portal" aria-label="Portal ${brand.name}">${raw(brandLogo('rail-logo'))}</a>
-    <ul>${items}</ul>
+    <div class="rail-head">
+      <a class="rail-brand" href="/portal" aria-label="Portal ${brand.name}">${raw(brandLogo('rail-logo'))}<span>${brand.wordmark}</span></a>
+      <button class="rail-menu" type="button" aria-expanded="false" aria-controls="portalnavigation">Menü</button>
+    </div>
+    <div class="rail-nav" id="portalnavigation">${listen}</div>
+    <button class="rail-collapse" type="button" aria-pressed="false" title="Leiste einklappen">${raw('<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>')}<span>Leiste einklappen</span></button>
   </nav>
   <div class="work">
     <header class="top">
