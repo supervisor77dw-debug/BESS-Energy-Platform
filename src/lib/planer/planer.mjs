@@ -171,7 +171,7 @@ export function netzgrenzen(g, pcsMW) {
   const meldungen = [];
   const def = (x) => x != null && Number.isFinite(x);
   for (const [k, n] of [['netzMW', 'Netzanschlussleistung'], ['einspeiseMW', 'Einspeiseleistung'], ['bezugMW', 'Bezugsleistung']])
-    if (def(g[k]) && g[k] < 0) return { status: 'unzulaessig', einspeise: null, bezug: null, grenzeEinspeise: null, grenzeBezug: null, meldungen: [{ art: 'bad', text: `${n} ist negativ. Keine Wirtschaftlichkeitsrechnung.` }] };
+    if (def(g[k]) && g[k] < 0) return { status: 'unzulaessig', ungueltig: true, einspeise: null, bezug: null, grenzeEinspeise: null, grenzeBezug: null, meldungen: [{ art: 'bad', text: `${n} ist negativ. Keine Wirtschaftlichkeitsrechnung.` }] };
   if (def(g.netzMW) && def(g.einspeiseMW) && g.einspeiseMW > g.netzMW) meldungen.push({ art: 'warn', text: `Widersprüchlich: Einspeiseleistung ${num1(g.einspeiseMW)} MW über der Netzanschlussleistung ${num1(g.netzMW)} MW. Es gilt der kleinere Wert.` });
   if (def(g.netzMW) && def(g.bezugMW) && g.bezugMW > g.netzMW) meldungen.push({ art: 'warn', text: `Widersprüchlich: Bezugsleistung ${num1(g.bezugMW)} MW über der Netzanschlussleistung ${num1(g.netzMW)} MW. Es gilt der kleinere Wert.` });
   const grenzeE = [g.netzMW, g.einspeiseMW].filter(def), grenzeB = [g.netzMW, g.bezugMW].filter(def);
@@ -179,12 +179,12 @@ export function netzgrenzen(g, pcsMW) {
   let status;
   if (einspeise <= 0 || bezug <= 0) {
     status = 'unzulaessig';
-    meldungen.push({ art: 'bad', text: `${einspeise <= 0 ? 'Einspeisung' : 'Bezug'} ist am Netzanschluss mit 0 MW begrenzt: Der Speicher kann nicht ${einspeise <= 0 ? 'entladen' : 'laden'}. Keine Wirtschaftlichkeitsrechnung.` });
+    meldungen.push({ art: 'bad', text: `${einspeise <= 0 ? 'Einspeisung' : 'Bezug'} ist am Netzanschluss mit 0 MW begrenzt: Der Speicher kann nicht ${einspeise <= 0 ? 'entladen' : 'laden'}. Wirtschaftlichkeit: Nicht berechnet (Netzgrenzen).` });
   } else if (einspeise < pcsMW - 1e-9 || bezug < pcsMW - 1e-9) {
     status = 'eingeschraenkt';
     if (einspeise < pcsMW - 1e-9) meldungen.push({ art: 'warn', text: `Der Netzanschluss begrenzt die Einspeisung auf ${num1(einspeise)} MW (PCS ${num1(pcsMW)} MW).` });
     if (bezug < pcsMW - 1e-9) meldungen.push({ art: 'warn', text: `Der Netzanschluss begrenzt den Bezug auf ${num1(bezug)} MW (PCS ${num1(pcsMW)} MW).` });
-    meldungen.push({ art: 'warn', text: 'STROMKAI-WM ist ein Jahresmodell ohne zeitaufgelösten Einsatz; unter Netzgrenzen ist die Wirtschaftlichkeit eingeschränkt und nicht belastbar. Übergabe an WM und Freigabe sind gesperrt.' });
+    meldungen.push({ art: 'bad', text: 'Wirtschaftlichkeit: Nicht berechnet (Netzgrenzen). STROMKAI-WM ist ein Jahresmodell ohne zeitaufgelösten Einsatz und bildet Lade- oder Entladegrenzen unter der PCS-Leistung nicht ab; belastbare Erlöse erfordern einen Backtest mit passenden Netzgrenzen. Übergabe an WM und Freigabe sind gesperrt.' });
   } else if (!grenzeE.length || !grenzeB.length) {
     status = 'ungeprueft';
     meldungen.push({ art: 'warn', text: `Netzseitig ungeprüft: ${[!grenzeE.length && 'Einspeisegrenze', !grenzeB.length && 'Bezugsgrenze'].filter(Boolean).join(' und ')} unbekannt.` });
@@ -453,9 +453,14 @@ export const pruefsumme = (x) => createHash('sha256').update(JSON.stringify({ g:
 export const BELASTBARKEIT = {
   modellrechnung: 'Wirtschaftliche Modellrechnung (vereinfachtes Jahresmodell vor Steuern)',
   ungeprueft: 'Modellrechnung, netzseitig ungeprüft',
+  // Netzgrenze unter PCS oder 0 MW (Folgekorrektur -017-R1): keine WM-Rechnung, keine Kennzahlen, keine verwendete Erlösquelle
+  netzgrenzen: 'Nicht berechnet (Netzgrenzen)',
+  // nur noch in älteren Übergaben (planerRef) vorhanden; wird seit -017-R1 nicht mehr vergeben
   eingeschraenkt: 'Eingeschränkt – Netzgrenzen im Jahresmodell nicht abbildbar, nicht belastbar',
   nicht_berechenbar: 'Nicht berechenbar',
 };
+// Übergabe an STROMKAI-WM nur bei Modellrechnung oder netzseitig ungeprüft (Freigabe bleibt bei „ungeprüft“ gesperrt)
+export const wmUebergabeErlaubt = (r) => ['modellrechnung', 'ungeprueft'].includes(r?.belastbarkeit);
 export function rechneVariante({ stand, v, katalog, angebote, basis, ergebnisse, datenversion = null }) {
   const sys = systemVersion(katalog, v.systemRef);
   const dim = dimensioniere(v, sys, stand.grundstueck, stand.annahmen);
@@ -465,21 +470,23 @@ export function rechneVariante({ stand, v, katalog, angebote, basis, ergebnisse,
   const finFehler = pruefeFinanzierung(stand.finanzierung, basis?.technik?.betriebsjahre);
   if (finFehler.length) return { v, sys, dim, pos, fehler: finFehler };
   const finErg = finanzierung(basisSumme, stand.finanzierung, stand.annahmen.reserveAnteil);
-  // Referenz nach der Speicherdauer der Anlage (PCS); unter Netzgrenzen ist sie ohnehin nicht belastbar (siehe Belastbarkeit)
+  // Referenz nach der Speicherdauer der Anlage (PCS); unter Netzgrenzen wird keine gesucht (siehe netzGesperrt)
   const angefordert = ERLOES_QUELLEN[v.erloesQuelle] ? v.erloesQuelle : 'wm';
-  const referenz = angefordert.startsWith('b2_') ? erloesReferenz(ergebnisse, dim.dauerAnlageH, angefordert === 'b2_A' ? 'befreit' : 'ohne_befreiung') : null;
+  // Netzgrenze unter PCS oder 0 MW: Rechnung gesperrt, keine Erlösquelle wird verwendet (negative Werte sind ungültige Eingaben)
+  const netzGesperrt = dim.netzStatus === 'eingeschraenkt' || (dim.netzStatus === 'unzulaessig' && !dim.netz.ungueltig);
+  const referenz = !netzGesperrt && angefordert.startsWith('b2_') ? erloesReferenz(ergebnisse, dim.dauerAnlageH, angefordert === 'b2_A' ? 'befreit' : 'ohne_befreiung') : null;
   const hinweise = [];
   const nutzeRef = referenz && !referenz.fehler;
   const erloes = {
-    angefordert, verwendet: nutzeRef ? angefordert : 'wm', rueckfall: !!referenz?.fehler, grund: referenz?.fehler || null,
+    angefordert, verwendet: netzGesperrt ? null : nutzeRef ? angefordert : 'wm', rueckfall: !!referenz?.fehler, grund: referenz?.fehler || null,
     referenz: nutzeRef ? { anlage: referenz.anlage, dauerRefH: referenz.dauerRef, periode: referenz.periode, strategie: referenz.strategie, netzvariante: referenz.netzvariante, datenversion } : null,
   };
   if (erloes.rueckfall) hinweise.push(`Angeforderte Erlösquelle „${ERLOES_QUELLEN[angefordert]}“ nicht anwendbar: ${referenz.fehler} Verwendet werden die Erlösannahmen der STROMKAI-WM-Version.`);
   if (!basis) hinweise.push('Für dieses Projekt gibt es keine STROMKAI-WM-Version: Betriebskosten, Erlöse und Bewertung fehlen, Wirtschaftlichkeit nicht berechenbar.');
   // Belastbarkeit der Wirtschaftlichkeit
-  let belastbarkeit = { ausreichend: 'modellrechnung', ungeprueft: 'ungeprueft', eingeschraenkt: 'eingeschraenkt', unzulaessig: 'nicht_berechenbar' }[dim.netzStatus];
-  if (!basis) belastbarkeit = 'nicht_berechenbar';
-  const params = basis && belastbarkeit !== 'nicht_berechenbar' ? wmParameter({ g: stand.grundstueck, ann: stand.annahmen, v, dim, sys, pos, fin: stand.finanzierung, finErg, basis, referenz: nutzeRef ? referenz : null }) : null;
+  let belastbarkeit = netzGesperrt ? 'netzgrenzen' : { ausreichend: 'modellrechnung', ungeprueft: 'ungeprueft', unzulaessig: 'nicht_berechenbar' }[dim.netzStatus];
+  if (!basis && !netzGesperrt) belastbarkeit = 'nicht_berechenbar';
+  const params = basis && ['modellrechnung', 'ungeprueft'].includes(belastbarkeit) ? wmParameter({ g: stand.grundstueck, ann: stand.annahmen, v, dim, sys, pos, fin: stand.finanzierung, finErg, basis, referenz: nutzeRef ? referenz : null }) : null;
   const anteile = Object.fromEntries(Object.keys(DATENSTATUS).map((k) => [k, sum(pos.filter((p) => p.datenstatus === k).map((p) => p.gesamt))]));
   const sperren = [];
   if (belastbarkeit !== 'modellrechnung') sperren.push(BELASTBARKEIT[belastbarkeit]);

@@ -96,15 +96,18 @@ test('A6 Bilanz vor und nach der Anordnung: keine Doppelzählung, Blöcke in der
 const stand = (g) => ({ grundstueck: { ...leer, laengeM: 120, breiteM: 100, ...g }, annahmen: ANN, finanzierung: IP.FINANZIERUNG_START });
 const rv = (g, v = {}) => IP.rechneVariante({ stand: stand(g), v: { key: 'A', kosten: {}, systemRef: { systemId: 'sys-ph-2h', version: 1 }, leistungMW: 10, kapazitaetMWh: 20, erloesQuelle: 'wm', ...v }, katalog: IP.KATALOG_START, angebote: [], basis: demoParameter(20, 40, 26400), ergebnisse: ERG, datenversion: 'dv-test' });
 
-test('B1–B3 Einspeisung oder Bezug kleiner als PCS, unterschiedliche Grenzen: Anlage unverändert, eingeschränkt, gesperrt', () => {
+// WM-Schnittstelle direkt (für gesperrte Varianten erzeugt rechneVariante seit -017-R1 keine Parameter mehr)
+const wmp = (r) => IP.wmParameter({ g: stand({}).grundstueck, ann: ANN, v: r.v, dim: r.dim, sys: r.sys, pos: r.pos, fin: IP.FINANZIERUNG_START, finErg: r.finErg, basis: demoParameter(20, 40, 26400), referenz: null });
+test('B1–B3 Einspeisung oder Bezug kleiner als PCS, unterschiedliche Grenzen: Anlage unverändert, Rechnung gesperrt', () => {
   const e = rv({ einspeiseMW: 8, bezugMW: 20 });
   assert.equal(e.dim.pcsMW, 10); assert.equal(e.dim.batterieMW, 12); assert.equal(e.dim.einspeise, 8); assert.equal(e.dim.bezug, 10);
-  assert.equal(e.dim.netzStatus, 'eingeschraenkt'); assert.equal(e.belastbarkeit, 'eingeschraenkt'); assert.ok(e.sperren.length);
-  assert.equal(e.params.technik.leistungMW, 10, 'Netzgrenze überschreibt die Anlagenleistung nicht'); assert.equal(e.params.technik.einspeiseMW, 8);
+  // -017-R1: Netzgrenze unter PCS → nicht berechnet (Netzgrenzen), keine WM-Parameter
+  assert.equal(e.dim.netzStatus, 'eingeschraenkt'); assert.equal(e.belastbarkeit, 'netzgrenzen'); assert.equal(e.params, null); assert.ok(e.sperren.includes('Nicht berechnet (Netzgrenzen)'));
+  assert.equal(wmp(e).technik.leistungMW, 10, 'Netzgrenze überschreibt die Anlagenleistung nicht'); assert.equal(wmp(e).technik.einspeiseMW, 8);
   const b = rv({ einspeiseMW: 20, bezugMW: 6 });
-  assert.equal(b.dim.bezug, 6); assert.equal(b.dim.einspeise, 10); assert.equal(b.belastbarkeit, 'eingeschraenkt');
+  assert.equal(b.dim.bezug, 6); assert.equal(b.dim.einspeise, 10); assert.equal(b.belastbarkeit, 'netzgrenzen'); assert.equal(b.params, null);
   const u = rv({ einspeiseMW: 8, bezugMW: 6 });
-  assert.equal(u.params.technik.einspeiseMW, 8); assert.equal(u.params.technik.bezugMW, 6);
+  assert.equal(wmp(u).technik.einspeiseMW, 8); assert.equal(wmp(u).technik.bezugMW, 6);
   assert.ok(u.dim.meldungen.some((m) => /begrenzt die Einspeisung auf 8 MW/.test(m.text)) && u.dim.meldungen.some((m) => /begrenzt den Bezug auf 6 MW/.test(m.text)));
 });
 
@@ -124,7 +127,8 @@ test('B5 fehlende Netzanschlussdaten: ungeprüft, Freigabe gesperrt, keine erfun
 test('B6 Einspeisung oder Bezug gleich null: keine Wirtschaftlichkeit, keine Division durch null', () => {
   for (const g of [{ einspeiseMW: 0 }, { bezugMW: 0 }, { netzMW: 0 }]) {
     const r = rv(g);
-    assert.equal(r.dim.netzStatus, 'unzulaessig'); assert.equal(r.belastbarkeit, 'nicht_berechenbar'); assert.equal(r.params, null);
+    // -017-R1: Grenze 0 MW ist eine Netzgrenze unter PCS → derselbe Status wie B1–B3
+    assert.equal(r.dim.netzStatus, 'unzulaessig'); assert.equal(r.belastbarkeit, 'netzgrenzen'); assert.equal(r.params, null);
     assert.ok(r.dim.dauerH === null || Number.isFinite(r.dim.dauerH));
   }
   assert.match(IP.erloesReferenz(ERG, null, 'befreit').fehler, /Speicherdauer/); assert.match(IP.erloesReferenz(ERG, Infinity, 'befreit').fehler, /Speicherdauer/);
@@ -278,4 +282,100 @@ test('C5 Rückfall wird in Wirtschaftlichkeit, Vergleich, CSV und Bericht gleich
   const db = (await import('../src/lib/store.mjs')).getDb();
   const fm = db.finanzmodelle.filter((x) => x.projectId === 'p-n02').sort((a, b) => b.version - a.version)[0];
   assert.equal(fm.planerRef.erloes.verwendet, 'wm'); assert.equal(fm.planerRef.erloes.rueckfall, true); assert.match(fm.quelle, /RÜCKFALL/);
+});
+
+// ---------- Folgekorrektur -017-R1: V2 Netzsperre ohne Kennzahlen, V4 Regressionsfälle, V1 Bezeichnung ----------
+const NB = 'Nicht berechnet (Netzgrenzen)';
+const ohneWiderspruch = (meldungen) => !meldungen.some((m) => /rechnet mit|Wirtschaftlichkeit rechnet/.test(m.text));
+
+test('R1-1 Netzexportgrenze 0: Status, keine Dauer, keine WM-Parameter, keine Erlösquelle, Übergabe nicht erlaubt', () => {
+  const r = rv({ netzMW: 20, einspeiseMW: 0, bezugMW: 20 }, { erloesQuelle: 'b2_A' });
+  assert.equal(r.dim.netzStatus, 'unzulaessig'); assert.equal(r.dim.einspeise, 0); assert.equal(r.dim.dauerH, null, 'keine unendliche Speicherdauer');
+  assert.equal(r.belastbarkeit, 'netzgrenzen'); assert.equal(IP.BELASTBARKEIT[r.belastbarkeit], NB);
+  assert.equal(r.params, null, 'keine WM-Rechnung'); assert.equal(IP.wmUebergabeErlaubt(r), false);
+  assert.deepEqual(r.erloes, { angefordert: 'b2_A', verwendet: null, rueckfall: false, grund: null, referenz: null });
+  assert.ok(r.sperren.includes(NB)); assert.ok(r.dim.meldungen.some((m) => m.art === 'bad' && m.text.includes(NB))); assert.ok(ohneWiderspruch(r.dim.meldungen));
+  // Technik und Kosten bleiben berechnet (nur die Wirtschaftlichkeit ist gesperrt)
+  assert.ok(r.dim.bloecke > 0 && r.basisSumme > 0 && r.finErg.gesamt > 0);
+});
+
+test('R1-2 gesperrte Variante (Netz 12 MW < PCS 15 MW) ohne tatsächlich verwendete Erlösquelle; gültige Variante unverändert', () => {
+  const g = { netzMW: 12, einspeiseMW: 12, bezugMW: 12 };
+  const r = rv(g, { leistungMW: 15, kapazitaetMWh: 30, erloesQuelle: 'b2_A' });
+  assert.equal(r.belastbarkeit, 'netzgrenzen'); assert.equal(r.params, null); assert.equal(r.referenz, null, 'keine Referenz gesucht');
+  assert.equal(r.erloes.angefordert, 'b2_A'); assert.equal(r.erloes.verwendet, null); assert.equal(r.erloes.rueckfall, false);
+  assert.ok(!r.hinweise.some((x) => /Verwendet werden die Erlösannahmen/.test(x)), 'kein Rückfall-Hinweis auf WM-Annahmen');
+  assert.ok(ohneWiderspruch(r.dim.meldungen));
+  // gleiche Fläche und Netz, 10-MW-Variante: Netz ausreichend → reguläre Rechnung mit B2
+  const ok = rv(g, { leistungMW: 10, kapazitaetMWh: 20, erloesQuelle: 'b2_A' });
+  assert.equal(ok.belastbarkeit, 'modellrechnung'); assert.equal(ok.erloes.verwendet, 'b2_A'); assert.ok(ok.params); assert.equal(IP.wmUebergabeErlaubt(ok), true);
+  assert.doesNotThrow(() => WM.berechne(ok.params, 'basis'));
+  // ungeprüft (keine Netzdaten) bleibt übergabefähig, Freigabe gesperrt
+  const unb = rv({});
+  assert.equal(IP.wmUebergabeErlaubt(unb), true); assert.ok(unb.sperren.length);
+});
+
+test('R1-3 Oberfläche, Vergleich, CSV, Bericht und serverseitige Übergabe bei Netzsperre; Exportgrenze 0 über HTTP', async () => {
+  let cookie = '';
+  const req = async (p, o = {}) => { const r = await fetch(base + p, { redirect: 'manual', ...o, headers: { ...(o.headers || {}), cookie } }); const sc = r.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0]; return r; };
+  const lb = await (await req('/portal/login')).text();
+  await req('/portal/anmelden', { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ _t: /name="_t" value="([^"]+)"/.exec(lb)[1], email: 'admin@demo.invalid', password: 'Vorschau!Speicher-2026' }).toString() });
+  const csrf = /name="_csrf" value="([^"]+)"/.exec(await (await req('/portal/anlagenplanung')).text())[1];
+  const form = (p, f) => req(p, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ _csrf: csrf, ...f }).toString() });
+  const db = (await import('../src/lib/store.mjs')).getDb();
+  const anzahlFm = () => db.finanzmodelle.filter((x) => x.projectId === 'p-n02').length;
+  const neuerStand = async (netz) => {
+    let r = await form('/portal/anlagenplanung/p-n02/speichern', { schritt: 'grundstueck', 'g.bezeichnung': 'Test R1', 'g.laengeM': '120', 'g.breiteM': '100', 'g.grenzabstandM': '3', ...netz });
+    const v1 = new URL(r.headers.get('location'), base).searchParams.get('v');
+    r = await form('/portal/anlagenplanung/p-n02/speichern', { schritt: 'technik', v: v1, 'v.A.name': 'Variante A', 'v.A.system': 'sys-ph-2h', 'v.A.mw': '10', 'v.A.mwh': '20', 'v.A.erloes': 'b2_A', 'v.B.name': 'Variante B', 'v.B.system': 'sys-ph-2h', 'v.B.mw': '15', 'v.B.mwh': '30', 'v.B.erloes': 'b2_A',
+      'a.cosPhi': '0,95', 'a.mvaJeTrafo': '5', 'a.flaecheJeTrafoM2': '40', 'a.zufahrtBreiteM': '5', 'a.reserveAnteil': '5', 'a.opexSkalierung': 'skaliert' });
+    return new URL(r.headers.get('location'), base).searchParams.get('v');
+  };
+  // Netz 12 MW: A (10 MW) gültig, B (15 MW) gesperrt
+  const v = await neuerStand({ 'g.netzMW': '12', 'g.einspeiseMW': '12', 'g.bezugMW': '12' });
+  const wb = await (await req(`/portal/anlagenplanung/p-n02?schritt=wirtschaftlichkeit&v=${v}&var=B`)).text();
+  const bereich = wb.split('<h2>Wirtschaftliche Modellrechnung Variante B</h2>')[1].split('</section>')[0];
+  assert.match(bereich, /<strong>Nicht berechnet \(Netzgrenzen\)<\/strong>/); assert.match(bereich, /Verwendete Erlösquelle:<\/strong> Keine – Nicht berechnet \(Netzgrenzen\)/);
+  assert.doesNotMatch(bereich, /Kapitalwert|EBITDA|DSCR|IRR|Amortisation|Strategie B2|rechnet mit|übergeben<\/button>/, 'keine Kennzahlen, keine B2-Angabe, kein Übergabeknopf');
+  const wa = await (await req(`/portal/anlagenplanung/p-n02?schritt=wirtschaftlichkeit&v=${v}&var=A`)).text();
+  assert.match(wa, /Kapitalwert/); assert.match(wa, /Strategie B2/); assert.match(wa, /Variante A an STROMKAI-WM übergeben/);
+  // Vergleich: Spalte B nur Status, Spalte A Zahlen
+  const vg = await (await req(`/portal/anlagenplanung/p-n02?schritt=vergleich&v=${v}`)).text();
+  const zelle = (label) => [...vg.split(`<th scope="row">${label}</th>`)[1].split('</tr>')[0].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => m[1]);
+  assert.equal(zelle('Kapitalwert Basis')[1], NB); assert.match(zelle('Kapitalwert Basis')[0], /€|EUR/);
+  assert.equal(zelle('Erlösquelle (verwendet)')[1], `Keine – ${NB}`); assert.equal(zelle('Kapitalwert Netzentgelt A')[1], NB); assert.equal(zelle('DSCR min (Basis)')[1], NB);
+  assert.doesNotMatch(zelle('Wesentliche Risiken')[1], /historischer Simulation/); assert.match(zelle('Wesentliche Risiken')[1], /Netz begrenzt Bezug auf 12(,0)? MW/);
+  // CSV: Kennzahlen von B mit Status, A mit Zahl
+  const csvText = await (await req(`/portal/anlagenplanung/p-n02/export.csv?v=${v}`)).text();
+  const csvZeile = (l) => [...csvText.split('\r\n').find((x) => x.startsWith(l + ';')).matchAll(/("(?:[^"]|"")*"|[^;]*)(?:;|$)/g)].map((m) => m[1].replace(/^"|"$/g, '').replace(/""/g, '"')); // Felder mit ; stehen in Anführungszeichen
+  assert.equal(csvZeile('Kapitalwert Basis EUR')[2], NB); assert.match(csvZeile('Kapitalwert Basis EUR')[1], /^-?\d/);
+  assert.equal(csvZeile('Erlösquelle verwendet')[2], `Keine – ${NB}`); assert.equal(csvZeile('Belastbarkeit')[2], NB);
+  const ber = await (await req(`/portal/anlagenplanung/p-n02/bericht?v=${v}`)).text();
+  assert.match(ber, /Kapitalwert Basis Nicht berechnet \(Netzgrenzen\)/); assert.match(ber, /Erlösquelle: Keine – Nicht berechnet \(Netzgrenzen\) · Belastbarkeit: Nicht berechnet \(Netzgrenzen\)/);
+  // Serverseitige Übergabe: B abgewiesen ohne neue WM-Version, A angenommen
+  const vorher = anzahlFm();
+  const rb = await form('/portal/anlagenplanung/p-n02/wm', { v, var: 'B' });
+  assert.equal(rb.status, 422); assert.match(await rb.text(), /Übergabe gesperrt: Nicht berechnet \(Netzgrenzen\)/); assert.equal(anzahlFm(), vorher);
+  assert.equal((await form('/portal/anlagenplanung/p-n02/wm', { v, var: 'A' })).status, 303); assert.equal(anzahlFm(), vorher + 1);
+  const fm = db.finanzmodelle.filter((x) => x.projectId === 'p-n02').sort((a, b) => b.version - a.version)[0];
+  assert.equal(fm.planerRef.variante, 'A'); assert.equal(fm.planerRef.belastbarkeit, 'modellrechnung'); assert.equal(fm.planerRef.erloes.verwendet, 'b2_A');
+  // V1: Bezeichnung der WM-Kennzahl in der Projektakte
+  const akte = await (await req(`/portal/wirtschaftlichkeit/p-n02?v=${fm.id}`)).text();
+  assert.match(akte, /Investition je nominaler kWh/); assert.doesNotMatch(akte, />Investition je kWh</);
+  // Exportgrenze 0: beide Varianten gesperrt, keine Übergabe möglich
+  const v0 = await neuerStand({ 'g.netzMW': '20', 'g.einspeiseMW': '0', 'g.bezugMW': '20' });
+  for (const k of ['A', 'B']) { const r = await form('/portal/anlagenplanung/p-n02/wm', { v: v0, var: k }); assert.equal(r.status, 422, `Variante ${k}`); }
+  assert.equal(anzahlFm(), vorher + 1, 'keine WM-Version bei Exportgrenze 0');
+  const w0 = await (await req(`/portal/anlagenplanung/p-n02?schritt=wirtschaftlichkeit&v=${v0}&var=A`)).text();
+  assert.match(w0, /<strong>Nicht berechnet \(Netzgrenzen\)<\/strong>/); assert.match(w0, /zulässige Einspeisung 0(,0)? MW/);
+  assert.equal((await form('/portal/anlagenplanung/p-n02/freigeben', { v: v0 })).status, 422, 'Freigabe gesperrt');
+});
+
+test('R1-4 V1: WM-Kennzahl „Investition je nominaler kWh“ im Berechnungsexport; Rechnung unverändert (Nenner nominale MWh)', async () => {
+  const { berechnungCsv } = await import('../src/lib/finance/export.mjs');
+  const p = demoParameter(20, 40, 26400);
+  const e = WM.berechne(p, 'basis');
+  nah(e.kennzahlen.investitionJeKWh, e.kennzahlen.gesamtinvestition / (p.technik.kapazitaetMWh * 1000), 1e-9, 'Nenner nominale Kapazität');
+  const t = berechnungCsv(e, { projektName: 'Test' });
+  assert.match(t, /Investition je nominaler kWh;/); assert.doesNotMatch(t, /Investition je kWh;/);
 });

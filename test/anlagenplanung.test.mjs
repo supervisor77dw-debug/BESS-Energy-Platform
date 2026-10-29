@@ -115,7 +115,10 @@ test('Tilgungsmodelle: Annuität (Formel), Ratentilgung, endfällig; Schuldendie
 });
 
 // ---------- Doppelzählung und Datenherkunft ----------
-const standX = { grundstueck: G, annahmen: ANN, finanzierung: IP.FINANZIERUNG_START };
+// Netz in beiden Richtungen ausreichend: Diese Tests prüfen Kosten, Doppelzählung und Export, nicht Netzgrenzen.
+// Seit -017-R1 rechnet WM bei Netzgrenze < PCS nicht mehr (siehe anlagenplanung-korrektur.test.mjs, B und R1).
+const G_WM = { ...G, netzMW: 20, einspeiseMW: 20, bezugMW: 20 };
+const standX = { grundstueck: G_WM, annahmen: ANN, finanzierung: IP.FINANZIERUNG_START };
 const rechneX = (v, extra = {}) => IP.rechneVariante({ stand: standX, v: { key: 'A', kosten: {}, systemRef: { systemId: SYS2.systemId, version: 1 }, erloesQuelle: 'wm', ...v }, katalog: IP.KATALOG_START, angebote: [], basis: demoParameter(20, 40, 26400), ergebnisse: ERG, ...extra });
 
 test('Keine Doppelzählung: Planer-Gesamtinvestition = WM-Gesamtinvestition; jede Position genau einmal', () => {
@@ -287,9 +290,13 @@ test('Übergabe an STROMKAI-WM: neue WM-Version mit Planerbezug, Kennzahlen iden
   const v4 = d.planerStaende.find((x) => x.projectId === 'p-n01' && x.version === 4);
   const vorher = d.finanzmodelle.filter((x) => x.projectId === 'p-n01').length;
   const { body: wb } = await a.text(`/portal/anlagenplanung/p-n01?schritt=wirtschaftlichkeit&v=${v4.id}&var=B`);
-  assert.match(wb, /Strategie B2/); assert.match(wb, /Datenversion dv-/); assert.match(wb, /R24M/); assert.match(wb, /keine garantierten Zukunftserlöse/); assert.match(wb, /Leistungspreis fehlt/);
-  // -017: Variante B (15 MW) liegt an einem 12-MW-Netzanschluss → Jahresmodell nicht belastbar, Übergabe gesperrt
-  assert.match(wb, /Eingeschränkt – Netzgrenzen im Jahresmodell nicht abbildbar/); assert.match(wb, /Übergabe an STROMKAI-WM gesperrt/);
+  // -017-R1: Variante B (15 MW) liegt an einem 12-MW-Netzanschluss → keine WM-Rechnung, nur der Status, keine Kennzahlen und keine B2-Angaben
+  assert.match(wb, /Nicht berechnet \(Netzgrenzen\)/); assert.match(wb, /Übergabe an STROMKAI-WM und Freigabe gesperrt/);
+  const bereichB = wb.split('<h2>Wirtschaftliche Modellrechnung Variante B</h2>')[1].split('</section>')[0]; // ohne Navigation
+  assert.doesNotMatch(bereichB, /Kapitalwert|EBITDA|DSCR|Strategie B2|Netzentgelt-Szenarien|rechnet mit/);
+  // B2-Darstellung an Variante C (10 MW / 40 MWh, Netz ausreichend, Erlösquelle B2 Szenario B)
+  const { body: wc } = await a.text(`/portal/anlagenplanung/p-n01?schritt=wirtschaftlichkeit&v=${v4.id}&var=C`);
+  assert.match(wc, /Strategie B2/); assert.match(wc, /Datenversion dv-/); assert.match(wc, /R24M/); assert.match(wc, /keine garantierten Zukunftserlöse/); assert.match(wc, /Leistungspreis fehlt/); assert.match(wc, /Kapitalwert/);
   const gesperrt = await a.form('/portal/anlagenplanung/p-n01/wm', { v: v4.id, var: 'B' }); assert.equal(gesperrt.status, 422);
   assert.equal(d.finanzmodelle.filter((x) => x.projectId === 'p-n01').length, vorher, 'keine WM-Version bei gesperrter Übergabe');
   // Variante A (10 MW, Netz in beide Richtungen ausreichend) wird übergeben

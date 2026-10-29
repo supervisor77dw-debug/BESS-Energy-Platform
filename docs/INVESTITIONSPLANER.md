@@ -100,7 +100,21 @@ Erweiterungen gegenüber 1.0 (alle optional):
 - `finanzierung.schuldendienstplan` (Zinsen und Tilgung als Anteile am FK je Jahr). Szenarien verschieben die Zinsen um Zinsdelta × offene Restschuld zu Jahresbeginn (Korrektur -017; vorher proportional zum gewichteten Zins, falsch bei Tranchen mit unterschiedlichen Zinsen). Der Tilgungsverlauf bleibt in den Szenarien fest.
 - `technik.einspeiseMW` / `technik.bezugMW` (Korrektur -017): Leistungserlöse höchstens mit min(Leistung, Einspeisung, Bezug); Abweisung, wenn der Jahresdurchsatz physikalisch über Grenze × 8760 h × Verfügbarkeit liegt. Das ist eine Obergrenze, keine Zyklenberechnung.
 
-**Belastbarkeit (Planer):** Modellrechnung (Netz ausreichend) · ungeprüft (Netzdaten fehlen; Übergabe erlaubt, Freigabe gesperrt) · eingeschränkt (Netzgrenze < PCS; das Jahresmodell bildet keinen zeitaufgelösten Einsatz ab; Übergabe und Freigabe gesperrt) · nicht berechenbar (keine WM-Ergebnisse). Ein pauschaler Korrekturfaktor für erreichbare Zyklen wird bewusst nicht verwendet.
+**Belastbarkeit (Planer):**
+- Modellrechnung: Netz ausreichend.
+- Ungeprüft: Netzdaten fehlen; Übergabe erlaubt, Freigabe gesperrt.
+- **Nicht berechnet (Netzgrenzen)** (Folgekorrektur -017-R1): zulässige Einspeisung oder zulässiger Bezug unter der PCS-Leistung, einschließlich 0 MW. Das Jahresmodell bildet keinen zeitaufgelösten Einsatz ab, deshalb gilt:
+  - keine WM-Rechnung, keine Kennzahlen;
+  - keine verwendete Erlösquelle („Keine – Nicht berechnet (Netzgrenzen)“);
+  - in Oberfläche, Vergleich, CSV und Bericht steht nur dieser Status;
+  - Übergabe an WM serverseitig abgewiesen (422), Freigabe gesperrt.
+
+  Technik, Kosten und Finanzierungsplan werden weiter berechnet.
+- Nicht berechenbar: negative Netzangabe oder keine WM-Version.
+
+Ein pauschaler Korrekturfaktor für erreichbare Zyklen wird bewusst nicht verwendet. Belastbare Erlöse unter Netzgrenzen erfordern einen Backtest mit passenden Leistungsgrenzen. Der Wert „eingeschränkt“ kommt nur noch in älteren Übergaben vor.
+
+**Kennzahl „Investition je nominaler kWh“** (STROMKAI-WM `investitionJeKWh`): Gesamtinvestition / nominale Kapazität. So beschriftet in WM-Akte, Investorenansicht und Berechnungsexport (-017-R1). Der Planer weist zusätzlich „je kWh nutzbar“ aus. Das sind unterschiedliche Kennzahlen derselben Investitionssumme.
 
 Ohne diese Angaben rechnet 1.1 identisch zu 1.0. Der Regressionstest vergleicht 3 Projekte × 3 Szenarien mit allen Jahreswerten.
 
