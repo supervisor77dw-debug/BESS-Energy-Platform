@@ -3,7 +3,7 @@
 // Handelsdaten und Exporten sowie Demo-Kennzeichnung. Schreibt nichts außer Anmeldungen (kein Neuberechnen, keine Zahlung, kein Import).
 // Steht bei einem Konto der Pflicht-Passwortwechsel noch aus, wird er über ein zufälliges Zwischenpasswort durchlaufen und das
 // Startpasswort aus der Zugangsdatei sofort zurückgesetzt (wie verify-qa-regression). Gibt keine Zugangsdaten aus.
-// Aufruf: [BESS_SHARE_URL=…] node tools/preview/verify-finanzen.mjs --url <basis> --zugaenge <ZUGAENGE_…txt>
+// Aufruf: [BESS_SHARE_URL=…] node tools/preview/verify-finanzen.mjs --url <basis> --zugaenge <ZUGAENGE_…txt> [--dscr 1,15]
 import { readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 
@@ -58,7 +58,9 @@ if (a) {
   check('Admin: Übersicht Wirtschaftlichkeit mit allen Demo-SPVs', r1.status === 200 && /DEMO-N01/.test(b1) && /DEMO-S01/.test(b1));
   const [r2, b2] = await a.text('/portal/wirtschaftlichkeit/p-n01');
   check('Admin: Projektakte mit Szenarien, Kennzahlen und Metadaten', r2.status === 200 && ['Konservativ', 'Basis', 'Optimistisch', 'DSCR minimal', 'Projekt-IRR', 'Eigenkapital-IRR', 'Kapitalwert', 'STROMKAI-WM 1.0', 'Prüfsumme', 'synthetisch'].every((t) => b2.includes(t)));
-  check('Admin: Basis-DSCR der Demo plausibel (1,26×)', /1,26×/.test(b2));
+  const dscr = arg('--dscr');
+  if (dscr) check(`Admin: Basis-DSCR der Demo ${dscr}×`, b2.includes(`${dscr}×`));
+  check('Admin: Eingabe Batterieverschleiß vorhanden', /Batterieverschleiß/.test(b2));
   const csv = await a.req('/portal/wirtschaftlichkeit/p-n01/export.csv');
   const ct = await csv.text();
   check('Admin: CSV-Export mit Modellversion und Semikolon', csv.status === 200 && /text\/csv/.test(csv.headers.get('content-type') || '') && /STROMKAI-WM 1\.0/.test(ct) && ct.includes(';'));
@@ -93,6 +95,7 @@ if (e) {
   const [r, b] = await e.text('/portal/verguetung');
   check('Eigentümer A: Meine Vergütung mit Vereinbart/Fällig/Bezahlt/Prognose', r.status === 200 && ['Vereinbart', 'Fällig', 'Bezahlt', 'Prognose'].every((t) => b.includes(t)));
   check('Eigentümer A: Demo-Buchung nicht als reale Zahlung', /keine reale Zahlung/.test(b));
+  check('Eigentümer A: Demo-Verträge gekennzeichnet, keine Zahlungsansprüche', /Demo-Vertrag/.test(b) && /begründen keine Zahlungsansprüche/.test(b));
   check('Eigentümer A: nur eigene Verträge (kein Süd A, kein Nord B)', !/Demo-Standort Süd|Demo-Standort Nord B/.test(b));
   check('Eigentümer A: keine Projektkalkulation', !/Gesamtinvestition|Schuldendienst|Projekt-IRR/.test(b) && await st(e, '/portal/wirtschaftlichkeit/p-n01') === 404);
   const pdf = await e.req('/portal/verguetung/vertrag/k-1/pdf');
