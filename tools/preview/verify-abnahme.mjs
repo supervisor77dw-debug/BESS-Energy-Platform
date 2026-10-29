@@ -37,6 +37,8 @@ for (const p of PUBLIC) {
   const leaks = SECRETS.filter((s) => body.includes(s));
   check(`öffentlich ${p}`, r.status === 200 && !leaks.length && /noindex/.test(r.headers.get('x-robots-tag') || '') && /Login \/ Partnerportal/.test(body), `Status ${r.status}${leaks.length ? ' Leck: ' + leaks.join(',') : ''}`);
   for (const m of body.matchAll(/(?:href|src)="(\/[^"#?]*)"/g)) links.add(m[1]);
+  // Bildwelt ab V1.3: responsive Varianten über srcset
+  for (const m of body.matchAll(/srcset="([^"]+)"/g)) for (const part of m[1].split(',')) { const u = part.trim().split(/\s+/)[0].split('?')[0]; if (u.startsWith('/')) links.add(u); }
 }
 const assets = [...links].filter((l) => l.startsWith('/static/'));
 let assetOk = 0; for (const a of assets) if ((await anon.req(a)).status === 200) assetOk++;
@@ -61,11 +63,15 @@ check('keine öffentliche JSON-API', (await anon.req('/api/projekte')).status ==
 
 // ---- Test 2/3: Dirk und Markus über die reguläre Login-Seite ----
 async function person(label, a, expect, expectLanding) {
+  if (process.argv.includes('--nur-besucher')) return;
   const c = new C();
   const [, home] = await c.text('/');
   check(`${label}: öffentliche Website ohne Anmeldung, Login-Menüpunkt vorhanden`, /href="\/portal\/login"/.test(home));
   const [, lp] = await c.text('/portal/login');
-  const r1 = await c.form('/portal/anmelden', { _t: tok(lp, '_t'), email: a.email, password: a.pw });
+  check(`${label}: falsches Passwort abgelehnt`, (await c.form('/portal/anmelden', { _t: tok(lp, '_t'), email: a.email, password: 'falsch-' + Date.now() })).status === 401);
+  const [, lp2] = await c.text('/portal/login');
+  const r1 = await c.form('/portal/anmelden', { _t: tok(lp2, '_t'), email: a.email, password: a.pw });
+  check(`${label}: vor MFA kein Portalzugriff`, (await c.req('/portal/admin')).headers.get('location') === '/portal/mfa');
   check(`${label}: Benutzername + Startpasswort → MFA`, r1.headers.get('location') === '/portal/mfa', `→ ${r1.headers.get('location')}`);
   const [, mb] = await c.text('/portal/mfa');
   const secret = /<code>([A-Z2-7 ]+)<\/code>/.exec(mb)?.[1]?.replace(/ /g, '');
@@ -73,13 +79,18 @@ async function person(label, a, expect, expectLanding) {
   check(`${label}: falscher MFA-Code abgelehnt`, (await c.form('/portal/mfa', { _csrf: tok(mb, '_csrf'), code: '000000' })).status === 401);
   const r2 = await c.form('/portal/mfa', { _csrf: tok(mb, '_csrf'), code: secret ? totp(secret) : '000000' });
   check(`${label}: MFA bestätigt → eigenes Passwort festlegen`, r2.headers.get('location') === '/portal/passwort');
+  for (const p of ['/portal', '/portal/admin', '/portal/dokumente/d-n01-own-a-vertrag/download']) check(`${label}: vor Passwortwechsel ${p} gesperrt`, (await c.req(p)).headers.get('location') === '/portal/passwort');
   const [, pp] = await c.text('/portal/passwort');
+  check(`${label}: Passwort mit Benutzername abgelehnt`, (await c.form('/portal/passwort', { _csrf: tok(pp, '_csrf'), current: a.pw, neu: a.email.split('@')[0] + '-Speicher-2026', neu2: a.email.split('@')[0] + '-Speicher-2026' })).status === 422);
+  check(`${label}: Passwortwechsel ohne CSRF abgewiesen`, (await c.form('/portal/passwort', { current: a.pw, neu: 'Ein-Gutes-Passwort-2026', neu2: 'Ein-Gutes-Passwort-2026' })).status === 403);
   const neu = `Test-${randomBytes(9).toString('base64url')}`;
   const r3 = await c.form('/portal/passwort', { _csrf: tok(pp, '_csrf'), current: a.pw, neu, neu2: neu });
   check(`${label}: eigenes Passwort gesetzt → Startbereich`, r3.headers.get('location') === expectLanding, `→ ${r3.headers.get('location')}`);
   for (const [p, st] of expect) { const r = await c.req(p); check(`${label}: ${p} → ${st}`, r.status === st, `Status ${r.status}`); }
-  const [, pb] = await c.text(expectLanding);
+  const [lr, pb] = await c.text(expectLanding);
+  check(`${label}: Portal nicht zwischenspeicherbar`, /no-store/.test(lr.headers.get('cache-control') || ''));
   const sid = c.jar.bess_sid;
+  check(`${label}: Abmelden ohne CSRF abgewiesen`, (await c.form('/portal/abmelden', {})).status === 403);
   await c.form('/portal/abmelden', { _csrf: tok(pb, '_csrf') });
   const after = await fetch(base + '/portal', { redirect: 'manual', headers: { cookie: `bess_sid=${sid}` } });
   check(`${label}: Abmeldung serverseitig wirksam`, after.headers.get('location') === '/portal/login');
