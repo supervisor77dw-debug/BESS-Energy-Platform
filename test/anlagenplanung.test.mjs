@@ -59,6 +59,7 @@ test('Dimensionierung: Blöcke, Kapazität, PCS, Trafo, Netzbegrenzung, Fläche 
   // Netzgrenzen, die vom installierten PCS abweichen, dürfen keine ungebremste WM-Erlösrechnung auslösen.
   const limited = IP.rechneVariante({ stand: { ...standX, grundstueck: G }, v: { key: 'L', kosten: {}, systemRef: { systemId: SYS2.systemId, version: 1 }, leistungMW: 15, kapazitaetMWh: 30, erloesQuelle: 'wm' }, katalog: IP.KATALOG_START, angebote: [], basis: demoParameter(20, 40, 26400), ergebnisse: ERG });
   assert.match(limited.wirtschaftlichkeitSperre, /getrennte Lade- und Entladeleistungsgrenzen/);
+  assert.equal(limited.erloesQuelleTatsaechlich, null, 'Bei gesperrter Wirtschaftlichkeit wird keine Erlösquelle als tatsächlich verwendet ausgewiesen');
   const missingNetz = IP.dimensioniere({ leistungMW: 10, kapazitaetMWh: 20 }, SYS2, { ...G, netzMW: null, einspeiseMW: null, bezugMW: null }, ANN);
   assert.match(missingNetz.wirtschaftlichkeitSperre, /Netzanschluss-.*fehlt/);
   // Ungültige Eingaben
