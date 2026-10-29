@@ -128,3 +128,9 @@ Es gibt keinen eigenen Server, keine Fremddatenbank und keine öffentlichen Date
    - Deployment Protection auf „preview“ reduzieren.
    - `robots.txt` und `noindex` greifen dann automatisch nicht mehr (`BESS_MODE=production`).
 5. Vorher: Rechtstexte prüfen, Datenbank einführen, Backup-Konzept betreiben.
+
+## Portalregression der QA-Vorschau (ab AW-BESS-STROMKAI-FINAL-QA-007)
+- Werkzeug: `tools/preview/verify-qa-regression.mjs` (ersetzt die Portalprüfung aus `verify-preview.mjs`).
+- Ablauf je Konto: Schranke → Login → MFA-Einrichtung → Pflicht-Passwortwechsel (mit Negativtests) → Rollen- und Mandantenprüfung → Abmeldung (CSRF, Sitzungsungültigkeit) → Rückkehr zum Startpasswort; am Ende setzt Dirk die MFA-Einrichtungen zurück.
+- Die Prüfung verbraucht den Pflichtwechsel-Merker der QA-Konten. Für eine weitere vollständige Prüfung (oder vor einer Übergabe an Prüfer) die QA-Zugänge neu ausstellen: `node tools/provision-vercel.mjs`, Hash-Datei als Preview-Variable `BESS_ACCOUNTS` setzen, neue Preview-Bereitstellung.
+- Ein QA-Lauf mit MFA darf nie ohne erfolgreiche Rücksetzung enden: Sonst sind die Konten mit einem nur im Testlauf bekannten MFA-Geheimnis belegt (Vorfall 2026-10-28, behoben durch Neuausstellung am 2026-10-29).
