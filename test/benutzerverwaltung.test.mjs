@@ -59,7 +59,7 @@ test('1 – Dirk meldet sich nur mit E-Mail und Passwort an (keine MFA, kein QR-
   dirk = new Client();
   const r = await dirk.login('admin@demo.invalid');
   assert.equal(r.status, 303);
-  assert.equal(loc(r), '/portal', 'direkt in den Startbereich');
+  assert.equal(loc(r), '/portal/zentrale', 'Administration direkt in die Zentrale (AW-015)');
   const { r: p, body } = await dirk.text('/portal');
   assert.equal(p.status, 200);
   assert.doesNotMatch(body, /Zweiten Faktor|data:image\/gif/);

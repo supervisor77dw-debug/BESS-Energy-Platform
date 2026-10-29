@@ -28,7 +28,7 @@ const ICON = {
 const icon = (k) => raw(`<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${ICON[k]}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></svg>`);
 
 export function navFor(u) {
-  const n = [['/portal', 'Übersicht', 'home']];
+  const n = isAdmin(u) ? [['/portal/zentrale', 'Zentrale', 'home'], ['/portal', 'Übersicht', 'chart']] : [['/portal', 'Übersicht', 'home']];
   if (isInternal(u)) n.push(['/portal/pipeline', 'Pipeline', 'pipe']);
   n.push(['/portal/projekte', u.role === 'eigentuemer' ? 'Projekt' : 'Projekte', 'proj']);
   if (hasRole(u, 'eigentuemer') || isInternal(u)) n.push(['/portal/grundstuecke', 'Grundstücke', 'land']);
@@ -36,9 +36,9 @@ export function navFor(u) {
   if (hasRole(u, 'eigentuemer')) n.push(['/portal/verguetung', 'Meine Vergütung', 'euro']);
   n.push(['/portal/nachrichten', 'Nachrichten', 'msg']);
   if (rolesOf(u).some((r) => ['admin', 'projektleitung', 'vertrieb_nord', 'vertrieb_sued'].includes(r))) n.push(['/portal/wirtschaftlichkeit', 'Wirtschaftlichkeit', 'chart']);
-  if (rolesOf(u).some((r) => r === 'admin' || r === 'projektleitung')) n.push(['/portal/strommarkt', 'Strommarkt & Backtesting', 'chart']);
+  if (rolesOf(u).some((r) => r === 'admin' || r === 'projektleitung')) n.push(['/portal/strommarkt', 'Strommarkt & Backtesting', 'chart'], ['/portal/netzentgelt', 'Netzentgelt-Szenarien', 'chart'], ['/portal/shadow-trading', 'Shadow-Trading', 'pipe']);
   if (isInternal(u)) n.push(['/portal/kontakte', 'Kontakte', 'people'], ['/portal/aufgaben', 'Aufgaben', 'task'], ['/portal/anfragen', 'Anfragen', 'inbox'], ['/portal/freigaben', 'Freigaben', 'check']);
-  if (isAdmin(u)) n.push(['/portal/admin/handelsdaten', 'Handelsdaten', 'pipe'], ['/portal/admin/benutzer', 'Benutzer & Berechtigungen', 'people'], ['/portal/protokoll', 'Protokoll', 'log'], ['/portal/admin', 'Verwaltung', 'admin'], ['/portal/ki', 'KI-Assistenz', 'ai']);
+  if (isAdmin(u)) n.push(['/portal/admin/handelsdaten', 'Handelsdaten', 'pipe'], ['/portal/admin/benutzer', 'Benutzer & Berechtigungen', 'people'], ['/portal/protokoll', 'Protokoll', 'log'], ['/portal/admin', 'Verwaltung', 'admin'], ['/portal/entwicklungsstand', 'Entwicklungsstand', 'log'], ['/portal/ki', 'KI-Assistenz', 'ai']);
   return n;
 }
 

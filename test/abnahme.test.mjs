@@ -110,7 +110,7 @@ async function firstLogin(email, pwStart, pwNew) {
 
 test('Test 2 – Dirk: Login, MFA-Ersteinrichtung, eigenes Passwort, Administration', async () => {
   const { c, landing } = await firstLogin('dirk@stromkai-abnahme.invalid', start.dirk, 'Sonnenwind-Kai-2026!x');
-  assert.equal(landing, '/portal');
+  assert.equal(landing, '/portal/zentrale'); // Administration startet in der Zentrale (AW-015)
   assert.equal((await c.req('/portal/admin')).status, 200);
   assert.equal((await c.req('/portal/protokoll')).status, 200);
   assert.equal((await c.req('/portal/dokumente/d-n01-fin-intern/download')).status, 200);

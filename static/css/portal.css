@@ -291,3 +291,17 @@ details[open] > summary { margin-bottom: 6px; }
   .status-strip .st { padding: 10px 12px; }
   .status-strip .st strong { font-size: 16px; }
 }
+
+/* Zentrale Administrationsoberfläche (AW-STROMKAI-20261029-ADMIN-DASHBOARD-INTEGRATION-015) */
+.modul-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--space-3); }
+.modul { display: grid; gap: 6px; align-content: start; padding: 16px; border: 1px solid var(--line); border-radius: var(--r2); background: var(--panel); color: var(--text); text-decoration: none; min-width: 0; }
+.modul:hover { border-color: var(--ctl-line); background: var(--panel-2); }
+.modul:focus-visible { outline: 2px solid var(--brand-focus); outline-offset: 2px; }
+.modul-kopf { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.modul-kopf strong { font-size: 15px; font-weight: 650; }
+.modul-text { font-size: 13.5px; color: var(--text-2); }
+.modul-fuss { font-size: 12px; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .modul { transition: border-color .15s var(--ease), background-color .15s var(--ease); } }
+@media (max-width: 560px) { .modul-grid { grid-template-columns: 1fr; } .modul { min-height: 44px; } }
+.kv > div > span { display: block; color: var(--muted); font-size: 12.5px; } .kv > div > strong { font-weight: 500; }
+.row-current th { background: color-mix(in srgb, var(--ok-bg) 70%, transparent); }

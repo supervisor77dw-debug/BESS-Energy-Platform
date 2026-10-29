@@ -11,6 +11,7 @@ import { handleUserAdmin, handleActivation, passwordProblem as pwProblem } from 
 import { handleRecovery } from './wiederherstellung.mjs';
 import { handleFinanzen, investorKennzahlen } from './finanzen.mjs';
 import { handleStrommarkt } from './strommarkt.mjs';
+import { handleZentrale } from './zentrale.mjs';
 import { html } from '../lib/html.mjs';
 
 const DEMO_PASSWORD = 'Vorschau!Speicher-2026'; // nur für die Anzeige der Vorschau-Zugänge (siehe data/seed.mjs)
@@ -39,6 +40,7 @@ const out = (res, body, status = 200) => send(res, status, String(body));
 // Startbereich nach der Anmeldung je Rolle
 export function landing(u) {
   if (u.mustChangePassword) return '/portal/passwort';
+  if (P.isAdmin(u)) return '/portal/zentrale'; // Administration startet in der Zentrale (AW-015)
   return { investor: '/portal/dokumente', kommune: '/portal/projekte', technik: '/portal/projekte', vertrieb_nord: '/portal/pipeline', vertrieb_sued: '/portal/pipeline' }[P.primaryRole(P.rolesOf(u))] || '/portal';
 }
 // MFA nach Betriebsart: aus (Standard der Abnahmeplattform), nur privilegierte Konten oder je Konto
@@ -329,6 +331,9 @@ export async function handlePortal(req, res, url) {
   // Strommarkt & Backtesting (intern, nur Administration und Projektleitung; keine Projektdaten)
   const sm = handleStrommarkt({ path, method, u, view, url });
   if (sm !== null) return sm;
+  // Zentrale Administrationsoberfläche, Netzentgelt-Szenarien, Shadow-Trading, Entwicklungsstand (AW-015)
+  const ze = handleZentrale({ path, method, u, view, url });
+  if (ze !== null) return ze;
   // Projektwirtschaftlichkeit, Vergütung, Handelsdaten (eigene Rechteprüfung je Projekt)
   const fin = await handleFinanzen({ req, res, url, path, method, u, s, view, page, post });
   if (fin !== null) return fin;
