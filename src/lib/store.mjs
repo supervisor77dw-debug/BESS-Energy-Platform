@@ -4,6 +4,7 @@
 //            Dokumente als private Blobs (files/<name>). Für mehrere Funktionsinstanzen geeignet.
 // Zugriff ausschließlich über die Repository-Funktionen in policy.mjs, die jede Abfrage an den Nutzer binden.
 // Ablauf je Anfrage: refresh() → Handler (ändert db, ruft persist()) → flush() vor dem Senden der Antwort.
+import { ensureFinanceDemo } from './finance/demo.mjs';
 import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -16,7 +17,8 @@ let driver = null;    // { kind, ... }
 
 let STATE = 'state/db.json';
 let FILES = 'files/';
-const ensureCollections = (d) => { for (const k of ['audit', 'downloads', 'inquiries', 'messages', 'approvals', 'uploads', 'revoked', 'gateUsers', 'invitations', 'grants']) d[k] ??= []; d.meta ??= {}; return d; };
+// Finanzmodul: Sammlungen anlegen und synthetische Demo-Daten einmalig ergänzen (Entwicklungs- und Abnahmephase)
+const ensureCollections = (d) => { for (const k of ['audit', 'downloads', 'inquiries', 'messages', 'approvals', 'uploads', 'revoked', 'gateUsers', 'invitations', 'grants']) d[k] ??= []; d.meta ??= {}; ensureFinanceDemo(d); return d; };
 
 export async function openStore(opts) {
   if (typeof opts === 'string') opts = { kind: 'file', dataDir: opts };
