@@ -2,7 +2,7 @@
 // Herkunftsmarken für synthetische/ungeprüfte Daten.
 import { html, raw, fmtDate, fmtDateTime, fmtNum } from '../lib/html.mjs';
 import { brand, isPreview, brandLogo } from '../config.mjs';
-import { ROLES, AUDIENCES, isInternal, isAdmin } from '../lib/policy.mjs';
+import { ROLES, AUDIENCES, isInternal, isAdmin, hasRole, rolesOf } from '../lib/policy.mjs';
 import { PHASES } from '../public/pages.mjs';
 import { createRequire } from 'node:module';
 
@@ -29,11 +29,11 @@ export function navFor(u) {
   const n = [['/portal', 'Übersicht', 'home']];
   if (isInternal(u)) n.push(['/portal/pipeline', 'Pipeline', 'pipe']);
   n.push(['/portal/projekte', u.role === 'eigentuemer' ? 'Projekt' : 'Projekte', 'proj']);
-  if (u.role === 'eigentuemer' || isInternal(u)) n.push(['/portal/grundstuecke', 'Grundstücke', 'land']);
+  if (hasRole(u, 'eigentuemer') || isInternal(u)) n.push(['/portal/grundstuecke', 'Grundstücke', 'land']);
   n.push(['/portal/dokumente', u.role === 'investor' ? 'Datenraum' : 'Dokumente', 'doc']);
   n.push(['/portal/nachrichten', 'Nachrichten', 'msg']);
   if (isInternal(u)) n.push(['/portal/kontakte', 'Kontakte', 'people'], ['/portal/aufgaben', 'Aufgaben', 'task'], ['/portal/anfragen', 'Anfragen', 'inbox'], ['/portal/freigaben', 'Freigaben', 'check']);
-  if (isAdmin(u)) n.push(['/portal/protokoll', 'Protokoll', 'log'], ['/portal/admin', 'Verwaltung', 'admin'], ['/portal/ki', 'KI-Assistenz', 'ai']);
+  if (isAdmin(u)) n.push(['/portal/admin/benutzer', 'Benutzer & Berechtigungen', 'people'], ['/portal/protokoll', 'Protokoll', 'log'], ['/portal/admin', 'Verwaltung', 'admin'], ['/portal/ki', 'KI-Assistenz', 'ai']);
   return n;
 }
 
@@ -57,7 +57,7 @@ export function shell({ u, s, path, title, context, body, actions }) {
       <div class="top-title"><h1>${title}</h1>${context ? html`<p>${context}</p>` : ''}</div>
       <div class="top-user">
         ${actions || ''}
-        <span class="who"><strong>${u.name}</strong><span>${ROLES[u.role].label} · <a href="/portal/passwort">Passwort ändern</a></span></span>
+        <span class="who"><strong>${u.name}</strong><span>${rolesOf(u).map((r) => ROLES[r].label).join(', ')} · <a href="/portal/passwort">Passwort ändern</a></span></span>
         <form method="post" action="/portal/abmelden"><input type="hidden" name="_csrf" value="${s.csrf}"><button class="btn btn-quiet" type="submit">Abmelden</button></form>
       </div>
     </header>
@@ -74,11 +74,12 @@ export function authPage({ title, body }) {
 <body class="auth"><main class="auth-main"><a class="auth-brand" href="/">${raw(brandLogo('auth-logo'))}${brand.wordmark}</a>${body}</main></body></html>`;
 }
 
-export function loginView({ token, error, demo, email = '' }) {
+export function loginView({ token, error, demo, email = '', info }) {
   return authPage({ title: 'Anmeldung', body: html`
 <div class="auth-card">
   <h1>Anmeldung zum Portal</h1>
   <p class="muted">Für Grundstückseigentümer, Investoren, Kommunen, Partner und Mitarbeitende. Zugänge werden persönlich eingerichtet.</p>
+  ${info ? html`<div class="notice" role="status">${info}</div>` : ''}
   ${error ? html`<div class="alert" role="alert">${error}</div>` : ''}
   <form method="post" action="/portal/anmelden" class="stack">
     <input type="hidden" name="_t" value="${token}">
@@ -241,9 +242,9 @@ export function projectDetail({ u, s, p, spv, docs, showFin, showTech, parcels, 
 <section class="panel proj-top">
   <div><p class="kicker">${p.code} · ${p.location}</p>${phaseBar(p.phase)}<p>Aktuelle Phase: <strong>${phaseLabel(p.phase)}</strong></p></div>
   <dl class="kv">
-    ${u.role !== 'eigentuemer' ? html`<div><dt>Projektgesellschaft</dt><dd>${spv?.name}<br>${statusMark(spv?.legalStatus)} <span class="muted small">${spv?.note}</span></dd></div>` : ''}
+    ${showTech ? html`<div><dt>Projektgesellschaft</dt><dd>${spv?.name}<br>${statusMark(spv?.legalStatus)} <span class="muted small">${spv?.note}</span></dd></div>` : ''}
     <div><dt>Flächensicherung</dt><dd>${p.contractStatus}</dd></div>
-    ${u.role !== 'eigentuemer' ? html`<div><dt>Netzanschluss</dt><dd>${p.gridStatus}</dd></div><div><dt>Genehmigung</dt><dd>${p.permitStatus}</dd></div>` : ''}
+    ${showTech ? html`<div><dt>Netzanschluss</dt><dd>${p.gridStatus}</dd></div><div><dt>Genehmigung</dt><dd>${p.permitStatus}</dd></div>` : ''}
   </dl>
 </section>
 ${u.role === 'eigentuemer' ? html`<section class="panel"><h2>Projektfortschritt</h2>${p.ownerUpdates?.length ? html`<ul class="timeline">${[...p.ownerUpdates].reverse().map((x) => html`<li><span class="date">${fmtDate(x.at)}</span><p>${x.text}</p></li>`)}</ul>` : empty('Noch keine Meldungen.')}</section>` : ''}
@@ -290,7 +291,7 @@ ${contracts.length ? contracts.map((c) => html`<article class="contract"><header
 // ---------- Dokumente ----------
 export function dokumente({ u, s, docs, projects, msg }) {
   const byId = Object.fromEntries(projects.map((p) => [p.id, p]));
-  const canUpload = (u.role === 'eigentuemer' || isInternal(u)) && projects.length;
+  const canUpload = (hasRole(u, 'eigentuemer') || isInternal(u)) && projects.length;
   return html`
 ${msg ? html`<div class="notice" role="status">${msg}</div>` : ''}
 ${projects.map((p) => { const ds = docs.filter((d) => d.projectId === p.id); return html`<section class="panel"><h2>${p.name} <span class="muted small">${p.code}</span></h2>${docTable(ds, byId, { showProject: false, showAudience: isInternal(u) })}</section>`; })}
@@ -298,7 +299,7 @@ ${projects.length ? '' : empty('Kein Projekt im Zugriff.')}
 ${canUpload ? html`<section class="panel"><h2>Dokument hochladen</h2>
 <form method="post" action="/portal/dokumente/hochladen" enctype="multipart/form-data" class="stack stack-inline"><input type="hidden" name="_csrf" value="${s.csrf}">
   <label for="projectId">Projekt</label><select id="projectId" name="projectId">${projects.map((p) => html`<option value="${p.id}">${p.code} – ${p.name}</option>`)}</select>
-  ${isInternal(u) ? html`<label for="audience">Bereich</label><select id="audience" name="audience">${['intern', 'eigentuemer', 'kommune', 'investor', 'technik'].filter((a) => u.role === 'admin' || u.role === 'projektleitung' || ['intern', 'eigentuemer', 'kommune'].includes(a)).map((a) => html`<option value="${a}">${AUDIENCES[a]}</option>`)}</select>` : ''}
+  ${isInternal(u) ? html`<label for="audience">Bereich</label><select id="audience" name="audience">${['intern', 'eigentuemer', 'kommune', 'investor', 'technik'].filter((a) => hasRole(u, 'admin') || hasRole(u, 'projektleitung') || ['intern', 'eigentuemer', 'kommune'].includes(a)).map((a) => html`<option value="${a}">${AUDIENCES[a]}</option>`)}</select>` : ''}
   <label for="title">Titel</label><input id="title" name="title" required maxlength="140">
   <label for="file">Datei (PDF, JPG oder PNG, bis 10 MB)</label><input id="file" name="file" type="file" accept=".pdf,.jpg,.jpeg,.png" required>
   <button class="btn btn-primary" type="submit">Hochladen</button>
@@ -366,11 +367,7 @@ ${users.map((x) => html`<tr><td data-l="Person"><strong>${x.name}</strong><br><s
 <label for="g-user">Konto</label><select id="g-user" name="userId">${ext.map((x) => html`<option value="${x.id}">${x.name} (${ROLES[x.role].label})</option>`)}</select>
 <label for="g-proj">Projekt</label><select id="g-proj" name="projectId">${projects.map((p) => html`<option value="${p.id}">${p.code} – ${p.name}</option>`)}</select>
 <button class="btn btn-primary" type="submit">Freischalten</button><p class="small muted">Der Zugriff gilt nur für den Bereich der Rolle (Investor → Datenraum, Kommune → kommunale Unterlagen, Technik → technische Unterlagen).</p></form></div>
-<div class="panel"><h2>Konto anlegen</h2>
-<form method="post" action="/portal/admin/konto" class="stack"><input type="hidden" name="_csrf" value="${s.csrf}">
-<label for="n-name">Name</label><input id="n-name" name="name" required maxlength="120"><label for="n-mail">E-Mail</label><input id="n-mail" name="email" type="email" required>
-<label for="n-role">Rolle</label><select id="n-role" name="role">${Object.entries(ROLES).filter(([k]) => k !== 'admin').map(([k, r]) => html`<option value="${k}">${r.label}</option>`)}</select>
-<button class="btn btn-primary" type="submit">Konto anlegen</button><p class="small muted">Es wird kein Einladungs-E-Mail versendet. Das Startpasswort wird einmalig angezeigt; MFA wird für interne Rollen und Investoren bei Anlage aktiviert.</p></form></div>
+<div class="panel"><h2>Benutzer anlegen und verwalten</h2><p>Neue Benutzer, Rollen, Projektrechte, Sperren und Einladungen verwalten Sie unter <a href="/portal/admin/benutzer">Benutzer &amp; Berechtigungen</a>.</p><p><a class="btn btn-primary" href="/portal/admin/benutzer/neu">Neuen Benutzer einladen</a></p></div>
 </section>
 <section class="panel"><h2>Projektgesellschaften</h2><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Gesellschaft</th><th>Rechtlicher Status</th><th>Projekte</th><th>Hinweis</th></tr></thead><tbody>${spvs.map((x) => html`<tr><td data-l="Gesellschaft">${x.name}</td><td data-l="Status">${statusMark(x.legalStatus)}</td><td data-l="Projekte">${projects.filter((p) => p.spvId === x.id).map((p) => p.code).join(', ')}</td><td data-l="Hinweis" class="small">${x.note}</td></tr>`)}</tbody></table></div></section>`;
 }

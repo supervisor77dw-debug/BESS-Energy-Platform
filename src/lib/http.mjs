@@ -43,7 +43,9 @@ export async function parseForm(req) {
     return parseMultipart(body, m[1] || m[2]);
   }
   const body = await readBody(req, 64 * 1024);
-  const fields = Object.fromEntries(new URLSearchParams(body.toString('utf8')));
+  // wiederholte Felder (z. B. Kontrollkästchen) als Liste, einzelne Felder als Wert
+  const fields = {};
+  for (const [k, v] of new URLSearchParams(body.toString('utf8'))) fields[k] = k in fields ? [].concat(fields[k], v) : v;
   return { fields, files: [] };
 }
 

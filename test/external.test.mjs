@@ -18,7 +18,7 @@ const base = `http://127.0.0.1:${PORT}`;
 let srv, creds = {}, gate = {};
 
 function startServer() {
-  srv = spawn(process.execPath, [join(ROOT, 'server.mjs')], { env: { ...process.env, BESS_PORT: String(PORT), BESS_DATA_DIR: RUNTIME, BESS_GATE: '1', BESS_TRUST_PROXY: '1', BESS_SECURE_COOKIES: '1', BESS_IDLE_TTL_MS: '4000' }, stdio: 'ignore' });
+  srv = spawn(process.execPath, [join(ROOT, 'server.mjs')], { env: { ...process.env, BESS_PORT: String(PORT), BESS_DATA_DIR: RUNTIME, BESS_GATE: '1', BESS_TRUST_PROXY: '1', BESS_SECURE_COOKIES: '1', BESS_IDLE_TTL_MS: '4000', BESS_MFA: 'konto' }, stdio: 'ignore' });
   return new Promise((r) => setTimeout(r, 1200));
 }
 const stopServer = () => new Promise((r) => { srv.once('exit', r); srv.kill(); });

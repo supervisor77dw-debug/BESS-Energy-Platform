@@ -161,3 +161,25 @@ code { font-family: Consolas, "Cascadia Mono", monospace; font-size: .92em; back
 .rail-brand { color: #fff; } .rail-logo { width: 34px; height: 34px; }
 .auth-brand .auth-logo { width: 34px; height: 34px; } .auth-brand .bm-accent { stroke: #9c5424; }
 .inline-form { display: inline; margin-left: 6px; }
+
+/* Benutzer & Berechtigungen (AW-BESS-STROMKAI-BENUTZERVERWALTUNG-009) */
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 16px; border-bottom: 1px solid var(--line); }
+.tabs a { padding: 8px 12px; text-decoration: none; color: var(--text-2); border-bottom: 2px solid transparent; margin-bottom: -1px; font-size: 14px; }
+.tabs a[aria-current="page"] { color: var(--text); border-bottom-color: currentColor; font-weight: 600; }
+.filters { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; }
+.filters label { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.filters input, .filters select { min-width: 160px; }
+.checks { border: 1px solid var(--line); border-radius: var(--r2); padding: 10px 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 6px 16px; }
+.checks legend { font-weight: 600; padding: 0 4px; }
+.checks label { display: flex; gap: 8px; align-items: flex-start; font-weight: 400; }
+.checks .confirm { grid-column: 1 / -1; font-size: 12.5px; color: var(--warn); }
+.checks p { grid-column: 1 / -1; margin: 0; }
+.stack-wide { max-width: 860px; }
+.chip-plain { padding: 1px 6px; }
+.btn-danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+.btn-danger:hover { filter: brightness(1.08); }
+.lockform { display: flex; gap: 6px; flex-wrap: wrap; }
+.row-actions { flex-wrap: wrap; }
+.linkcode { word-break: break-all; user-select: all; }
+.notice-info { background: var(--info-bg); color: var(--info); padding: 10px 14px; border-radius: var(--r2); margin: 12px 0; }
+@media (max-width: 760px) { .filters input, .filters select { min-width: 0; width: 100%; } .filters label { width: 100%; } }

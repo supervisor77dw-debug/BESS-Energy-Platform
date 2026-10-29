@@ -16,7 +16,7 @@ let driver = null;    // { kind, ... }
 
 let STATE = 'state/db.json';
 let FILES = 'files/';
-const ensureCollections = (d) => { for (const k of ['audit', 'downloads', 'inquiries', 'messages', 'approvals', 'uploads', 'revoked', 'gateUsers']) d[k] ??= []; d.meta ??= {}; return d; };
+const ensureCollections = (d) => { for (const k of ['audit', 'downloads', 'inquiries', 'messages', 'approvals', 'uploads', 'revoked', 'gateUsers', 'invitations', 'grants']) d[k] ??= []; d.meta ??= {}; return d; };
 
 export async function openStore(opts) {
   if (typeof opts === 'string') opts = { kind: 'file', dataDir: opts };

@@ -9,6 +9,7 @@ export function hashPassword(pw) {
 }
 
 export function verifyPassword(pw, stored) {
+  if (!stored || typeof stored !== 'string' || !stored.startsWith('scrypt$')) return false; // Konto ohne Passwort (z. B. Einladung offen)
   const [alg, s, h] = String(stored || '').split('$');
   if (alg !== 'scrypt') return false;
   const expected = Buffer.from(h, 'base64');

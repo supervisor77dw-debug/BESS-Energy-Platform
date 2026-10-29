@@ -23,37 +23,63 @@ export const AUDIENCES = {
   intern_finanzen: 'Intern – Finanzen',
 };
 
-export const isInternal = (u) => !!ROLES[u?.role]?.internal;
-export const isAdmin = (u) => u?.role === 'admin';
+// Rollen eines Kontos: mehrere Rollen möglich (u.roles), u.role bleibt die Hauptrolle (Anzeige, Startbereich).
+export const ROLE_ORDER = ['admin', 'projektleitung', 'vertrieb_nord', 'vertrieb_sued', 'investor', 'kommune', 'technik', 'eigentuemer'];
+export const rolesOf = (u) => (u?.roles?.length ? u.roles : u?.role ? [u.role] : []).filter((r) => ROLES[r]);
+export const hasRole = (u, r) => rolesOf(u).includes(r);
+export const primaryRole = (roles) => ROLE_ORDER.find((r) => roles.includes(r)) || roles[0];
+export const isInternal = (u) => rolesOf(u).some((r) => ROLES[r].internal);
+export const isAdmin = (u) => hasRole(u, 'admin');
+// Rollen, die je Projekt freigeschaltet werden (Zuordnung über db.grants mit scope = Rolle)
+export const PROJECT_ROLES = ['projektleitung', 'vertrieb_nord', 'vertrieb_sued', 'investor', 'kommune', 'technik'];
+const AUD = {
+  admin: Object.keys(AUDIENCES), projektleitung: Object.keys(AUDIENCES),
+  vertrieb_nord: ['eigentuemer', 'kommune', 'intern'], vertrieb_sued: ['eigentuemer', 'kommune', 'intern'],
+  eigentuemer: ['eigentuemer'], investor: ['investor'], kommune: ['kommune'], technik: ['technik'],
+};
 
-export function visibleProjectIds(u) {
+// Projekte je Rolle – Grundlage aller Prüfungen. Jede Rolle gilt nur für die Projekte, für die sie gilt.
+export function projectsByRole(u) {
   const db = getDb();
-  if (!u || !u.active) return new Set();
-  switch (u.role) {
-    case 'admin': return new Set(db.projects.map((p) => p.id));
-    case 'projektleitung': return new Set(u.projects || []);
-    case 'vertrieb_nord':
-    case 'vertrieb_sued': return new Set(db.projects.filter((p) => p.region === ROLES[u.role].region).map((p) => p.id));
-    case 'eigentuemer': return new Set(db.parcels.filter((x) => x.ownerContactId === u.contactId).map((x) => x.projectId));
-    case 'investor':
-    case 'kommune':
-    case 'technik': return new Set(db.grants.filter((g) => g.userId === u.id && g.scope === u.role).map((g) => g.projectId));
-    default: return new Set();
+  const map = new Map();
+  if (!u || !u.active) return map;
+  const grantsOf = (scope) => db.grants.filter((g) => g.userId === u.id && g.scope === scope).map((g) => g.projectId);
+  for (const r of rolesOf(u)) {
+    let ids;
+    switch (r) {
+      case 'admin': ids = db.projects.map((p) => p.id); break;
+      case 'projektleitung': ids = [...(u.projects || []), ...grantsOf(r)]; break;
+      case 'vertrieb_nord':
+      case 'vertrieb_sued': {
+        // ohne Einzelzuordnung: alle Projekte der Region; mit Zuordnung: nur die zugeordneten Projekte der Region
+        const region = db.projects.filter((p) => p.region === ROLES[r].region).map((p) => p.id);
+        const assigned = grantsOf(r);
+        ids = assigned.length ? region.filter((id) => assigned.includes(id)) : (u.regionAll === false ? [] : region);
+        break;
+      }
+      case 'eigentuemer': ids = db.parcels.filter((x) => u.contactId && x.ownerContactId === u.contactId).map((x) => x.projectId); break;
+      default: ids = grantsOf(r);
+    }
+    map.set(r, new Set(ids));
   }
+  return map;
 }
+export function visibleProjectIds(u) {
+  const all = new Set();
+  for (const ids of projectsByRole(u).values()) for (const id of ids) all.add(id);
+  return all;
+}
+// Projekte, die über eine interne Rolle sichtbar sind (für interne Bereiche wie Pipeline, Kontakte, Aufgaben)
+export function internalProjectIds(u) {
+  const out = new Set();
+  for (const [r, ids] of projectsByRole(u)) if (ROLES[r].internal) for (const id of ids) out.add(id);
+  return out;
+}
+const rolesFor = (u, projectId) => [...projectsByRole(u)].filter(([, ids]) => ids.has(projectId)).map(([r]) => r);
 
-export function allowedAudiences(u) {
-  switch (u?.role) {
-    case 'admin':
-    case 'projektleitung': return Object.keys(AUDIENCES);
-    case 'vertrieb_nord':
-    case 'vertrieb_sued': return ['eigentuemer', 'kommune', 'intern'];
-    case 'eigentuemer': return ['eigentuemer'];
-    case 'investor': return ['investor'];
-    case 'kommune': return ['kommune'];
-    case 'technik': return ['technik'];
-    default: return [];
-  }
+export function allowedAudiences(u, projectId) {
+  const roles = projectId ? rolesFor(u, projectId) : rolesOf(u);
+  return [...new Set(roles.flatMap((r) => AUD[r] || []))];
 }
 
 export function listProjects(u) {
@@ -66,12 +92,14 @@ export function getProject(u, id) {
 
 export function canSeeDocument(u, d) {
   if (!u || !d) return false;
-  if (!visibleProjectIds(u).has(d.projectId)) return false;
-  if (!allowedAudiences(u).includes(d.audience)) return false;
-  if (isInternal(u)) return true;
-  if (d.ownerContactId && d.ownerContactId !== u.contactId) return false;
-  if (d.status === 'freigegeben') return true;
-  return d.uploadedBy === u.id; // eigene Einreichungen bleiben für den Einreicher sichtbar
+  // je Rolle prüfen, die für das Projekt des Dokuments gilt – keine Vermischung über Projekte hinweg
+  for (const r of rolesFor(u, d.projectId)) {
+    if (!(AUD[r] || []).includes(d.audience)) continue;
+    if (ROLES[r].internal) return true;
+    if (d.ownerContactId && d.ownerContactId !== u.contactId) continue;
+    if (d.status === 'freigegeben' || d.uploadedBy === u.id) return true; // eigene Einreichungen bleiben für den Einreicher sichtbar
+  }
+  return false;
 }
 export function listDocuments(u, projectId) {
   return getDb().documents.filter((d) => (!projectId || d.projectId === projectId) && canSeeDocument(u, d));
@@ -82,34 +110,27 @@ export function getDocument(u, id) {
 }
 
 export function canSeeFinancials(u, p) {
-  if (!p || !visibleProjectIds(u).has(p.id)) return false;
-  return u.role === 'admin' || u.role === 'projektleitung' || u.role === 'investor';
+  return !!p && rolesFor(u, p.id).some((r) => ['admin', 'projektleitung', 'investor'].includes(r));
 }
-export const canSeeTechnical = (u, p) => !!p && visibleProjectIds(u).has(p.id) && u.role !== 'eigentuemer';
+export const canSeeTechnical = (u, p) => !!p && rolesFor(u, p.id).some((r) => r !== 'eigentuemer');
 
 export function listParcels(u, projectId) {
-  const ids = visibleProjectIds(u);
-  return getDb().parcels.filter((x) => ids.has(x.projectId) && (!projectId || x.projectId === projectId)
-    && (isInternal(u) || (u.role === 'eigentuemer' && x.ownerContactId === u.contactId)));
+  return getDb().parcels.filter((x) => (!projectId || x.projectId === projectId) && rolesFor(u, x.projectId).some((r) => ROLES[r].internal || (r === 'eigentuemer' && x.ownerContactId === u.contactId)));
 }
 export function listContracts(u) {
-  const ids = visibleProjectIds(u);
-  return getDb().contracts.filter((c) => ids.has(c.projectId)
-    && (u.role === 'admin' || u.role === 'projektleitung' || u.role?.startsWith('vertrieb_') || (u.role === 'eigentuemer' && c.ownerContactId === u.contactId)));
+  return getDb().contracts.filter((c) => rolesFor(u, c.projectId).some((r) => ['admin', 'projektleitung', 'vertrieb_nord', 'vertrieb_sued'].includes(r) || (r === 'eigentuemer' && c.ownerContactId === u.contactId)));
 }
 export function listAppointments(u) {
-  const ids = visibleProjectIds(u);
-  return getDb().appointments.filter((a) => ids.has(a.projectId)
-    && (isInternal(u) || (a.audience === u.role && (!a.ownerContactId || a.ownerContactId === u.contactId))));
+  return getDb().appointments.filter((a) => rolesFor(u, a.projectId).some((r) => ROLES[r].internal || (a.audience === r && (!a.ownerContactId || a.ownerContactId === u.contactId))));
 }
 export function listContacts(u) {
   if (!isInternal(u)) return [];
-  const ids = visibleProjectIds(u);
-  return getDb().contacts.filter((c) => u.role === 'admin' || (c.projectIds || []).some((p) => ids.has(p)));
+  const ids = internalProjectIds(u);
+  return getDb().contacts.filter((c) => isAdmin(u) || (c.projectIds || []).some((p) => ids.has(p)));
 }
 export function listTasks(u) {
   if (!isInternal(u)) return [];
-  const ids = visibleProjectIds(u);
+  const ids = internalProjectIds(u);
   return getDb().tasks.filter((t) => ids.has(t.projectId));
 }
 
@@ -118,12 +139,13 @@ export function threadKey(projectId, externalUserId) { return `${projectId}:${ex
 export function listThreads(u) {
   const db = getDb();
   const ids = visibleProjectIds(u);
+  const internal = internalProjectIds(u);
   const keys = new Set();
   for (const m of db.messages) {
     if (!ids.has(m.projectId)) continue;
-    if (isInternal(u) || m.threadKey === threadKey(m.projectId, u.id)) keys.add(m.threadKey);
+    if (internal.has(m.projectId) || m.threadKey === threadKey(m.projectId, u.id)) keys.add(m.threadKey);
   }
-  if (!isInternal(u)) for (const pid of ids) keys.add(threadKey(pid, u.id));
+  for (const pid of ids) if (!internal.has(pid)) keys.add(threadKey(pid, u.id));
   return [...keys].map((k) => {
     const [projectId, extId] = k.split(':');
     return { key: k, projectId, externalUserId: extId, messages: db.messages.filter((m) => m.threadKey === k) };
@@ -131,7 +153,7 @@ export function listThreads(u) {
 }
 export function canPostToThread(u, projectId, extUserId) {
   if (!visibleProjectIds(u).has(projectId)) return false;
-  if (isInternal(u)) return getDb().users.some((x) => x.id === extUserId && visibleProjectIds(x).has(projectId));
+  if (internalProjectIds(u).has(projectId) && extUserId !== u.id) return getDb().users.some((x) => x.id === extUserId && visibleProjectIds(x).has(projectId));
   return extUserId === u.id;
 }
 

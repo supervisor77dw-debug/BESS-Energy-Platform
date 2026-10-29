@@ -19,6 +19,7 @@ function readAccounts() {
 export function applyAccounts(db, acc, hash) {
   const byId = new Map((acc.users || []).map((u) => [u.id, u]));
   for (const u of db.users) {
+    if (u.createdVia === 'verwaltung') continue; // in der Benutzerverwaltung angelegte Konten verwaltet der Kontenabgleich nicht
     const a = byId.get(u.id);
     if (!a || !/^scrypt\$/.test(a.pw || '')) { u.active = false; u.pw = null; continue; }
     u.active = true;

@@ -27,6 +27,10 @@ export const config = {
   onVercel: !!env.VERCEL,
   // Betriebsstufe: 'qa' (geschützte Entwicklungs-/QA-Vorschau) | 'abnahme' (öffentlicher, vorläufiger Abnahmekandidat).
   // Auf Vercel: Production-Ziel = Abnahme, Preview-Ziele = QA.
+  // MFA: 'aus' (Abnahmeplattform, Standard) | 'privilegiert' (Administration, Projektleitung) | 'konto' (je Konto laut Merker mfa)
+  mfa: ['aus', 'privilegiert', 'konto'].includes(env.BESS_MFA) ? env.BESS_MFA : 'aus',
+  inviteTtlMs: Number(env.BESS_INVITE_TTL_MS || 1000 * 60 * 60 * 72),
+  resetTtlMs: Number(env.BESS_RESET_TTL_MS || 1000 * 60 * 60 * 24),
   stage: env.BESS_STAGE || (env.VERCEL_ENV === 'production' ? 'abnahme' : 'qa'),
   sessionTtlMs: Number(env.BESS_SESSION_TTL_MS || 1000 * 60 * 60 * 8),
   idleTtlMs: Number(env.BESS_IDLE_TTL_MS || 1000 * 60 * 30),

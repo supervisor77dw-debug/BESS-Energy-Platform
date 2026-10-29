@@ -7,6 +7,7 @@ import { verifyPassword, verifyTotp, totp, createSession, getSession, destroySes
 import { parseCookies, parseForm, send, redirect, rateLimit, clientIp, formToken, checkFormToken, sniffType, tooMany, hit } from '../lib/http.mjs';
 import * as P from '../lib/policy.mjs';
 import * as V from './views.mjs';
+import { handleUserAdmin, handleActivation, passwordProblem as pwProblem } from './benutzer.mjs';
 import { html } from '../lib/html.mjs';
 
 const DEMO_PASSWORD = 'Vorschau!Speicher-2026'; // nur für die Anzeige der Vorschau-Zugänge (siehe data/seed.mjs)
@@ -20,7 +21,8 @@ function current(req, res) {
   if (!s) return {};
   if (s.refresh && res) res.setHeader('Set-Cookie', sessionCookie(s)); // gleitender Leerlauf
   const u = getDb().users.find((x) => x.id === s.userId && x.active);
-  if (!u) { destroySession(s); return {}; }
+  // gesperrte Konten und Sitzungen vor einer Sperre, Rücksetzung oder erzwungenen Abmeldung sind sofort ungültig
+  if (!u || (u.sessionsNotBefore && s.created < u.sessionsNotBefore)) { destroySession(s); return {}; }
   return { s, u: s.mfaPending ? null : u, pendingUser: u };
 }
 
@@ -34,16 +36,15 @@ const out = (res, body, status = 200) => send(res, status, String(body));
 // Startbereich nach der Anmeldung je Rolle
 export function landing(u) {
   if (u.mustChangePassword) return '/portal/passwort';
-  return { investor: '/portal/dokumente', kommune: '/portal/projekte', technik: '/portal/projekte', vertrieb_nord: '/portal/pipeline', vertrieb_sued: '/portal/pipeline' }[u.role] || '/portal';
+  return { investor: '/portal/dokumente', kommune: '/portal/projekte', technik: '/portal/projekte', vertrieb_nord: '/portal/pipeline', vertrieb_sued: '/portal/pipeline' }[P.primaryRole(P.rolesOf(u))] || '/portal';
 }
-function passwordProblem(u, pw, pw2) {
-  if (pw.length < 12) return 'Das neue Passwort muss mindestens 12 Zeichen lang sein.';
-  if (pw.length > 200) return 'Das neue Passwort ist zu lang.';
-  if (pw !== pw2) return 'Die beiden neuen Passwörter stimmen nicht überein.';
-  if (pw.toLowerCase().includes(String(u.email).split('@')[0].toLowerCase())) return 'Das Passwort darf den Benutzernamen nicht enthalten.';
-  if (verifyPassword(pw, u.pw)) return 'Bitte ein neues, anderes Passwort wählen.';
-  return null;
+// MFA nach Betriebsart: aus (Standard der Abnahmeplattform), nur privilegierte Konten oder je Konto
+export function mfaRequired(u) {
+  if (config.mfa === 'konto') return !!u.mfa;
+  if (config.mfa === 'privilegiert') return P.isAdmin(u) || P.hasRole(u, 'projektleitung');
+  return false;
 }
+const LOCK_FAILS = 5, LOCK_WINDOW = 15 * 60000, LOCK_TIME = 15 * 60000;
 
 function ctxFor(u) {
   const db = getDb();
@@ -65,7 +66,8 @@ export async function handlePortal(req, res, url) {
     const { u } = current(req, res);
     if (u) return redirect(res, '/portal');
     const demo = config.previewHelpers ? { password: DEMO_PASSWORD, users: db.users.filter((x) => x.email.endsWith('@demo.invalid')) } : null;
-    return out(res, V.loginView({ token: formToken(), demo, error: url.searchParams.get('e') === 'ablauf' ? 'Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.' : null }));
+    const info = { aktiviert: 'Ihr Passwort ist gespeichert. Sie können sich jetzt anmelden.' }[url.searchParams.get('m')] || null;
+    return out(res, V.loginView({ token: formToken(), demo, info, error: url.searchParams.get('e') === 'ablauf' ? 'Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.' : null }));
   }
   if (path === '/portal/anmelden' && method === 'POST') {
     const { fields } = await parseForm(req);
@@ -78,11 +80,25 @@ export async function handlePortal(req, res, url) {
       return out(res, V.loginView({ token: formToken(), error: 'Zu viele Anmeldeversuche. Bitte warten Sie 15 Minuten.', email }), 429);
     }
     const user = db.users.find((x) => x.email.toLowerCase() === email && x.active);
-    if (!user || !verifyPassword(fields.password || '', user.pw)) { hit(`login-ip:${ip}`); hit(`login-user:${email}`); audit('anmeldung_fehlgeschlagen', null, { email, ip }); return fail('E-Mail-Adresse oder Passwort ist nicht korrekt.'); }
-    const s = createSession(user.id, { mfaPending: !!user.mfa });
+    // Kontosperre nach wiederholten Fehlversuchen – gespeichert am Konto, gilt damit über alle Serverinstanzen
+    if (user?.lockedUntil && Date.parse(user.lockedUntil) > Date.now()) { audit('anmeldung_gesperrt', user, { ip }); return out(res, V.loginView({ token: formToken(), error: 'Zu viele Anmeldeversuche. Bitte warten Sie 15 Minuten.', email }), 429); }
+    if (!user || !verifyPassword(fields.password || '', user.pw)) {
+      hit(`login-ip:${ip}`); hit(`login-user:${email}`);
+      if (user) {
+        const t = Date.now();
+        user.failedLogins = (user.failedLogins || []).filter((x) => t - x < LOCK_WINDOW).concat(t);
+        if (user.failedLogins.length >= LOCK_FAILS) { user.lockedUntil = new Date(t + LOCK_TIME).toISOString(); user.failedLogins = []; audit('konto_vorlaeufig_gesperrt', user, { ip }); }
+        persist();
+      }
+      audit('anmeldung_fehlgeschlagen', null, { email, ip });
+      return fail('E-Mail-Adresse oder Passwort ist nicht korrekt.');
+    }
+    const needMfa = mfaRequired(user);
+    user.failedLogins = []; delete user.lockedUntil; user.lastLoginAt = now(); user.lastLoginIp = ip; persist();
+    const s = createSession(user.id, { mfaPending: needMfa });
     res.setHeader('Set-Cookie', sessionCookie(s));
-    audit(user.mfa ? 'anmeldung_passwort_ok' : 'anmeldung', user, { ip });
-    return redirect(res, user.mfa ? '/portal/mfa' : landing(user));
+    audit(needMfa ? 'anmeldung_passwort_ok' : 'anmeldung', user, { ip });
+    return redirect(res, needMfa ? '/portal/mfa' : landing(user));
   }
   if (path === '/portal/mfa') {
     const { s, pendingUser } = current(req, res);
@@ -106,6 +122,8 @@ export async function handlePortal(req, res, url) {
     audit('anmeldung', pendingUser, { mfa: 'ok' });
     return redirect(res, landing(pendingUser));
   }
+  // Einladung annehmen / Passwort über Zurücksetzungslink festlegen (ohne Anmeldung, einmaliger Link)
+  if (path === '/portal/aktivieren') return handleActivation(req, res, url, method);
   if (path === '/portal/abmelden' && method === 'POST') {
     const { s, pendingUser } = current(req, res);
     const { fields } = await parseForm(req);
@@ -125,7 +143,7 @@ export async function handlePortal(req, res, url) {
     checkCsrf(s, fields);
     if (!rateLimit(`pw:${u.id}`, 10, 15 * 60000)) return out(res, V.passwordView({ s, u, forced: !!u.mustChangePassword, error: 'Zu viele Versuche. Bitte später erneut versuchen.' }), 429);
     if (!verifyPassword(fields.current || '', u.pw)) { audit('passwort_aenderung_fehlgeschlagen', u); return out(res, V.passwordView({ s, u, forced: !!u.mustChangePassword, error: 'Das bisherige Passwort ist nicht korrekt.' }), 401); }
-    const problem = passwordProblem(u, String(fields.neu || ''), String(fields.neu2 || ''));
+    const problem = pwProblem(u, String(fields.neu || ''), String(fields.neu2 || ''));
     if (problem) return out(res, V.passwordView({ s, u, forced: !!u.mustChangePassword, error: problem }), 422);
     u.pw = hashPassword(String(fields.neu)); u.mustChangePassword = false; u.passwordChangedAt = now();
     persist(); audit('passwort_geaendert', u);
@@ -151,12 +169,12 @@ export async function handlePortal(req, res, url) {
     return view(p.name, V.projectDetail({ u, s, p, spv: db.spvs.find((x) => x.id === p.spvId), docs: P.listDocuments(u, p.id), showFin: P.canSeeFinancials(u, p), showTech: P.canSeeTechnical(u, p), parcels: P.listParcels(u, p.id), approvals: db.approvals }), p.code);
   }
   if (path === '/portal/grundstuecke' && method === 'GET') {
-    if (!(u.role === 'eigentuemer' || P.isInternal(u))) throw notFound();
+    if (!(P.hasRole(u, 'eigentuemer') || P.isInternal(u))) throw notFound();
     return view('Grundstücke und Verträge', V.grundstuecke({ u, parcels: P.listParcels(u), contracts: P.listContracts(u), projects: P.listProjects(u) }));
   }
   if (path === '/portal/dokumente' && method === 'GET') {
     const msg = { ok: 'Das Dokument wurde hochgeladen.', typ: 'Dateityp nicht erlaubt. Erlaubt sind PDF, JPG und PNG.' }[url.searchParams.get('m')];
-    return view(u.role === 'investor' ? 'Datenraum' : 'Dokumente', V.dokumente({ u, s, docs: P.listDocuments(u), projects: P.listProjects(u), msg }));
+    return view(P.hasRole(u, 'investor') && !P.isInternal(u) ? 'Datenraum' : 'Dokumente', V.dokumente({ u, s, docs: P.listDocuments(u), projects: P.listProjects(u), msg }));
   }
   m = /^\/portal\/dokumente\/([\w-]+)\/download$/.exec(path);
   if (m && method === 'GET') {
@@ -170,7 +188,7 @@ export async function handlePortal(req, res, url) {
     return send(res, 200, data, d.mime);
   }
   if (path === '/portal/dokumente/hochladen' && method === 'POST') {
-    if (!(u.role === 'eigentuemer' || P.isInternal(u))) throw notFound();
+    if (!(P.hasRole(u, 'eigentuemer') || P.isInternal(u))) throw notFound();
     const { fields, files } = await post();
     const p = P.getProject(u, fields.projectId);
     if (!p) throw notFound();
@@ -178,15 +196,16 @@ export async function handlePortal(req, res, url) {
     const type = f && sniffType(f.data);
     if (!type) { audit('upload_abgelehnt', u, { grund: 'typ' }); return redirect(res, '/portal/dokumente?m=typ'); }
     let audience = 'eigentuemer', status = 'eingereicht', owner = u.contactId || null;
-    if (P.isInternal(u)) {
+    const internHier = P.internalProjectIds(u).has(p.id);
+    if (internHier) {
       audience = String(fields.audience || 'intern');
-      if (!P.allowedAudiences(u).includes(audience) || audience === 'intern_finanzen' && u.role !== 'admin' && u.role !== 'projektleitung') throw forbidden();
+      if (!P.allowedAudiences(u, p.id).includes(audience)) throw forbidden();
       status = audience.startsWith('intern') ? 'freigegeben' : 'entwurf';
       owner = null;
     }
     const id = newId('d'); const file = `${id}.${type.ext}`;
     await putFile(file, f.data, type.mime);
-    db.documents.push({ id, projectId: p.id, title: String(fields.title || f.filename).slice(0, 140), category: P.isInternal(u) ? 'Upload intern' : 'Einreichung Eigentümer', audience, ownerContactId: owner, status, version: '1.0', versions: [{ v: '1.0', at: now(), file }], file, mime: type.mime, size: f.data.length, uploadedBy: u.id, at: now(), source: `Upload ${u.name}`, stand: now().slice(0, 10) });
+    db.documents.push({ id, projectId: p.id, title: String(fields.title || f.filename).slice(0, 140), category: internHier ? 'Upload intern' : 'Einreichung Eigentümer', audience, ownerContactId: owner, status, version: '1.0', versions: [{ v: '1.0', at: now(), file }], file, mime: type.mime, size: f.data.length, uploadedBy: u.id, at: now(), source: `Upload ${u.name}`, stand: now().slice(0, 10) });
     persist();
     audit('upload', u, { dokument: id, projekt: p.id, bereich: audience });
     return redirect(res, '/portal/dokumente?m=ok');
@@ -250,6 +269,11 @@ export async function handlePortal(req, res, url) {
   // ---------- Verwaltung ----------
   if (path === '/portal/protokoll' && method === 'GET') { adminOnly(); return view('Protokoll', V.protokoll({ audit: db.audit, downloads: db.downloads, users: db.users, docs: db.documents })); }
   if (path === '/portal/ki' && method === 'GET') { adminOnly(); return view('KI-Assistenz', V.ki(), 'Vorbereitete Funktionen'); }
+  // Benutzer & Berechtigungen (nur Plattformadministration; Prüfung in handleUserAdmin)
+  if (path.startsWith('/portal/admin/benutzer') || path.startsWith('/portal/admin/einladungen') || path === '/portal/admin/aenderungen') {
+    adminOnly();
+    return handleUserAdmin({ req, res, url, path, method, u, s, view, post });
+  }
   if (path === '/portal/admin' && method === 'GET') {
     adminOnly();
     const msg = url.searchParams.get('m') === 'ok' ? 'Gespeichert.' : null;
@@ -294,28 +318,9 @@ export async function handlePortal(req, res, url) {
     persist(); audit('mfa_zurueckgesetzt', u, { konto: target.id });
     return redirect(res, '/portal/admin?m=ok');
   }
-  if (path === '/portal/admin/konto' && method === 'POST') {
-    adminOnly();
-    const { fields } = await post();
-    const email = String(fields.email || '').trim().toLowerCase();
-    const role = String(fields.role || '');
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || !P.ROLES[role] || role === 'admin' || !String(fields.name || '').trim()) throw new HttpError(400, 'Bitte Name, gültige E-Mail und Rolle angeben.');
-    if (db.users.some((x) => x.email.toLowerCase() === email)) throw new HttpError(409, 'Für diese E-Mail-Adresse besteht bereits ein Konto.');
-    const pw = randomBytes(12).toString('base64url');
-    const mfa = P.ROLES[role].internal || role === 'investor';
-    const secret = mfa ? newTotpSecret() : null;
-    const nu = { id: newId('u'), email, name: String(fields.name).trim().slice(0, 120), role, mfa, totp: secret, active: true, pw: hashPassword(pw), createdAt: now(), projects: [] };
-    db.users.push(nu); persist(); audit('konto_angelegt', u, { konto: nu.id, rolle: role });
-    return view('Konto angelegt', accountCreated(nu, pw, secret));
-  }
+  // frühere Kontoanlage mit angezeigtem Startpasswort ersetzt durch Einladung mit Aktivierungslink
+  if (path === '/portal/admin/konto') { adminOnly(); return redirect(res, '/portal/admin/benutzer/neu'); }
   throw notFound();
-}
-
-// Einmalige Anzeige der Startzugangsdaten (nicht gespeichert, nicht versendet).
-function accountCreated(nu, pw, secret) {
-  return html`<section class="panel"><h2>Konto für ${nu.name} angelegt</h2><p>Die folgenden Angaben werden nur jetzt angezeigt. Übergeben Sie sie auf sicherem Weg; es wird keine E-Mail versendet.</p>
-  <dl class="kv"><div><dt>E-Mail</dt><dd><code>${nu.email}</code></dd></div><div><dt>Startpasswort</dt><dd><code>${pw}</code></dd></div>${secret ? html`<div><dt>MFA-Schlüssel (TOTP)</dt><dd><code>${secret}</code></dd></div>` : ''}</dl>
-  <p><a class="btn" href="/portal/admin">Zurück zur Verwaltung</a></p></section>`;
 }
 
 export { HttpError };

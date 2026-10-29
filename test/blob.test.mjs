@@ -9,6 +9,7 @@ import { Readable } from 'node:stream';
 import { randomBytes } from 'node:crypto';
 
 process.env.BESS_GATE = '1';
+process.env.BESS_MFA = 'konto'; // MFA-Pfad weiter abgesichert (wieder aktivierbar)
 process.env.BESS_PREVIEW_HELPERS = '0';
 const { hashPassword, totp } = await import('../src/lib/auth.mjs');
 
