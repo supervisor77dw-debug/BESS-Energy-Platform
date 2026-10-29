@@ -18,23 +18,28 @@ function readAccounts() {
 
 export function applyAccounts(db, acc, hash) {
   const byId = new Map((acc.users || []).map((u) => [u.id, u]));
+  let geaendert = false;
   for (const u of db.users) {
     if (u.createdVia === 'verwaltung') continue; // in der Benutzerverwaltung angelegte Konten verwaltet der Kontenabgleich nicht
     const a = byId.get(u.id);
-    if (!a || !/^scrypt\$/.test(a.pw || '')) { u.active = false; u.pw = null; continue; }
+    if (!a || !/^scrypt\$/.test(a.pw || '')) { u.active = false; continue; } // nicht mehr aufgeführt: gesperrt, Passwort bleibt für eine spätere Reaktivierung erhalten
     u.active = true;
     u.email = a.email || u.email;
     u.name = a.name || u.name;
+    // Selbst gesetzte Passwörter bleiben bestehen (AW-014): Ein Abgleich setzt nur Startzugänge, die noch nicht persönlich
+    // übernommen wurden. Ein Rücksetzen erfolgt ausschließlich auf ausdrücklichen Wunsch (Eintrag "reset": true).
+    if (u.passwordChangedAt && !u.mustChangePassword && u.pw && a.reset !== true) continue;
     u.pw = a.pw;
     u.mustChangePassword = a.mustChangePassword !== false;
+    geaendert = true;
     if (u.mfa) { u.totp = null; delete u.totpEnrolledAt; } // MFA wird beim ersten Login vom Nutzer selbst eingerichtet
   }
   db.gateUsers = (acc.gate || []).filter((g) => /^scrypt\$/.test(g.hash || ''));
   if (config.gate && !db.gateUsers.length) throw new Error('Vorschau-Schranke aktiv, aber BESS_ACCOUNTS enthält keine Schrankenzugänge.');
   db.meta.accountsHash = hash;
   db.meta.accountsAppliedAt = new Date().toISOString();
-  db.meta.sessionKey = randomBytes(32).toString('base64'); // alle bisherigen Sitzungen und Formular-Token ungültig
-  db.revoked = [];
+  // Sitzungen nur beenden, wenn tatsächlich Zugänge neu gesetzt wurden (kein Abmelden durch bloße Bereitstellung)
+  if (geaendert || !db.meta.sessionKey) { db.meta.sessionKey = randomBytes(32).toString('base64'); db.revoked = []; }
 }
 
 export async function bootstrapFromEnv() {
