@@ -9,6 +9,7 @@ import * as P from '../lib/policy.mjs';
 import * as V from './views.mjs';
 import { handleUserAdmin, handleActivation, passwordProblem as pwProblem } from './benutzer.mjs';
 import { handleFinanzen, investorKennzahlen } from './finanzen.mjs';
+import { handleStrommarkt } from './strommarkt.mjs';
 import { html } from '../lib/html.mjs';
 
 const DEMO_PASSWORD = 'Vorschau!Speicher-2026'; // nur für die Anzeige der Vorschau-Zugänge (siehe data/seed.mjs)
@@ -321,6 +322,9 @@ export async function handlePortal(req, res, url) {
   }
   // frühere Kontoanlage mit angezeigtem Startpasswort ersetzt durch Einladung mit Aktivierungslink
   if (path === '/portal/admin/konto') { adminOnly(); return redirect(res, '/portal/admin/benutzer/neu'); }
+  // Strommarkt & Backtesting (intern, nur Administration und Projektleitung; keine Projektdaten)
+  const sm = handleStrommarkt({ path, method, u, view, url });
+  if (sm !== null) return sm;
   // Projektwirtschaftlichkeit, Vergütung, Handelsdaten (eigene Rechteprüfung je Projekt)
   const fin = await handleFinanzen({ req, res, url, path, method, u, s, view, page, post });
   if (fin !== null) return fin;

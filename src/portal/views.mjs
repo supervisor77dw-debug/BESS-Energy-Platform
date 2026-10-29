@@ -36,6 +36,7 @@ export function navFor(u) {
   if (hasRole(u, 'eigentuemer')) n.push(['/portal/verguetung', 'Meine Vergütung', 'euro']);
   n.push(['/portal/nachrichten', 'Nachrichten', 'msg']);
   if (rolesOf(u).some((r) => ['admin', 'projektleitung', 'vertrieb_nord', 'vertrieb_sued'].includes(r))) n.push(['/portal/wirtschaftlichkeit', 'Wirtschaftlichkeit', 'chart']);
+  if (rolesOf(u).some((r) => r === 'admin' || r === 'projektleitung')) n.push(['/portal/strommarkt', 'Strommarkt & Backtesting', 'chart']);
   if (isInternal(u)) n.push(['/portal/kontakte', 'Kontakte', 'people'], ['/portal/aufgaben', 'Aufgaben', 'task'], ['/portal/anfragen', 'Anfragen', 'inbox'], ['/portal/freigaben', 'Freigaben', 'check']);
   if (isAdmin(u)) n.push(['/portal/admin/handelsdaten', 'Handelsdaten', 'pipe'], ['/portal/admin/benutzer', 'Benutzer & Berechtigungen', 'people'], ['/portal/protokoll', 'Protokoll', 'log'], ['/portal/admin', 'Verwaltung', 'admin'], ['/portal/ki', 'KI-Assistenz', 'ai']);
   return n;
