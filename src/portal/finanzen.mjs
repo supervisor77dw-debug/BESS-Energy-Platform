@@ -262,7 +262,7 @@ ${projekte.map((p) => { const v = versionenVon(db, p.id)[0]; const k = v?.ergebn
 }
 
 function kennzahlTabelle(versionErgebnis) {
-  const z = [['Gesamtinvestition', (k) => eur(k.gesamtinvestition, true)], ['Investition je kWh', (k) => eur(k.investitionJeKWh)], ['Bruttoerlöse (Jahr 1)', (k) => eur(k.bruttoerloeseJahr1, true)],
+  const z = [['Gesamtinvestition', (k) => eur(k.gesamtinvestition, true)], ['Investition je nominaler kWh', (k) => eur(k.investitionJeKWh)], ['Bruttoerlöse (Jahr 1)', (k) => eur(k.bruttoerloeseJahr1, true)],
     ['Vermarktungskosten (Jahr 1)', (k) => eur(k.vermarktungskostenJahr1, true)], ['Betriebskosten (Jahr 1)', (k) => eur(k.betriebskostenJahr1, true)], ['EBITDA (Jahr 1)', (k) => eur(k.ebitdaJahr1, true)],
     ['Operativer Cashflow (Jahr 1)', (k) => eur(k.operativerCFJahr1, true)], ['Schuldendienst p. a.', (k) => eur(k.schuldendienstJahr, true)], ['Eigenkapitalbedarf', (k) => eur(k.eigenkapitalbedarf, true)],
     ['DSCR minimal', (k) => (k.dscrMin == null ? '–' : `${num(k.dscrMin, 2)}×`)], ['Amortisation', (k) => (k.amortisationJahre == null ? 'nicht erreicht' : `${num(k.amortisationJahre, 1)} Jahre`)],
