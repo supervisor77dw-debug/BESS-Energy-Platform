@@ -62,7 +62,7 @@ test('Neu berechnen erzeugt eine neue Version; ungültige Eingaben (Doppelzählu
   const ok = await admin.form('/portal/wirtschaftlichkeit/p-n01/berechnen', { _csrf: csrf, 'technik.zyklenJahr': '300', quelle: 'Testannahme', notiz: 'weniger Zyklen' });
   assert.equal(ok.status, 303);
   const vs = db.finanzmodelle.filter((x) => x.projectId === 'p-n01');
-  assert.equal(vs.length, 2); assert.equal(vs[1].params.technik.zyklenJahr, 300); assert.equal(vs[0].params.technik.zyklenJahr, 330, 'Version 1 unverändert');
+  assert.equal(vs.length, 2); assert.equal(vs[1].params.technik.zyklenJahr, 300); assert.equal(vs[0].params.technik.zyklenJahr, 365, 'Version 1 unverändert');
   const bad = await admin.form('/portal/wirtschaftlichkeit/p-n01/berechnen', { _csrf: csrf, 'einnahmen.dayahead.anteil': '80' });
   assert.equal(bad.status, 422); assert.match(await bad.text(), /doppelt/);
   assert.equal(db.finanzmodelle.filter((x) => x.projectId === 'p-n01').length, 2);

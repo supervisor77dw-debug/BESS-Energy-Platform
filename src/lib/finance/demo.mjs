@@ -11,14 +11,14 @@ export function demoParameter(mw, mwh, grundstueckJahr) {
   const kwh = mwh * 1000;
   return {
     standort: { grundstueck: 'Demo-Flurstück (synthetisch)', flaecheHa: 0, optionsflaecheHa: 0, betriebsflaecheHa: 0, netzanschluss: 'Demo-Umspannwerk', grundstuecksmodell: 'pacht' },
-    technik: { leistungMW: mw, kapazitaetMWh: mwh, nutzbarAnteil: 0.9, wirkungsgrad: 0.86, verfuegbarkeit: 0.97, degradationJahr: 0.02, zyklenJahr: 330, betriebsjahre: 20 },
-    capex: { batterie: 150 * kwh, pcs: 30000 * mw, trafo: 20000 * mw, netzanschluss: 60000 * mw, bau: 25 * kwh, erschliessung: 8 * kwh, brandschutz: 6 * kwh, planung: 10 * kwh, genehmigung: 5 * kwh, nebenkosten: 7 * kwh, reserveAnteil: 0.05 },
+    technik: { leistungMW: mw, kapazitaetMWh: mwh, nutzbarAnteil: 0.9, wirkungsgrad: 0.86, verfuegbarkeit: 0.97, degradationJahr: 0.015, zyklenJahr: 365, betriebsjahre: 20 },
+    capex: { batterie: 120 * kwh, pcs: 30000 * mw, trafo: 20000 * mw, netzanschluss: 60000 * mw, bau: 25 * kwh, erschliessung: 8 * kwh, brandschutz: 6 * kwh, planung: 10 * kwh, genehmigung: 5 * kwh, nebenkosten: 7 * kwh, reserveAnteil: 0.05 },
     opex: { wartung: 4 * kwh, versicherung: 2 * kwh, grundstueck: grundstueckJahr, netzMess: 2000 * mw, it: 15000, monitoring: 1.5 * kwh, ersatzteile: 0.8 * kwh, rueckbau: 0.6 * kwh, vermarktungAnteil: 0.08, steigerung: 0.02 },
     finanzierung: { fkAnteil: 0.7, zins: 0.055, laufzeitJahre: 15, finanzierungskostenAnteil: 0.02, dsraMonate: 6 },
     einnahmen: [
-      { key: 'dayahead', name: 'Day-Ahead-Arbitrage', art: 'energie', anteil: 0.5, verkaufEURMWh: 125, einkaufEURMWh: 55 },
-      { key: 'intraday', name: 'Intraday-Handel', art: 'energie', anteil: 0.2, verkaufEURMWh: 135, einkaufEURMWh: 60 },
-      { key: 'regelreserve', name: 'Regelreserve (aFRR/FCR)', art: 'leistung', anteil: 0.3, eurJeMWJahr: 80000 },
+      { key: 'dayahead', name: 'Day-Ahead-Arbitrage', art: 'energie', anteil: 0.5, verkaufEURMWh: 165, einkaufEURMWh: 50 },
+      { key: 'intraday', name: 'Intraday-Handel', art: 'energie', anteil: 0.2, verkaufEURMWh: 180, einkaufEURMWh: 55 },
+      { key: 'regelreserve', name: 'Regelreserve (aFRR/FCR)', art: 'leistung', anteil: 0.3, eurJeMWJahr: 135000 },
     ],
     bewertung: { diskontsatz: 0.07 },
   };
