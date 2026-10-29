@@ -25,13 +25,25 @@ export function applyAccounts(db, acc, hash) {
     if (!a || !/^scrypt\$/.test(a.pw || '')) { u.active = false; continue; } // nicht mehr aufgeführt: gesperrt, Passwort bleibt für eine spätere Reaktivierung erhalten
     u.active = true;
     // Persönlich übernommene Konten (selbst gesetztes Passwort) bleiben unverändert – Passwort, Anmeldeadresse, Name (AW-014).
-    // Ein Abgleich setzt nur Startzugänge, die noch nicht persönlich übernommen wurden; Reset nur mit Eintrag "reset": true.
-    if (u.passwordChangedAt && !u.mustChangePassword && u.pw && a.reset !== true) continue;
+    // Ein Abgleich setzt nur Startzugänge, die noch nicht persönlich übernommen wurden. Ausnahmen:
+    //  "reset": true          – ausdrücklicher Reset bei jedem Abgleich;
+    //  "reset": "<Kennung>"   – einmaliger administrativer Reset: wird genau einmal angewendet (Kennung in db.meta.angewandteResets),
+    //                           danach gilt das Konto als übernommen und wird von späteren Abgleichen nicht mehr verändert.
+    const einmal = typeof a.reset === 'string' && a.reset ? a.reset : null;
+    const einmalOffen = einmal && !(db.meta.angewandteResets || []).includes(einmal);
+    const uebernommen = u.passwordChangedAt && !u.mustChangePassword && u.pw;
+    if (einmal ? !einmalOffen : (uebernommen && a.reset !== true)) continue;
     u.email = a.email || u.email;
     u.name = a.name || u.name;
     u.pw = a.pw;
     u.mustChangePassword = a.mustChangePassword !== false;
     geaendert = true;
+    if (einmal) {
+      (db.meta.angewandteResets ??= []).push(einmal);
+      u.passwordChangedAt = new Date().toISOString(); // ab jetzt geschützt wie ein selbst gesetztes Passwort
+      u.failedLogins = []; delete u.lockedUntil;
+      u.adminResetAm = u.passwordChangedAt;
+    }
     if (u.mfa) { u.totp = null; delete u.totpEnrolledAt; } // MFA wird beim ersten Login vom Nutzer selbst eingerichtet
   }
   db.gateUsers = (acc.gate || []).filter((g) => /^scrypt\$/.test(g.hash || ''));
