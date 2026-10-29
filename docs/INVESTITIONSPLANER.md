@@ -30,21 +30,28 @@ Stand 2026-10-29, Auftrag `AW-STROMKAI-20261029-INVESTITIONSPLANER-016`. Portalb
 
 ## 3. Formeln
 
-**Fläche:**
-- Brutto = Fläche oder Länge × Breite.
-- Innenfläche = (L − 2a)(B − 2a) mit Grenzabstand a. Ohne Länge und Breite wird ein Quadrat angenommen und gekennzeichnet.
-- Für Blöcke verfügbar = Innenfläche − nicht nutzbar − Zufahrt − Feuerwehr/Brandschutz − Nebenanlagen.
+**Fläche (ein Modell für Bilanz und Draufsicht, seit Korrektur -017):**
+- Brutto = Fläche oder Länge × Breite (bei beiden Angaben gilt Länge × Breite). Ohne Länge und Breite wird ein Quadrat angenommen und gekennzeichnet.
+- Innenfläche W × H = (L − 2a)(B − 2a) mit Grenzabstand a.
+- Jede Fläche wird genau einmal als Streifen reserviert:
+  - Zufahrt oben über die ganze Länge, Tiefe = max(Mindestbreite der Zufahrt, Eingabe / W); die Eingabe ist Untergrenze, die Mehrfläche wird ausgewiesen;
+  - Feuerwehr/Brandschutz unten über die ganze Länge, Tiefe = Eingabe / W;
+  - nicht nutzbare Fläche links und Stationen rechts über die Resthöhe; Stationen = netzseitige Nebenanlagen (Eingabe) + PCS-/Trafostationen der Anlage (je Variante);
+  - Blockzone = Rest.
+- Innenfläche = Zufahrt + Feuerwehr + nicht nutzbar + Stationen + Blockzone (Test). Übersteigen die Reservierungen die Innenfläche, passt keine Variante.
 
 **Dimensionierung:**
 - Blöcke n = max(⌈MWh / MWh_Block⌉, ⌈MW / MW_Block⌉).
 - PCS = Anlagenleistung.
 - Trafos = ⌈MW / cos φ / MVA_je_Trafo⌉.
-- Einspeisung = min(MW, Netzanschluss, max. Einspeisung); Bezug analog. WM rechnet mit der begrenzten Einspeisung.
+- Leistungsgrößen getrennt: Batterieleistung der Blöcke, PCS-Leistung (= Anlagenleistung der Variante), zulässige Einspeisung = min(PCS, Netzanschluss, max. Einspeisung), zulässiger Bezug = min(PCS, Netzanschluss, max. Bezug). Netzgrenzen überschreiben die Anlagenleistung nicht.
+- Netzstatus: ausreichend (beide Grenzen bekannt, ≥ PCS) · ungeprüft (Grenze fehlt) · eingeschränkt (Grenze < PCS) · unzulässig (0, negativ). Widersprüche (Einspeisung/Bezug über Netzanschluss) werden gemeldet, es gilt der kleinere Wert.
 - Fläche Blöcke = n × (Länge + Abstand Stirn)(Breite + Abstand Seite). Stationen = Trafos × Fläche je Station.
-- Draufsicht: Raster in der Innenfläche ohne Zufahrtsstreifen und Stationsstreifen. Sie prüft nur die Flächenplausibilität.
+- Draufsicht: Raster in der Blockzone; n Spalten brauchen n · Länge + (n + 1) · Abstand (voller Abstand untereinander und zum Zonenrand). Es werden höchstens so viele Blöcke gezeichnet wie Plätze. „Passt“ nur bei Rest ≥ 0, ausreichenden Plätzen und Abständen > 0. Schematische Plausibilitätsprüfung, keine genehmigungsfähige Aufstellplanung.
 
 **Kosten:**
-- 19 Positionen, jede genau einer WM-Position zugeordnet. Menge aus kWh (nutzbar), MW, Block oder pauschal.
+- 19 Positionen, jede genau einer WM-Position zugeordnet. Menge aus kWh, MW, Block oder pauschal.
+- Batterie (Position 1): Preisbasis ausdrücklich je Preis (nominale, nutzbare oder ungeklärte kWh); Menge = kWh dieser Basis. Die Demo-Vorbelegung 120 EUR/kWh ist nominal (wie `demo.mjs` und WM). Katalogversionen ohne Feld wurden mit der Maske „EUR je nutzbarer kWh“ erfasst. Lieferkosten je Block stehen getrennt und gelten nur zum Katalogpreis; Angebot oder Preisüberschreibung ersetzen beides. Ungeklärte Basis sperrt Übergabe und Freigabe.
 - Ohne Katalogpreis und Angebot gilt die gekennzeichnete Demo-Annahme von STROMKAI-WM. Positionen ohne Demo-Wert sind „Wert fehlt“.
 - Die Demo-Pauschale „Bau und Montage“ (25 EUR/kWh) trägt die Positionen 6, 7, 8 und 10. Diese stehen als „enthalten in 15“ mit Betrag 0.
 
@@ -63,7 +70,8 @@ Stand 2026-10-29, Auftrag `AW-STROMKAI-20261029-INVESTITIONSPLANER-016`. Portalb
   In tilgungsfreien Jahren werden nur Zinsen gezahlt. Der Schuldendienstplan geht als Anteile am FK an WM.
 
 **Erlösreferenz (Trading-Export `stromkai.portal.strommarkt/1`):**
-- Gewählt wird die Simulationsanlage mit der nächsten Speicherdauer (Abweichung höchstens 25 %), sonst keine Referenz. Strategie B2, Zeitraum R24M, Netzvariante A oder B.
+- Gewählt wird die Simulationsanlage mit der nächsten Speicherdauer an PCS (Abweichung höchstens 25 %), sonst keine Referenz. Strategie B2, Zeitraum R24M, Netzvariante A oder B.
+- Das Ergebnis führt angeforderte und tatsächlich verwendete Quelle getrennt (`erloes.angefordert`, `erloes.verwendet`, Referenzanlage, Dauer, Zeitraum, Datenversion, Rückfall und Grund). Oberfläche, Vergleich, CSV, Bericht und WM-Übergabe zeigen dieselbe verwendete Quelle; Varianten mit unterschiedlicher Grundlage werden als „nicht unmittelbar vergleichbar“ gekennzeichnet.
 - Übernommen werden:
   - Verkaufspreis = Verkaufserlös / entladene MWh;
   - Einkaufspreis = Bezugskosten / geladene MWh;
@@ -74,7 +82,7 @@ Stand 2026-10-29, Auftrag `AW-STROMKAI-20261029-INVESTITIONSPLANER-016`. Portalb
 **Übergabe an WM:**
 - CAPEX-Summen je WM-Position.
 - Technik:
-  - Einspeisung;
+  - PCS-Leistung als Anlagenleistung, Einspeise- und Bezugsgrenze getrennt;
   - nominale Kapazität und nutzbarer Anteil;
   - Wirkungsgrad und Degradation des Systems;
   - Lebensdauer.
@@ -89,7 +97,10 @@ Stand 2026-10-29, Auftrag `AW-STROMKAI-20261029-INVESTITIONSPLANER-016`. Portalb
 Erweiterungen gegenüber 1.0 (alle optional):
 - CAPEX-Positionen `leittechnik`, `bauzeitzinsen`, `sonstige`.
 - `variableKostenEURMWh` je Energie-Erlösweg als eigener Betriebskostenposten.
-- `finanzierung.schuldendienstplan` (Zinsen und Tilgung als Anteile am FK je Jahr; Szenarien skalieren die Zinsen mit dem Zins).
+- `finanzierung.schuldendienstplan` (Zinsen und Tilgung als Anteile am FK je Jahr). Szenarien verschieben die Zinsen um Zinsdelta × offene Restschuld zu Jahresbeginn (Korrektur -017; vorher proportional zum gewichteten Zins, falsch bei Tranchen mit unterschiedlichen Zinsen). Der Tilgungsverlauf bleibt in den Szenarien fest.
+- `technik.einspeiseMW` / `technik.bezugMW` (Korrektur -017): Leistungserlöse höchstens mit min(Leistung, Einspeisung, Bezug); Abweisung, wenn der Jahresdurchsatz physikalisch über Grenze × 8760 h × Verfügbarkeit liegt. Das ist eine Obergrenze, keine Zyklenberechnung.
+
+**Belastbarkeit (Planer):** Modellrechnung (Netz ausreichend) · ungeprüft (Netzdaten fehlen; Übergabe erlaubt, Freigabe gesperrt) · eingeschränkt (Netzgrenze < PCS; das Jahresmodell bildet keinen zeitaufgelösten Einsatz ab; Übergabe und Freigabe gesperrt) · nicht berechenbar (keine WM-Ergebnisse). Ein pauschaler Korrekturfaktor für erreichbare Zyklen wird bewusst nicht verwendet.
 
 Ohne diese Angaben rechnet 1.1 identisch zu 1.0. Der Regressionstest vergleicht 3 Projekte × 3 Szenarien mit allen Jahreswerten.
 

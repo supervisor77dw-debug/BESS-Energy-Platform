@@ -44,9 +44,11 @@ test('Dimensionierung: Blöcke, Kapazität, PCS, Trafo, Netzbegrenzung, Fläche 
   nah(d.flaecheBloecke, n * (SYS2.laengeM + SYS2.abstandStirnM) * (SYS2.breiteM + SYS2.abstandSeiteM));
   nah(d.rest, d.bilanz.fuerBloecke - d.flaecheBloecke - d.trafos * ANN.flaecheJeTrafoM2);
   nah(d.dauerH, d.kapNutzbar / 12);
-  // Zu kleine Fläche: nachvollziehbare Meldung
+  // Zu kleine Fläche (-017: gemeinsames Flächenmodell): 30 × 20 m, Grenzabstand 3 m → Innenfläche 24 × 14 m; die Zufahrt (600 m²,
+  // also 25 m tief über 24 m Länge) ist tiefer als die Innenfläche → Reservierungen übersteigen die Fläche, Anlage passt nicht
   const klein = IP.dimensioniere({ leistungMW: 15, kapazitaetMWh: 30 }, SYS2, { ...G, flaecheM2: 600, laengeM: 30, breiteM: 20 }, ANN);
-  assert.ok(klein.rest < 0); assert.ok(klein.meldungen.some((m) => m.art === 'bad' && /passt rechnerisch nicht/.test(m.text)));
+  assert.equal(klein.passt, false); assert.ok(klein.rest < 0); assert.equal(klein.layout.bloecke.length, 0);
+  assert.ok(klein.meldungen.some((m) => m.art === 'bad' && /belegen die gesamte Innenfläche/.test(m.text)));
   // Flächenbilanz reicht, Anordnung nicht (schmales Grundstück)
   const schmal = IP.dimensioniere({ leistungMW: 10, kapazitaetMWh: 40 }, SYS4, { ...G, flaecheM2: null, laengeM: 400, breiteM: 14, zufahrtM2: 0, feuerwehrM2: 0, nebenanlagenM2: 0 }, ANN);
   assert.ok(!schmal.layout.passt); assert.ok(schmal.meldungen.some((m) => /schematischen Anordnung/.test(m.text)));
@@ -60,14 +62,16 @@ test('Einheiten: MW, MWh, kW, kWh, EUR, EUR je MW und je kWh', () => {
   const d = IP.dimensioniere(v, SYS2, G, ANN);
   const pos = IP.kostenpositionen(v, d, SYS2, []);
   const p1 = pos.find((x) => x.nr === 1), p2 = pos.find((x) => x.nr === 2);
-  assert.equal(p1.einheit, 'kWh'); nah(p1.menge, d.kapNutzbar * 1000, 1e-12, 'MWh → kWh');
-  nah(p1.gesamt, d.kapNutzbar * 1000 * 120, 1e-12, 'EUR/kWh × kWh');
+  // -017: Die Demo-Vorbelegung 120 EUR/kWh bezieht sich auf nominale kWh (demo.mjs/STROMKAI-WM), daher Menge = nominale kWh
+  assert.equal(p1.einheit, 'kWh nominal'); assert.equal(p1.preisBasis, 'nominal'); nah(p1.menge, d.kapNominal * 1000, 1e-12, 'MWh → kWh');
+  nah(p1.gesamt, d.kapNominal * 1000 * 120, 1e-12, 'EUR/kWh × kWh');
   assert.equal(p2.einheit, 'MW'); nah(p2.gesamt, 10 * 30000, 1e-12, 'EUR/MW × MW');
   const r = IP.rechneVariante({ stand: { grundstueck: G, annahmen: ANN, finanzierung: IP.FINANZIERUNG_START }, v: { ...v, key: 'A', systemRef: { systemId: SYS2.systemId, version: 1 } }, katalog: IP.KATALOG_START, angebote: [], basis: demoParameter(20, 40, 26400) });
   const w = WM.berechne(r.params, 'basis');
   nah(w.kennzahlen.investitionJeKWh, r.finErg.gesamt / (r.dim.kapNominal * 1000), 1e-9, 'WM bezieht EUR/kWh auf nominale kWh');
   nah(r.params.technik.kapazitaetMWh * r.params.technik.nutzbarAnteil, d.kapNutzbar, 1e-12, 'nutzbare MWh an WM');
-  assert.equal(r.params.technik.leistungMW, d.einspeise, 'vermarktbare MW an WM');
+  // -017: WM erhält die installierte PCS-Leistung und die Netzgrenzen getrennt
+  assert.equal(r.params.technik.leistungMW, d.pcsMW, 'PCS-Leistung an WM'); assert.equal(r.params.technik.einspeiseMW, d.einspeise); assert.equal(r.params.technik.bezugMW, d.bezug);
 });
 
 // ---------- Finanzierung ----------
@@ -284,20 +288,26 @@ test('Übergabe an STROMKAI-WM: neue WM-Version mit Planerbezug, Kennzahlen iden
   const vorher = d.finanzmodelle.filter((x) => x.projectId === 'p-n01').length;
   const { body: wb } = await a.text(`/portal/anlagenplanung/p-n01?schritt=wirtschaftlichkeit&v=${v4.id}&var=B`);
   assert.match(wb, /Strategie B2/); assert.match(wb, /Datenversion dv-/); assert.match(wb, /R24M/); assert.match(wb, /keine garantierten Zukunftserlöse/); assert.match(wb, /Leistungspreis fehlt/);
-  const r = await a.form('/portal/anlagenplanung/p-n01/wm', { v: v4.id, var: 'B' }); assert.equal(r.status, 303);
+  // -017: Variante B (15 MW) liegt an einem 12-MW-Netzanschluss → Jahresmodell nicht belastbar, Übergabe gesperrt
+  assert.match(wb, /Eingeschränkt – Netzgrenzen im Jahresmodell nicht abbildbar/); assert.match(wb, /Übergabe an STROMKAI-WM gesperrt/);
+  const gesperrt = await a.form('/portal/anlagenplanung/p-n01/wm', { v: v4.id, var: 'B' }); assert.equal(gesperrt.status, 422);
+  assert.equal(d.finanzmodelle.filter((x) => x.projectId === 'p-n01').length, vorher, 'keine WM-Version bei gesperrter Übergabe');
+  // Variante A (10 MW, Netz in beide Richtungen ausreichend) wird übergeben
+  const r = await a.form('/portal/anlagenplanung/p-n01/wm', { v: v4.id, var: 'A' }); assert.equal(r.status, 303);
   const fm = d.finanzmodelle.filter((x) => x.projectId === 'p-n01').sort((x, y) => y.version - x.version)[0];
   assert.equal(d.finanzmodelle.filter((x) => x.projectId === 'p-n01').length, vorher + 1);
-  assert.deepEqual({ ...fm.planerRef, pruefsumme: undefined }, { standId: v4.id, version: 4, variante: 'B', pruefsumme: undefined }); assert.equal(fm.planerRef.pruefsumme, v4.pruefsumme);
+  assert.equal(fm.planerRef.standId, v4.id); assert.equal(fm.planerRef.version, 4); assert.equal(fm.planerRef.variante, 'A'); assert.equal(fm.planerRef.pruefsumme, v4.pruefsumme);
+  assert.equal(fm.planerRef.belastbarkeit, 'modellrechnung'); assert.equal(fm.planerRef.erloes.verwendet, 'wm');
   assert.equal(fm.ergebnis.basis.meta.modellVersion, 'STROMKAI-WM 1.1');
   const neu = WM.berechne(fm.params, 'basis');
   assert.deepEqual(neu.kennzahlen, fm.ergebnis.basis.kennzahlen, 'gespeicherte WM-Kennzahlen reproduzierbar');
   const akte = (await a.text(`/portal/wirtschaftlichkeit/p-n01?v=${fm.id}`)).body;
-  assert.match(akte, /Investitionsplaner DEMO-N01 V4, Variante B/);
+  assert.match(akte, /Investitionsplaner DEMO-N01 V4, Variante A/);
   assert.match(akte, new RegExp(new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(fm.ergebnis.basis.kennzahlen.gesamtinvestition).replace(/\s/g, '.')));
   // Neue Katalogversion des 2-h-Systems mit Preis: alter Stand rechnet unverändert weiter
   const vorherCSV = await (await a.req(`/portal/anlagenplanung/p-n01/export.csv?v=${v4.id}`)).text();
   const kat = Object.fromEntries(IP.KATALOG_FELDER.map(([k, , , art]) => [k, art === 'text' ? 'Test' : '']));
-  Object.assign(kat, { systemId: 'sys-ph-2h', datenstatus: 'marktbenchmark', laengeM: '6,06', breiteM: '2,44', hoeheM: '2,9', abstandStirnM: '3', abstandSeiteM: '1,5', kapNominalMWh: '4', kapNutzbarMWh: '3,8', leistungMW: '2', wirkungsgrad: '86', lebensdauerJahre: '20', degradationJahr: '1,5', preisEURkWh: '150' });
+  Object.assign(kat, { systemId: 'sys-ph-2h', datenstatus: 'marktbenchmark', preisBasis: 'nutzbar', laengeM: '6,06', breiteM: '2,44', hoeheM: '2,9', abstandStirnM: '3', abstandSeiteM: '1,5', kapNominalMWh: '4', kapNutzbarMWh: '3,8', leistungMW: '2', wirkungsgrad: '86', lebensdauerJahre: '20', degradationJahr: '1,5', preisEURkWh: '150' });
   assert.equal((await a.form('/portal/anlagenplanung/katalog', kat)).status, 303);
   assert.ok(d.planerKatalog.some((x) => x.systemId === 'sys-ph-2h' && x.version === 2));
   const nachherCSV = await (await a.req(`/portal/anlagenplanung/p-n01/export.csv?v=${v4.id}`)).text();

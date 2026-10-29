@@ -374,3 +374,7 @@ details[open] > summary { margin-bottom: 6px; }
 .grid-2 > * { min-width: 0; }
 .stack > * { min-width: 0; } .stack label > select, .stack label > input:not([type="checkbox"]):not([type="radio"]) { display: block; width: 100%; max-width: 100%; }
 @media (max-width: 1100px) { .ip-zweispaltig { grid-template-columns: 1fr; } }
+/* Flächenmodell -017: Feuerwehr/Brandschutz und nicht nutzbare Fläche als eigene Zonen */
+.ip-feuerwehr { fill: color-mix(in srgb, var(--bad) 22%, transparent); }
+.ip-nichtnutzbar { fill: color-mix(in srgb, var(--text-2) 18%, transparent); }
+.ip-lg-feuerwehr::before { background: color-mix(in srgb, var(--bad) 22%, transparent); } .ip-lg-nichtnutzbar::before { background: color-mix(in srgb, var(--text-2) 18%, transparent); }

@@ -38,6 +38,15 @@ const fehlerListe = (p) => {
   if (fin.fkAnteil > 0) { if (!(fin.laufzeitJahre >= 1)) f.push('Kreditlaufzeit muss ≥ 1 Jahr sein.'); if (!(fin.zins >= 0)) f.push('Zins muss ≥ 0 sein.'); }
   if (fin.laufzeitJahre > t.betriebsjahre) f.push('Die Kreditlaufzeit ist länger als die Betriebsdauer.');
   for (const e of p.einnahmen || []) if (e.variableKostenEURMWh != null && !(e.variableKostenEURMWh >= 0)) f.push(`Variable Kosten „${e.name}“ müssen ≥ 0 EUR/MWh sein.`);
+  // Netzgrenzen (1.1, optional): Jahresdurchsatz Jahr 1 darf physikalisch nicht über Einspeise- bzw. Bezugsgrenze × 8760 h liegen.
+  // Obergrenze, keine Aussage über erreichbare Zyklen (die ein zeitaufgelöster Einsatz bestimmt).
+  for (const [k, n] of [['einspeiseMW', 'Einspeiseleistung'], ['bezugMW', 'Bezugsleistung']]) if (t[k] != null && !(t[k] >= 0)) f.push(`${n} muss ≥ 0 sein.`);
+  if (!f.length && (t.einspeiseMW != null || t.bezugMW != null)) {
+    const anteilE = sum((p.einnahmen || []).filter((e) => e.art === 'energie').map((e) => e.anteil || 0));
+    const aus = t.kapazitaetMWh * t.nutzbarAnteil * t.zyklenJahr * t.verfuegbarkeit * anteilE;
+    if (aus > 0 && t.einspeiseMW != null && aus > t.einspeiseMW * 8760 * t.verfuegbarkeit + 1e-6) f.push(`Der Jahresdurchsatz (${Math.round(aus)} MWh) übersteigt, was die Einspeiseleistung von ${t.einspeiseMW} MW in einem Jahr zulässt.`);
+    if (aus > 0 && t.bezugMW != null && aus / t.wirkungsgrad > t.bezugMW * 8760 * t.verfuegbarkeit + 1e-6) f.push(`Die Ladeenergie (${Math.round(aus / t.wirkungsgrad)} MWh) übersteigt, was die Bezugsleistung von ${t.bezugMW} MW in einem Jahr zulässt.`);
+  }
   if (fin.schuldendienstplan != null) {
     const plan = fin.schuldendienstplan;
     if (!Array.isArray(plan) || plan.some((x) => !(x.zinsen >= 0) || !(x.tilgung >= 0))) f.push('Schuldendienstplan: Zinsen und Tilgung je Jahr müssen ≥ 0 sein.');
@@ -91,13 +100,17 @@ export function berechne(params, szenarioKey = 'basis', { quelle = 'Eingabe Port
   const fk = gesamtinvestition * (fin.fkAnteil || 0);
   const finanzierungskosten = fk * (fin.finanzierungskostenAnteil || 0);
   // Schuldendienstplan (1.1): Anteile am Fremdkapital je Betriebsjahr; Zinsen als Satz auf das Fremdkapital (aus dem Finanzierungsrechner)
-  // Szenarien verschieben den Zins; bei festem Tilgungsverlauf sind die Zinsen proportional zum Satz
-  const zinsFaktor = fin.zins > 0 ? zins / fin.zins : 1;
-  const plan = fin.schuldendienstplan ? fin.schuldendienstplan.map((x) => ({ zinsen: x.zinsen * fk * zinsFaktor, tilgung: x.tilgung * fk })) : null;
+  // Szenarien verschieben den Zins um zinsDelta: bei festem Tilgungsverlauf ändern sich die Zinsen um Delta × Restschuld am
+  // Jahresanfang (Korrektur -017; vorher proportional zum gewichteten Satz, falsch bei Tranchen mit unterschiedlichen Zinsen).
+  const zinsDeltaEff = zins - (fin.zins || 0);
+  let offen = 1;
+  const plan = fin.schuldendienstplan ? fin.schuldendienstplan.map((x) => { const z = Math.max(0, x.zinsen + zinsDeltaEff * offen); offen -= x.tilgung; return { zinsen: z * fk, tilgung: x.tilgung * fk }; }) : null;
   const rate = plan ? Math.max(0, ...plan.map((x) => x.zinsen + x.tilgung)) : annuitaet(fk, zins, fin.laufzeitJahre || 1);
   const dsra = rate * (fin.dsraMonate || 0) / 12; // Schuldendienstreserve, aus Eigenkapital, Freigabe nach Kreditende
   const ekBedarf = gesamtinvestition - fk + finanzierungskosten + dsra;
 
+  // Leistungsvermarktung (1.1): höchstens die am Netzanschluss in beide Richtungen zulässige Leistung
+  const leistungMarkt = Math.min(t.leistungMW, t.einspeiseMW ?? Infinity, t.bezugMW ?? Infinity);
   // Betriebsjahre
   const jahre = [];
   let restschuld = fk;
@@ -110,7 +123,7 @@ export function berechne(params, szenarioKey = 'basis', { quelle = 'Eingabe Port
         ausMWh = t.kapazitaetMWh * t.nutzbarAnteil * t.zyklenJahr * t.verfuegbarkeit * e.anteil * kapFaktor;
         einMWh = ausMWh / t.wirkungsgrad;
         betrag = (ausMWh * e.verkaufEURMWh - einMWh * e.einkaufEURMWh) * sz.erloes;
-      } else if (e.art === 'leistung') betrag = t.leistungMW * e.anteil * e.eurJeMWJahr * t.verfuegbarkeit * sz.erloes;
+      } else if (e.art === 'leistung') betrag = leistungMarkt * e.anteil * e.eurJeMWJahr * t.verfuegbarkeit * sz.erloes;
       else betrag = (e.eurJahr || 0) * sz.erloes;
       return { key: e.key, name: e.name, betrag, ausMWh, einMWh, variableKostenEURMWh: e.variableKostenEURMWh || 0 };
     });

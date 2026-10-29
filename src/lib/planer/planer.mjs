@@ -20,6 +20,10 @@ export const DATENSTATUS = {
   enthalten: { name: 'In anderer Position enthalten', mark: 'mark-aud' },
   fehlt: { name: 'Wert fehlt', mark: 'mark-warn' },
 };
+// Kapazitätsbasis eines Batteriepreises (Korrektur -017): ausdrücklich je Preis, nie aus dem Feldnamen abgeleitet.
+// Katalogversionen vor -017 ohne Feld wurden mit der Maske „EUR je nutzbarer kWh“ erfasst (preisBasisVon).
+export const PREISBASIS = { nominal: 'je nominaler kWh', nutzbar: 'je nutzbarer kWh', unbekannt: 'Preisbasis ungeklärt' };
+export const preisBasisVon = (x) => x?.preisBasis || (x?.preisEURkWh != null ? 'nutzbar' : null);
 export const ANGABE_STATUS = { bestaetigt: 'bestätigt', angenommen: 'angenommen', fehlt: 'fehlt' };
 export const PHASEN = {
   vorplanung: { name: 'Vorplanung', text: 'Standardwerte und dokumentierte Schätzungen' },
@@ -44,14 +48,14 @@ export const KATALOG_FELDER = [
   ['wirkungsgrad', 'Wirkungsgrad (Zyklus, AC)', '%', 'prozent'], ['lebensdauerJahre', 'Lebensdauer', 'Jahre'], ['zyklenGarantie', 'Garantierte Zyklen', 'Vollzyklen'],
   ['degradationJahr', 'Degradation', '% p. a.', 'prozent'], ['kuehlung', 'Kühlung', '', 'text'], ['hilfsenergieKW', 'Hilfsenergie je Block', 'kW'],
   ['brandschutz', 'Brandschutzkonzept', '', 'text'], ['schnittstellen', 'Technische Schnittstellen', '', 'text'],
-  ['preisEURkWh', 'Anschaffungspreis', 'EUR je nutzbarer kWh'], ['lieferkostenEURBlock', 'Lieferkosten', 'EUR je Block'],
+  ['preisEURkWh', 'Anschaffungspreis', 'EUR je kWh (Basis siehe Preisbasis)'], ['preisBasis', 'Preisbasis', 'nominale oder nutzbare kWh', 'auswahl'], ['lieferkostenEURBlock', 'Lieferkosten', 'EUR je Block, zusätzlich zum Preis'],
   ['kostenstand', 'Kostenstand', 'Datum', 'text'], ['quelle', 'Quelle', '', 'text'], ['angebotsdatum', 'Angebotsdatum', '', 'text'], ['lieferstatus', 'Lieferstatus', '', 'text'],
 ];
 const platzhalter = (systemId, produkt, kapMWh, mw) => ({
   id: `${systemId}-v1`, systemId, version: 1, datenstatus: 'platzhalter', hersteller: 'Platzhalter (kein Hersteller)', produkt, bauform: 'Container 20 ft',
   laengeM: 6.06, breiteM: 2.44, hoeheM: 2.9, abstandStirnM: 3, abstandSeiteM: 1.5, kapNominalMWh: kapMWh, kapNutzbarMWh: Math.round(kapMWh * 0.95 * 100) / 100, leistungMW: mw,
   wirkungsgrad: 0.86, lebensdauerJahre: 20, zyklenGarantie: null, degradationJahr: 0.015, kuehlung: 'Flüssigkeitskühlung (angenommen)', hilfsenergieKW: null,
-  brandschutz: 'offen – Brandschutzkonzept fehlt', schnittstellen: 'offen', preisEURkWh: null, lieferkostenEURBlock: null, kostenstand: null,
+  brandschutz: 'offen – Brandschutzkonzept fehlt', schnittstellen: 'offen', preisEURkWh: null, preisBasis: null, lieferkostenEURBlock: null, kostenstand: null,
   quelle: 'Platzhalter – kein Herstellerdatenblatt; Wirkungsgrad und Degradation aus den Demo-Annahmen von STROMKAI-WM', angebotsdatum: null, lieferstatus: 'kein Angebot',
   erfasstVon: 'system', erfasstAm: '2026-10-29T17:00:00.000Z',
 });
@@ -68,6 +72,8 @@ export function pruefeSystem(x) {
   if (!(x.degradationJahr >= 0 && x.degradationJahr < 1)) f.push('Degradation muss zwischen 0 und 100 % liegen.');
   for (const k of ['abstandStirnM', 'abstandSeiteM']) if (!(x[k] >= 0)) f.push('Abstände müssen ≥ 0 m sein.');
   if (x.preisEURkWh != null && !(x.preisEURkWh >= 0)) f.push('Preis muss ≥ 0 sein.');
+  if (x.preisEURkWh != null && !PREISBASIS[x.preisBasis]) f.push('Zum Preis gehört eine Preisbasis (nominale, nutzbare oder ungeklärte kWh).');
+  if (x.lieferkostenEURBlock != null && !(x.lieferkostenEURBlock >= 0)) f.push('Lieferkosten müssen ≥ 0 sein.');
   if (!DATENSTATUS[x.datenstatus] || ['berechnet', 'enthalten', 'freigegeben'].includes(x.datenstatus)) f.push('Datenstatus des Systems ist ungültig.');
   if (x.datenstatus === 'bestaetigtes_angebot' && !(x.angebotsdatum && x.quelle)) f.push('Ein bestätigtes Angebot braucht Angebotsdatum und Quelle.');
   return f;
@@ -92,82 +98,149 @@ export const GRUNDSTUECK_START = {
   netzMW: null, einspeiseMW: null, bezugMW: null, gelaende: '', entwaesserung: '', erschliessung: '',
   angaben: { flaeche: { status: 'fehlt', quelle: '' }, geometrie: { status: 'fehlt', quelle: '' }, abstaende: { status: 'angenommen', quelle: 'Platzhalter 3 m Grenzabstand' }, netz: { status: 'fehlt', quelle: '' } },
 };
-export function flaechenbilanz(g) {
-  const hinweise = [];
+// Ein Flächenmodell für Bilanz und Draufsicht (Korrektur AW-20261029-DK-STROMKAI-INVESTITIONSPLANER-KORREKTUR-017):
+// Innenfläche (nach Grenzabstand) = Zufahrt + Feuerwehr/Brandschutz + nicht nutzbar + Stationsstreifen + Blockzone.
+// Jede Kategorie wird genau einmal und als geometrischer Streifen reserviert:
+//   Zufahrt oben über die ganze Länge, Höhe = max(Mindestbreite der Zufahrt, Eingabe / Länge) – die Eingabe ist Untergrenze;
+//   Feuerwehr unten über die ganze Länge; nicht nutzbare Fläche links und Stationen (netzseitige Nebenanlagen + PCS-/Trafostationen
+//   der Anlage) rechts, jeweils über die verbleibende Höhe. Blöcke im Raster der Blockzone mit vollem Abstand untereinander und zum
+//   Zonenrand. Schematische Plausibilitätsprüfung, keine genehmigungsfähige Aufstellplanung.
+export function flaechenmodell(g, ann = ANNAHMEN_START, stationenM2 = 0) {
+  const hinweise = [], fehler = [];
+  for (const [k, n] of [['flaecheM2', 'Grundstücksfläche'], ['laengeM', 'Länge'], ['breiteM', 'Breite'], ['grenzabstandM', 'Grenzabstand'], ['nichtNutzbarM2', 'Nicht nutzbare Fläche'], ['zufahrtM2', 'Zufahrt'], ['feuerwehrM2', 'Feuerwehrfläche'], ['nebenanlagenM2', 'Nebenanlagen']])
+    if (g[k] != null && !(g[k] >= 0)) fehler.push(`${n} darf nicht negativ sein.`);
   const LB = g.laengeM > 0 && g.breiteM > 0 ? g.laengeM * g.breiteM : null;
   const brutto = g.flaecheM2 > 0 ? g.flaecheM2 : LB || 0;
-  if (g.flaecheM2 > 0 && LB && Math.abs(LB - g.flaecheM2) / g.flaecheM2 > 0.05) hinweise.push(`Länge × Breite (${Math.round(LB)} m²) weicht mehr als 5 % von der angegebenen Fläche ab. Für die Draufsicht gelten Länge und Breite.`);
+  if (g.flaecheM2 > 0 && LB && Math.abs(LB - g.flaecheM2) / g.flaecheM2 > 0.05) hinweise.push(`Länge × Breite (${Math.round(LB)} m²) weicht mehr als 5 % von der angegebenen Fläche ab. Bilanz und Draufsicht verwenden Länge × Breite.`);
   const rechteck = !!LB;
   const L = rechteck ? g.laengeM : Math.sqrt(brutto), B = rechteck ? g.breiteM : Math.sqrt(brutto);
   if (!rechteck && brutto) hinweise.push('Keine Länge und Breite: vereinfachte Annahme eines quadratischen Grundstücks.');
+  const basis = rechteck ? LB : brutto;
   const a = Math.max(0, g.grenzabstandM || 0);
-  const innenL = Math.max(0, L - 2 * a), innenB = Math.max(0, B - 2 * a);
-  const innen = rechteck ? innenL * innenB : (brutto ? innenL * innenB : 0);
-  const abzug = { grenzabstand: Math.max(0, (rechteck ? LB : brutto) - innen), nichtNutzbar: g.nichtNutzbarM2 || 0, zufahrt: g.zufahrtM2 || 0, feuerwehr: g.feuerwehrM2 || 0, nebenanlagen: g.nebenanlagenM2 || 0 };
-  const fuerBloecke = Math.max(0, innen - abzug.nichtNutzbar - abzug.zufahrt - abzug.feuerwehr - abzug.nebenanlagen);
+  const W = Math.max(0, L - 2 * a), H = Math.max(0, B - 2 * a);
+  const innen = W * H;
+  const eingabe = { zufahrt: g.zufahrtM2 || 0, feuerwehr: g.feuerwehrM2 || 0, nichtNutzbar: g.nichtNutzbarM2 || 0, nebenanlagen: g.nebenanlagenM2 || 0, stationen: stationenM2 || 0 };
+  const geo = { W, H, hz: 0, hf: 0, wn: 0, ws: 0, zoneW: 0, zoneH: 0 };
+  let ok = innen > 0 && !fehler.length;
+  if (ok) {
+    geo.hz = Math.max(ann.zufahrtBreiteM || 0, eingabe.zufahrt / W);
+    geo.hf = eingabe.feuerwehr / W;
+    const rh = H - geo.hz - geo.hf;
+    if (rh <= 0) { ok = false; fehler.push(`Zufahrt (${Math.round(Math.min(H, geo.hz) * W)} m²) und Feuerwehrfläche (${Math.round(eingabe.feuerwehr)} m²) belegen die gesamte Innenfläche.`); }
+    else {
+      geo.wn = eingabe.nichtNutzbar / rh; geo.ws = (eingabe.nebenanlagen + eingabe.stationen) / rh;
+      geo.zoneW = W - geo.wn - geo.ws; geo.zoneH = rh;
+      if (geo.zoneW <= 0) { ok = false; fehler.push('Nicht nutzbare Flächen und Stationen belegen die gesamte verbleibende Breite.'); }
+    }
+  }
+  if (ok && geo.hz * W > eingabe.zufahrt + 0.5) hinweise.push(`Zufahrt geometrisch mit ${num1(geo.hz)} m Breite über die ganze Länge reserviert (${Math.round(geo.hz * W)} m²; Eingabe ${Math.round(eingabe.zufahrt)} m²).`);
+  const zonen = ok
+    ? { zufahrt: geo.hz * W, feuerwehr: geo.hf * W, nichtNutzbar: geo.wn * geo.zoneH, stationen: geo.ws * geo.zoneH, blockzone: geo.zoneW * geo.zoneH }
+    : { zufahrt: Math.min(innen, Math.max((ann.zufahrtBreiteM || 0) * W, eingabe.zufahrt)), feuerwehr: eingabe.feuerwehr, nichtNutzbar: eingabe.nichtNutzbar, stationen: eingabe.nebenanlagen + eingabe.stationen, blockzone: 0 };
+  return { brutto, basis, rechteck, L, B, grenzabstandM: a, innenL: W, innenB: H, innen, grenzabstandFlaeche: Math.max(0, basis - innen), eingabe, zonen, geo, passtGeometrie: ok, hinweise, fehler };
+}
+export function flaechenbilanz(g, ann = ANNAHMEN_START) {
+  const m = flaechenmodell(g, ann, 0);
+  // Für Speicherblöcke und anlageninterne Stationen verfügbar = Blockzone vor Abzug der PCS-/Trafostationen der Anlage
+  const fuerBloecke = m.passtGeometrie ? m.zonen.blockzone : 0;
+  const abzug = { grenzabstand: m.grenzabstandFlaeche, zufahrt: m.zonen.zufahrt, feuerwehr: m.zonen.feuerwehr, nichtNutzbar: m.zonen.nichtNutzbar, nebenanlagen: m.zonen.stationen };
   const fehlend = [];
-  if (!brutto) fehlend.push('Grundstücksfläche');
-  if (!rechteck) fehlend.push('Länge und Breite bzw. Geometrie');
+  if (!m.brutto) fehlend.push('Grundstücksfläche');
+  if (!m.rechteck) fehlend.push('Länge und Breite bzw. Geometrie');
   if (g.netzMW == null) fehlend.push('Verfügbare Netzanschlussleistung');
   if (g.einspeiseMW == null) fehlend.push('Maximale Einspeiseleistung');
   if (g.bezugMW == null) fehlend.push('Maximale Bezugsleistung');
   if (!g.feuerwehrM2) fehlend.push('Flächen für Feuerwehrzufahrt und Brandschutz');
-  if (!g.nebenanlagenM2) fehlend.push('Flächen für Trafostation, Schaltanlage und Netzanschluss');
+  if (!g.nebenanlagenM2) fehlend.push('Flächen für Übergabestation, Schaltanlage und Netzanschluss');
   for (const [k, n] of [['gelaende', 'Gelände'], ['entwaesserung', 'Entwässerung'], ['erschliessung', 'Erschließung']]) if (!String(g[k] || '').trim()) fehlend.push(`Einschränkungen ${n}`);
   for (const [k, n] of [['flaeche', 'Fläche'], ['geometrie', 'Geometrie'], ['abstaende', 'Abstände'], ['netz', 'Netzanschluss']]) if (g.angaben?.[k]?.status !== 'bestaetigt') fehlend.push(`Bestätigung ${n} (Status: ${ANGABE_STATUS[g.angaben?.[k]?.status] || 'fehlt'})`);
-  return { brutto, rechteck, L, B, innenL, innenB, innen, abzug, fuerBloecke, hinweise, fehlend };
+  return { ...m, abzug, fuerBloecke, fehlend };
 }
 
 // ---------- 2. Dimensionierung je Variante ----------
+// Leistungsgrößen getrennt (Korrektur -017): Batterieleistung der Blöcke, PCS-Leistung (= Anlagenleistung der Variante),
+// zulässige Einspeisung und zulässiger Bezug am Netzanschluss. Netzgrenzen überschreiben die Anlagenleistung nicht.
+export const NETZSTATUS = {
+  ausreichend: 'Netzanschluss in beiden Richtungen ausreichend',
+  ungeprueft: 'Netzseitig ungeprüft (Angaben fehlen)',
+  eingeschraenkt: 'Netzanschluss begrenzt Laden oder Entladen – Jahresmodell nicht belastbar',
+  unzulaessig: 'Unzulässige Netzkonfiguration – keine Wirtschaftlichkeitsrechnung',
+};
 const aufrunden = (x) => Math.ceil(x - 1e-9);
+export function netzgrenzen(g, pcsMW) {
+  const meldungen = [];
+  const def = (x) => x != null && Number.isFinite(x);
+  for (const [k, n] of [['netzMW', 'Netzanschlussleistung'], ['einspeiseMW', 'Einspeiseleistung'], ['bezugMW', 'Bezugsleistung']])
+    if (def(g[k]) && g[k] < 0) return { status: 'unzulaessig', einspeise: null, bezug: null, grenzeEinspeise: null, grenzeBezug: null, meldungen: [{ art: 'bad', text: `${n} ist negativ. Keine Wirtschaftlichkeitsrechnung.` }] };
+  if (def(g.netzMW) && def(g.einspeiseMW) && g.einspeiseMW > g.netzMW) meldungen.push({ art: 'warn', text: `Widersprüchlich: Einspeiseleistung ${num1(g.einspeiseMW)} MW über der Netzanschlussleistung ${num1(g.netzMW)} MW. Es gilt der kleinere Wert.` });
+  if (def(g.netzMW) && def(g.bezugMW) && g.bezugMW > g.netzMW) meldungen.push({ art: 'warn', text: `Widersprüchlich: Bezugsleistung ${num1(g.bezugMW)} MW über der Netzanschlussleistung ${num1(g.netzMW)} MW. Es gilt der kleinere Wert.` });
+  const grenzeE = [g.netzMW, g.einspeiseMW].filter(def), grenzeB = [g.netzMW, g.bezugMW].filter(def);
+  const einspeise = Math.min(pcsMW, ...grenzeE), bezug = Math.min(pcsMW, ...grenzeB);
+  let status;
+  if (einspeise <= 0 || bezug <= 0) {
+    status = 'unzulaessig';
+    meldungen.push({ art: 'bad', text: `${einspeise <= 0 ? 'Einspeisung' : 'Bezug'} ist am Netzanschluss mit 0 MW begrenzt: Der Speicher kann nicht ${einspeise <= 0 ? 'entladen' : 'laden'}. Keine Wirtschaftlichkeitsrechnung.` });
+  } else if (einspeise < pcsMW - 1e-9 || bezug < pcsMW - 1e-9) {
+    status = 'eingeschraenkt';
+    if (einspeise < pcsMW - 1e-9) meldungen.push({ art: 'warn', text: `Der Netzanschluss begrenzt die Einspeisung auf ${num1(einspeise)} MW (PCS ${num1(pcsMW)} MW).` });
+    if (bezug < pcsMW - 1e-9) meldungen.push({ art: 'warn', text: `Der Netzanschluss begrenzt den Bezug auf ${num1(bezug)} MW (PCS ${num1(pcsMW)} MW).` });
+    meldungen.push({ art: 'warn', text: 'STROMKAI-WM ist ein Jahresmodell ohne zeitaufgelösten Einsatz; unter Netzgrenzen ist die Wirtschaftlichkeit eingeschränkt und nicht belastbar. Übergabe an WM und Freigabe sind gesperrt.' });
+  } else if (!grenzeE.length || !grenzeB.length) {
+    status = 'ungeprueft';
+    meldungen.push({ art: 'warn', text: `Netzseitig ungeprüft: ${[!grenzeE.length && 'Einspeisegrenze', !grenzeB.length && 'Bezugsgrenze'].filter(Boolean).join(' und ')} unbekannt.` });
+  } else status = 'ausreichend';
+  return { status, einspeise, bezug, grenzeEinspeise: grenzeE.length ? Math.min(...grenzeE) : null, grenzeBezug: grenzeB.length ? Math.min(...grenzeB) : null, meldungen };
+}
 export function dimensioniere(v, sys, g, ann) {
   const meldungen = [];
   if (!sys) return { fehler: ['Kein Speichersystem gewählt.'] };
   if (!(v.leistungMW > 0) || !(v.kapazitaetMWh > 0)) return { fehler: ['Leistung und Kapazität müssen größer als 0 sein.'] };
+  if (!(sys.kapNutzbarMWh > 0 && sys.leistungMW > 0 && sys.kapNominalMWh > 0)) return { fehler: ['Speichersystem ohne gültige Kapazität oder Leistung.'] };
   const bloecke = Math.max(aufrunden(v.kapazitaetMWh / sys.kapNutzbarMWh), aufrunden(v.leistungMW / sys.leistungMW));
   const kapNutzbar = bloecke * sys.kapNutzbarMWh, kapNominal = bloecke * sys.kapNominalMWh, leistungBloecke = bloecke * sys.leistungMW;
   if (kapNutzbar > v.kapazitaetMWh * 1.1) meldungen.push({ art: 'info', text: `Die Blockgröße führt zu ${num1(kapNutzbar)} MWh nutzbar statt ${num1(v.kapazitaetMWh)} MWh (Überdeckung ${Math.round((kapNutzbar / v.kapazitaetMWh - 1) * 100)} %).` });
-  if (leistungBloecke > v.leistungMW * 1.25) meldungen.push({ art: 'info', text: `Die Blöcke könnten ${num1(leistungBloecke)} MW liefern; Wechselrichter und Netz sind auf ${num1(v.leistungMW)} MW ausgelegt. Das gewählte System passt schlecht zur Speicherdauer.` });
-  const grenzen = [g.netzMW, g.einspeiseMW].filter((x) => x != null && x >= 0);
-  const netzGrenze = grenzen.length ? Math.min(...grenzen) : null;
-  const einspeise = netzGrenze == null ? v.leistungMW : Math.min(v.leistungMW, netzGrenze);
-  const bezugGrenzen = [g.netzMW, g.bezugMW].filter((x) => x != null && x >= 0);
-  const bezug = bezugGrenzen.length ? Math.min(v.leistungMW, ...bezugGrenzen) : v.leistungMW;
-  if (netzGrenze == null) meldungen.push({ art: 'warn', text: 'Netzanschluss- bzw. Einspeiseleistung unbekannt: Die Variante ist netzseitig ungeprüft.' });
-  else if (v.leistungMW > netzGrenze + 1e-9) meldungen.push({ art: 'warn', text: `Der Netzanschluss begrenzt die Einspeisung auf ${num1(einspeise)} MW (Anlage ${num1(v.leistungMW)} MW). Die Wirtschaftlichkeit rechnet mit ${num1(einspeise)} MW.` });
-  if (bezug < v.leistungMW - 1e-9) meldungen.push({ art: 'warn', text: `Der Bezug ist auf ${num1(bezug)} MW begrenzt; die Ladeleistung reicht nicht für die volle Anlagenleistung.` });
-  const mva = v.leistungMW / ann.cosPhi;
+  if (leistungBloecke > v.leistungMW * 1.25) meldungen.push({ art: 'info', text: `Die Blöcke könnten ${num1(leistungBloecke)} MW liefern; Wechselrichter sind auf ${num1(v.leistungMW)} MW ausgelegt. Das gewählte System passt schlecht zur Speicherdauer.` });
+  const pcsMW = v.leistungMW;
+  const netz = netzgrenzen(g, pcsMW);
+  meldungen.push(...netz.meldungen);
+  const mva = pcsMW / ann.cosPhi;
   const trafos = aufrunden(mva / ann.mvaJeTrafo);
-  const block = (sys.laengeM + sys.abstandStirnM) * (sys.breiteM + sys.abstandSeiteM);
-  const flaecheBloecke = bloecke * block, flaecheStationen = trafos * ann.flaecheJeTrafoM2;
-  const bilanz = flaechenbilanz(g);
+  const flaecheStationen = trafos * ann.flaecheJeTrafoM2;
+  const bilanz = flaechenbilanz(g, ann);
+  const modell = flaechenmodell(g, ann, flaecheStationen);
+  const lay = layout(modell, sys, bloecke);
+  const zelle = (sys.laengeM + sys.abstandStirnM) * (sys.breiteM + sys.abstandSeiteM);
+  const flaecheBloecke = bloecke * zelle;
   const bedarf = flaecheBloecke + flaecheStationen;
-  const rest = bilanz.fuerBloecke - bedarf;
-  const lay = layout(bilanz, g, sys, ann, bloecke, flaecheStationen);
+  const rest = modell.zonen.blockzone - flaecheBloecke;
+  const abstandFehlt = !(sys.abstandStirnM > 0 && sys.abstandSeiteM > 0);
+  if (abstandFehlt) meldungen.push({ art: 'bad', text: 'Wartungs-/Sicherheitsabstand des Systems ist 0 m: Anordnung nicht belastbar und als nicht passend gewertet.' });
+  else if (sys.datenstatus === 'platzhalter') meldungen.push({ art: 'info', text: `Abstände ${num1(sys.abstandStirnM)} m / ${num1(sys.abstandSeiteM)} m sind Platzhalter; maßgeblich ist das Brandschutzkonzept.` });
+  if (bilanz.brutto) modell.fehler.forEach((t) => meldungen.push({ art: 'bad', text: t }));
   if (!bilanz.brutto) meldungen.push({ art: 'warn', text: 'Keine Grundstücksfläche erfasst: Flächenprüfung nicht möglich.' });
-  else if (rest < 0) meldungen.push({ art: 'bad', text: `Die Anlage passt rechnerisch nicht auf die verfügbare Fläche: Bedarf ${Math.round(bedarf)} m², verfügbar ${Math.round(bilanz.fuerBloecke)} m² (Fehlbetrag ${Math.round(-rest)} m²).` });
-  else if (!lay.passt) meldungen.push({ art: 'bad', text: `Die Flächenbilanz reicht, aber in der schematischen Anordnung finden nur ${lay.plaetze} von ${bloecke} Blöcken Platz (Geometrie, Zufahrt, Stationen).` });
+  else if (modell.passtGeometrie && rest < 0) meldungen.push({ art: 'bad', text: `Die Anlage passt rechnerisch nicht auf die Fläche: Blöcke inkl. Abstände ${Math.round(flaecheBloecke)} m², Blockzone ${Math.round(modell.zonen.blockzone)} m² (Fehlbetrag ${Math.round(-rest)} m²).` });
+  else if (modell.passtGeometrie && !lay.passt) meldungen.push({ art: 'bad', text: `Die Fläche reicht rechnerisch, aber in der schematischen Anordnung finden nur ${lay.plaetze} von ${bloecke} Blöcken Platz (Blockzone ${num1(modell.geo.zoneW)} × ${num1(modell.geo.zoneH)} m).` });
+  const passt = !!bilanz.brutto && modell.passtGeometrie && rest >= 0 && lay.passt && !abstandFehlt;
   return {
-    bloecke, kapNutzbar, kapNominal, leistungBloecke, pcsMW: v.leistungMW, mva, trafos, schaltanlagen: 1, netzBedarfMW: v.leistungMW, netzGrenze, einspeise, bezug,
-    dauerH: kapNutzbar / einspeise, flaecheBloecke, flaecheStationen, bedarf, rest, bilanz, layout: lay, meldungen, fehler: [],
+    bloecke, kapNutzbar, kapNominal, leistungBloecke, batterieMW: leistungBloecke, pcsMW, mva, trafos, schaltanlagen: 1, netzBedarfMW: pcsMW,
+    netz, netzStatus: netz.status, netzGrenze: netz.grenzeEinspeise, einspeise: netz.einspeise, bezug: netz.bezug,
+    dauerH: netz.einspeise > 0 ? kapNutzbar / netz.einspeise : null, dauerAnlageH: kapNutzbar / pcsMW,
+    flaecheBloecke, flaecheStationen, bedarf, rest, passt, bilanz, modell, layout: lay, meldungen, fehler: [],
   };
 }
 const num1 = (x) => new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 }).format(x);
 
-// Schematische Draufsicht: Innenfläche nach Grenzabstand, Zufahrt am unteren Rand, Stationen und Nebenanlagen am rechten Rand,
-// Blöcke im Raster mit Wartungs-/Brandschutzabstand. Nur Flächenplausibilität, keine zulässige Aufstellplanung.
-export function layout(bilanz, g, sys, ann, bloecke, flaecheStationen) {
-  const W = bilanz.innenL, H = bilanz.innenB;
-  if (!(W > 0 && H > 0)) return { passt: false, plaetze: 0, W, H, bloecke: [], zonen: [] };
-  const zufahrtH = Math.min(H, ann.zufahrtBreiteM);
-  const stationsB = Math.min(W, (flaecheStationen + (g.nebenanlagenM2 || 0)) / Math.max(1, H - zufahrtH));
-  const zoneW = Math.max(0, W - stationsB), zoneH = Math.max(0, H - zufahrtH);
-  const cw = sys.laengeM + sys.abstandStirnM, ch = sys.breiteM + sys.abstandSeiteM;
-  const cols = Math.floor(zoneW / cw), rows = Math.floor(zoneH / ch);
+// Blöcke im Raster der Blockzone: n Spalten brauchen n · Länge + (n + 1) · Abstand (voller Abstand auch zum Zonenrand).
+// Es werden höchstens so viele Blöcke platziert, wie Plätze vorhanden sind.
+export function layout(modell, sys, bloecke) {
+  const g = modell.geo;
+  if (!modell.passtGeometrie || !(g.zoneW > 0 && g.zoneH > 0)) return { passt: false, plaetze: 0, cols: 0, rows: 0, bloecke: [], ueberzaehlig: bloecke };
+  const aS = sys.abstandStirnM, aL = sys.abstandSeiteM;
+  const cols = Math.max(0, Math.floor((g.zoneW - aS) / (sys.laengeM + aS) + 1e-9)), rows = Math.max(0, Math.floor((g.zoneH - aL) / (sys.breiteM + aL) + 1e-9));
   const plaetze = cols * rows;
   const pos = [];
-  for (let i = 0; i < Math.min(bloecke, plaetze); i++) pos.push({ x: (i % cols) * cw + sys.abstandStirnM / 2, y: zufahrtH + Math.floor(i / cols) * ch + sys.abstandSeiteM / 2, w: sys.laengeM, h: sys.breiteM });
-  return { passt: plaetze >= bloecke, plaetze, W, H, zufahrtH, stationsB, bloecke: pos, ueberzaehlig: Math.max(0, bloecke - plaetze) };
+  for (let i = 0; i < Math.min(bloecke, plaetze); i++) pos.push({ x: g.wn + aS + (i % cols) * (sys.laengeM + aS), y: g.hz + aL + Math.floor(i / cols) * (sys.breiteM + aL), w: sys.laengeM, h: sys.breiteM });
+  return { passt: plaetze >= bloecke, plaetze, cols, rows, bloecke: pos, ueberzaehlig: Math.max(0, bloecke - plaetze) };
 }
 
 // ---------- 3. Investitionskosten ----------
@@ -201,7 +274,8 @@ const EINHEIT = { kwh: 'kWh', mw: 'MW', block: 'Block', pauschal: 'pauschal', be
 // (25 EUR/kWh) deckt Fundamente, Erdarbeiten, Entwässerung und Verkabelung mit ab und steht deshalb einmal unter Position 15.
 const DEMO_QUELLE = 'Demo-Annahme STROMKAI-WM (synthetisch, keine Marktdaten)';
 export const VORBELEGUNG = {
-  1: { einzelpreis: 120, datenstatus: 'platzhalter', quelle: DEMO_QUELLE },
+  // demo.mjs: batterie = 120 × kWh mit kWh = Kapazität × 1000; STROMKAI-WM rechnet diese Kapazität als nominal (nutzbarer Anteil 90 %)
+  1: { einzelpreis: 120, preisBasis: 'nominal', datenstatus: 'platzhalter', quelle: `${DEMO_QUELLE}, je nominaler kWh` },
   2: { einzelpreis: 30000, datenstatus: 'platzhalter', quelle: DEMO_QUELLE },
   3: { einzelpreis: 20000, datenstatus: 'platzhalter', quelle: DEMO_QUELLE },
   4: { datenstatus: 'enthalten', enthaltenIn: 5, quelle: 'Demo-Pauschale Netzanschluss enthält Schaltanlagen' },
@@ -227,17 +301,25 @@ export const VORBELEGUNG = {
 export function kostenpositionen(v, dim, sys, angebote = []) {
   return POSITIONEN.filter((p) => p.nr !== 17 && p.nr !== 18).map((p) => {
     const vb = { ...VORBELEGUNG[p.nr] };
-    if (p.nr === 1 && sys?.preisEURkWh != null) Object.assign(vb, { einzelpreis: sys.preisEURkWh + (sys.lieferkostenEURBlock || 0) * dim.bloecke / (dim.kapNutzbar * 1000), datenstatus: sys.datenstatus, quelle: `Katalog: ${sys.hersteller} ${sys.produkt} V${sys.version}${sys.lieferkostenEURBlock ? ' inkl. Lieferkosten' : ''}`, preisstand: sys.kostenstand, lieferant: sys.hersteller });
+    // Position 1: Katalogpreis mit ausdrücklicher Preisbasis; Lieferkosten je Block getrennt und nur zum Katalogpreis
+    if (p.nr === 1 && sys?.preisEURkWh != null) Object.assign(vb, { einzelpreis: sys.preisEURkWh, preisBasis: preisBasisVon(sys), lieferkostenEURBlock: sys.lieferkostenEURBlock || 0, datenstatus: sys.datenstatus, quelle: `Katalog: ${sys.hersteller} ${sys.produkt} V${sys.version}`, preisstand: sys.kostenstand, lieferant: sys.hersteller });
     const ov = v.kosten?.[p.nr] || {};
     const ang = ov.angebotId ? angebote.find((a) => a.id === ov.angebotId && a.positionNr === p.nr) : null;
-    const abgeleitet = { kwh: dim.kapNutzbar * 1000, mw: dim.pcsMW, block: dim.bloecke, pauschal: 1 }[p.basis];
-    const r = { ...p, einheit: EINHEIT[p.basis], menge: abgeleitet, mengeAbgeleitet: abgeleitet, ...vb, ueberschrieben: false };
+    // Preisbasis von Position 1: Überschreibung bzw. Angebot vor Katalog vor Vorbelegung
+    const basisKwh = p.nr === 1 ? (ang?.preisBasis || ov.preisBasis || vb.preisBasis || 'unbekannt') : null;
+    const abgeleitet = { kwh: (basisKwh === 'nominal' ? dim.kapNominal : dim.kapNutzbar) * 1000, mw: dim.pcsMW, block: dim.bloecke, pauschal: 1 }[p.basis];
+    const r = { ...p, einheit: p.nr === 1 ? (basisKwh === 'nominal' ? 'kWh nominal' : 'kWh nutzbar') : EINHEIT[p.basis], menge: abgeleitet, mengeAbgeleitet: abgeleitet, ...vb, ueberschrieben: false };
+    if (p.nr === 1) { r.preisBasis = basisKwh; r.preisBasisUnklar = basisKwh === 'unbekannt'; }
     if (ov.menge != null) { r.menge = ov.menge; r.ueberschrieben = true; }
     for (const k of ['einzelpreis', 'datenstatus', 'quelle', 'preisstand', 'lieferant', 'ausschreibung', 'begruendung', 'enthaltenIn']) if (ov[k] != null && ov[k] !== '') { r[k] = ov[k]; if (k === 'einzelpreis' || k === 'datenstatus') r.ueberschrieben = true; }
     if (ov.datenstatus && ov.datenstatus !== 'enthalten') delete r.enthaltenIn;
-    if (ang) Object.assign(r, { einzelpreis: ang.einzelpreis, einheit: ang.einheit || r.einheit, datenstatus: 'bestaetigtes_angebot', quelle: `Angebot ${ang.lieferant} vom ${ang.datum}${ang.dokumentRef ? ` (${ang.dokumentRef})` : ''}`, preisstand: ang.datum, lieferant: ang.lieferant, angebotId: ang.id, ueberschrieben: true });
+    // Angebot oder Preisüberschreibung ersetzen den Katalogpreis samt Lieferkosten (keine zusätzliche Lieferkostenzeile)
+    if (ang || ov.einzelpreis != null) r.lieferkostenEURBlock = 0;
+    if (ov.preisBasis && p.nr === 1) r.ueberschrieben = true;
+    if (ang) Object.assign(r, { einzelpreis: ang.einzelpreis, einheit: p.nr === 1 ? r.einheit : ang.einheit || r.einheit, datenstatus: 'bestaetigtes_angebot', quelle: `Angebot ${ang.lieferant} vom ${ang.datum}${ang.dokumentRef ? ` (${ang.dokumentRef})` : ''}`, preisstand: ang.datum, lieferant: ang.lieferant, angebotId: ang.id, ueberschrieben: true });
     if (ov.geaendertVon) Object.assign(r, { geaendertVon: ov.geaendertVon, geaendertAm: ov.geaendertAm });
-    r.gesamt = r.datenstatus === 'enthalten' || r.datenstatus === 'fehlt' || !(r.einzelpreis >= 0) ? 0 : r.menge * r.einzelpreis;
+    r.lieferkosten = p.nr === 1 ? (r.lieferkostenEURBlock || 0) * dim.bloecke : 0;
+    r.gesamt = r.datenstatus === 'enthalten' || r.datenstatus === 'fehlt' || !(r.einzelpreis >= 0) ? 0 : r.menge * r.einzelpreis + r.lieferkosten;
     return r;
   });
 }
@@ -319,6 +401,8 @@ export function finanzierung(basis, fin, reserveAnteil) {
 // Netzentgelt-Arbeitspreis). Vermarktung, Verschleiß und Betriebskosten rechnet STROMKAI-WM selbst (keine Doppelzählung mit dem
 // Netto-Deckungsbeitrag des Exports, der hier nicht als Erlös verwendet wird).
 export function erloesReferenz(ergebnisse, dauerH, netzvariante, periode = 'R24M', strategie = 'B2') {
+  if (!(dauerH > 0 && Number.isFinite(dauerH))) return { fehler: 'Keine gültige Speicherdauer (Leistung 0 oder unbekannt).' };
+  if (!ergebnisse?.length) return { fehler: 'Trading-Export nicht verfügbar.' };
   const kandidaten = [...new Set(ergebnisse.map((x) => x.anlage))].map((a) => { const m = /([\d.,]+) MW \/ ([\d.,]+) MWh/.exec(a); return m ? { anlage: a, mw: Number(m[1]), mwh: Number(m[2]), dauer: Number(m[2]) / Number(m[1]) } : null; }).filter(Boolean);
   const best = kandidaten.sort((a, b) => Math.abs(a.dauer - dauerH) - Math.abs(b.dauer - dauerH) || b.mw - a.mw)[0];
   if (!best) return { fehler: 'Keine Simulationsanlage im Export.' };
@@ -345,10 +429,11 @@ export function wmParameter({ g, ann, v, dim, sys, pos, fin, finErg, basis, refe
   capex.bauzeitzinsen = finErg.bauzeitzinsen;
   capex.reserveAnteil = ann.reserveAnteil;
   const t0 = basis.technik;
-  const faktorMWh = dim.kapNutzbar / (t0.kapazitaetMWh * t0.nutzbarAnteil), faktorMW = dim.einspeise / t0.leistungMW;
+  const faktorMWh = dim.kapNutzbar / (t0.kapazitaetMWh * t0.nutzbarAnteil), faktorMW = dim.pcsMW / t0.leistungMW;
   const opex = { ...basis.opex };
   if (ann.opexSkalierung === 'skaliert') { for (const k of OPEX_KAP) opex[k] = (basis.opex[k] || 0) * faktorMWh; opex.netzMess = (basis.opex.netzMess || 0) * faktorMW; }
-  const technik = { ...t0, leistungMW: dim.einspeise, kapazitaetMWh: dim.kapNominal, nutzbarAnteil: dim.kapNutzbar / dim.kapNominal, wirkungsgrad: sys.wirkungsgrad, degradationJahr: sys.degradationJahr, betriebsjahre: Math.min(t0.betriebsjahre, sys.lebensdauerJahre || t0.betriebsjahre) };
+  // leistungMW = installierte PCS-Leistung; einspeiseMW/bezugMW = Netzgrenzen (WM 1.1 prüft daran den Jahresdurchsatz)
+  const technik = { ...t0, leistungMW: dim.pcsMW, einspeiseMW: dim.einspeise, bezugMW: dim.bezug, kapazitaetMWh: dim.kapNominal, nutzbarAnteil: dim.kapNutzbar / dim.kapNominal, wirkungsgrad: sys.wirkungsgrad, degradationJahr: sys.degradationJahr, betriebsjahre: Math.min(t0.betriebsjahre, sys.lebensdauerJahre || t0.betriebsjahre) };
   let einnahmen = basis.einnahmen;
   if (referenz && !referenz.fehler) {
     technik.zyklenJahr = referenz.entladenJeMWhJahr * dim.kapNutzbar / (dim.kapNominal * technik.nutzbarAnteil * technik.verfuegbarkeit);
@@ -365,7 +450,13 @@ export function wmParameter({ g, ann, v, dim, sys, pos, fin, finErg, basis, refe
 export const pruefsumme = (x) => createHash('sha256').update(JSON.stringify({ g: x.grundstueck, a: x.annahmen, v: x.varianten, f: x.finanzierung })).digest('hex').slice(0, 16);
 
 // Gesamtrechnung einer Variante ohne Erlöse: Dimension, Kosten, Finanzierung, WM-Parameter.
-export function rechneVariante({ stand, v, katalog, angebote, basis, ergebnisse }) {
+export const BELASTBARKEIT = {
+  modellrechnung: 'Wirtschaftliche Modellrechnung (vereinfachtes Jahresmodell vor Steuern)',
+  ungeprueft: 'Modellrechnung, netzseitig ungeprüft',
+  eingeschraenkt: 'Eingeschränkt – Netzgrenzen im Jahresmodell nicht abbildbar, nicht belastbar',
+  nicht_berechenbar: 'Nicht berechenbar',
+};
+export function rechneVariante({ stand, v, katalog, angebote, basis, ergebnisse, datenversion = null }) {
   const sys = systemVersion(katalog, v.systemRef);
   const dim = dimensioniere(v, sys, stand.grundstueck, stand.annahmen);
   if (dim.fehler?.length) return { v, sys, dim, fehler: dim.fehler };
@@ -374,13 +465,27 @@ export function rechneVariante({ stand, v, katalog, angebote, basis, ergebnisse 
   const finFehler = pruefeFinanzierung(stand.finanzierung, basis?.technik?.betriebsjahre);
   if (finFehler.length) return { v, sys, dim, pos, fehler: finFehler };
   const finErg = finanzierung(basisSumme, stand.finanzierung, stand.annahmen.reserveAnteil);
-  const referenz = v.erloesQuelle?.startsWith('b2_') && ergebnisse ? erloesReferenz(ergebnisse, dim.dauerH, v.erloesQuelle === 'b2_A' ? 'befreit' : 'ohne_befreiung') : null;
+  // Referenz nach der Speicherdauer der Anlage (PCS); unter Netzgrenzen ist sie ohnehin nicht belastbar (siehe Belastbarkeit)
+  const angefordert = ERLOES_QUELLEN[v.erloesQuelle] ? v.erloesQuelle : 'wm';
+  const referenz = angefordert.startsWith('b2_') ? erloesReferenz(ergebnisse, dim.dauerAnlageH, angefordert === 'b2_A' ? 'befreit' : 'ohne_befreiung') : null;
   const hinweise = [];
-  if (referenz?.fehler) hinweise.push(`Erlösreferenz nicht anwendbar: ${referenz.fehler} Es gelten die Erlösannahmen der STROMKAI-WM-Version.`);
+  const nutzeRef = referenz && !referenz.fehler;
+  const erloes = {
+    angefordert, verwendet: nutzeRef ? angefordert : 'wm', rueckfall: !!referenz?.fehler, grund: referenz?.fehler || null,
+    referenz: nutzeRef ? { anlage: referenz.anlage, dauerRefH: referenz.dauerRef, periode: referenz.periode, strategie: referenz.strategie, netzvariante: referenz.netzvariante, datenversion } : null,
+  };
+  if (erloes.rueckfall) hinweise.push(`Angeforderte Erlösquelle „${ERLOES_QUELLEN[angefordert]}“ nicht anwendbar: ${referenz.fehler} Verwendet werden die Erlösannahmen der STROMKAI-WM-Version.`);
   if (!basis) hinweise.push('Für dieses Projekt gibt es keine STROMKAI-WM-Version: Betriebskosten, Erlöse und Bewertung fehlen, Wirtschaftlichkeit nicht berechenbar.');
-  const params = basis ? wmParameter({ g: stand.grundstueck, ann: stand.annahmen, v, dim, sys, pos, fin: stand.finanzierung, finErg, basis, referenz }) : null;
+  // Belastbarkeit der Wirtschaftlichkeit
+  let belastbarkeit = { ausreichend: 'modellrechnung', ungeprueft: 'ungeprueft', eingeschraenkt: 'eingeschraenkt', unzulaessig: 'nicht_berechenbar' }[dim.netzStatus];
+  if (!basis) belastbarkeit = 'nicht_berechenbar';
+  const params = basis && belastbarkeit !== 'nicht_berechenbar' ? wmParameter({ g: stand.grundstueck, ann: stand.annahmen, v, dim, sys, pos, fin: stand.finanzierung, finErg, basis, referenz: nutzeRef ? referenz : null }) : null;
   const anteile = Object.fromEntries(Object.keys(DATENSTATUS).map((k) => [k, sum(pos.filter((p) => p.datenstatus === k).map((p) => p.gesamt))]));
-  return { v, sys, dim, pos, basisSumme, finErg, referenz, params, anteile, hinweise, fehler: [] };
+  const sperren = [];
+  if (belastbarkeit !== 'modellrechnung') sperren.push(BELASTBARKEIT[belastbarkeit]);
+  if (pos.some((p) => p.preisBasisUnklar && p.gesamt > 0)) sperren.push('Preisbasis der Batterieposition ungeklärt');
+  if (!dim.passt) sperren.push('Anlage passt nicht auf das Grundstück');
+  return { v, sys, dim, pos, basisSumme, finErg, referenz, erloes, belastbarkeit, sperren, params, anteile, hinweise, fehler: [] };
 }
 
 export const eurCent = cent;

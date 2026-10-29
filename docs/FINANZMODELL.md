@@ -86,8 +86,22 @@ Die Module sind reine Funktionen ohne Speicherzugriff. Ausnahme: `neuerStand`, `
 1. Keine Steuern (Gewerbe-/Körperschaftsteuer), keine Abschreibung, kein Working Capital.
 2. Keine Preissteigerung auf der Erlösseite; nur die OPEX steigen. Das Modell ist dadurch strukturell vorsichtig. Ein Parameter „Erlöspreisentwicklung“ ist vorzusehen.
 3. Keine Augmentierung (Nachrüstung gegen Degradation), kein Restwert, Rückbau nur als laufende Vorsorge.
-4. Bauzeit ohne Bauzeitzinsen; Investition vollständig in Jahr 0.
+4. Bauzeit ohne Bauzeitzinsen; Investition vollständig in Jahr 0. Ausnahme ab 1.1: Der Investitionsplaner übergibt Bauzeitzinsen als CAPEX-Position.
 5. Erlösannahmen sind Eingaben, keine Marktprognose.
+
+### Aussagegrenzen der Finanzierungskennzahlen (Korrektur AW-20261029-DK-STROMKAI-INVESTITIONSPLANER-KORREKTUR-017)
+
+Geprüft und durch Tests belegt (`test/anlagenplanung-korrektur.test.mjs`, E1–E8): Zinsen, Tilgung, Restschuld und Schuldendienst stimmen mit dem Finanzierungsrechner des Planers überein, auch bei mehreren Tranchen, Ratentilgung, endfälligen Darlehen und tilgungsfreien Jahren. Bauzeitzinsen stehen einmal im CAPEX, Gebühren einmal im Eigenkapitalbedarf, die DSRA (maximaler Schuldendienst × Monate / 12) wird im letzten Kreditjahr frei, das Fremdkapital wird vollständig getilgt.
+
+Korrigiert: Szenario-Zinsen mit Schuldendienstplan (Zinsdelta × Restschuld statt proportionaler Skalierung).
+
+Modellgrenzen, keine Programmfehler:
+- DSCR = EBITDA / Schuldendienst vor Steuern; kein CFADS mit Steuern, Working Capital, Instandhaltungsrücklagen oder Reserveneinzahlungen.
+- Keine Bankstruktur: kein Sculpting, keine Cash-Sweeps, keine Covenants oder Ausschüttungssperren, keine Verzinsung der DSRA, keine Zins- oder Währungssicherung.
+- In den Szenarien bleibt der Tilgungsverlauf fest; bei Annuitäten würde eine Bank die Rate neu bemessen.
+- Kreditkonditionen sind Annahmen, solange keine Zusage mit Dokumentreferenz vorliegt.
+
+**Eine positive DSCR-Kennzahl belegt keine Bankfähigkeit.** Für eine bankfähige Rechnung sind ein vollständiges Finanzmodell (Steuern, Abschreibung, Working Capital, CFADS, Reservekonten), indikative Bankkonditionen und eine Prüfung durch Kreditgeber erforderlich.
 
 ## 3. Eigentümervergütung
 
