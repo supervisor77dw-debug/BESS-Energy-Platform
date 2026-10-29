@@ -62,6 +62,9 @@ test('Dimensionierung: Blöcke, Kapazität, PCS, Trafo, Netzbegrenzung, Fläche 
   assert.equal(limited.erloesQuelleTatsaechlich, null, 'Bei gesperrter Wirtschaftlichkeit wird keine Erlösquelle als tatsächlich verwendet ausgewiesen');
   const missingNetz = IP.dimensioniere({ leistungMW: 10, kapazitaetMWh: 20 }, SYS2, { ...G, netzMW: null, einspeiseMW: null, bezugMW: null }, ANN);
   assert.match(missingNetz.wirtschaftlichkeitSperre, /Netzanschluss-.*fehlt/);
+  const zeroExport = IP.dimensioniere({ leistungMW: 10, kapazitaetMWh: 20 }, SYS2, { ...G, netzMW: 20, einspeiseMW: 0, bezugMW: 20 }, ANN);
+  assert.equal(zeroExport.dauerH, null, 'Null Einspeiseleistung darf keine unendliche Speicherdauer erzeugen');
+  assert.match(zeroExport.wirtschaftlichkeitSperre, /getrennte Lade- und Entladeleistungsgrenzen/);
   // Ungültige Eingaben
   assert.ok(IP.dimensioniere({ leistungMW: 0, kapazitaetMWh: 10 }, SYS2, G, ANN).fehler.length);
   assert.ok(IP.dimensioniere({ leistungMW: 5, kapazitaetMWh: 10 }, null, G, ANN).fehler.length);
