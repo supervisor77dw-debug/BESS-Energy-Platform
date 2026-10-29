@@ -8,6 +8,7 @@ import { parseCookies, parseForm, send, redirect, rateLimit, clientIp, formToken
 import * as P from '../lib/policy.mjs';
 import * as V from './views.mjs';
 import { handleUserAdmin, handleActivation, passwordProblem as pwProblem } from './benutzer.mjs';
+import { handleRecovery } from './wiederherstellung.mjs';
 import { handleFinanzen, investorKennzahlen } from './finanzen.mjs';
 import { handleStrommarkt } from './strommarkt.mjs';
 import { html } from '../lib/html.mjs';
@@ -68,7 +69,7 @@ export async function handlePortal(req, res, url) {
     const { u } = current(req, res);
     if (u) return redirect(res, '/portal');
     const demo = config.previewHelpers ? { password: DEMO_PASSWORD, users: db.users.filter((x) => x.email.endsWith('@demo.invalid')) } : null;
-    const info = { aktiviert: 'Ihr Passwort ist gespeichert. Sie können sich jetzt anmelden.' }[url.searchParams.get('m')] || null;
+    const info = { aktiviert: 'Ihr Passwort ist gespeichert. Sie können sich jetzt anmelden.', wiederhergestellt: 'Ihr Administratorzugang ist wiederhergestellt. Bitte melden Sie sich mit Ihrem neuen Passwort an.' }[url.searchParams.get('m')] || null;
     return out(res, V.loginView({ token: formToken(), demo, info, error: url.searchParams.get('e') === 'ablauf' ? 'Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.' : null }));
   }
   if (path === '/portal/anmelden' && method === 'POST') {
@@ -125,6 +126,8 @@ export async function handlePortal(req, res, url) {
   }
   // Einladung annehmen / Passwort über Zurücksetzungslink festlegen (ohne Anmeldung, einmaliger Link)
   if (path === '/portal/aktivieren') return handleActivation(req, res, url, method);
+  // Notfall-Wiederherstellung des Administratorzugangs (nur bei gesetzter BESS_RECOVERY, einmalig)
+  if (path === '/portal/wiederherstellen') return handleRecovery(req, res, method);
   if (path === '/portal/abmelden' && method === 'POST') {
     const { s, pendingUser } = current(req, res);
     const { fields } = await parseForm(req);

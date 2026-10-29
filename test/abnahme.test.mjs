@@ -23,7 +23,7 @@ globalThis.__bessBlobSdk = {
 };
 
 const start = { dirk: randomBytes(9).toString('base64url'), markus: randomBytes(9).toString('base64url') };
-const accounts = (p) => JSON.stringify({ users: [{ id: 'u-admin', email: 'dirk@stromkai-abnahme.invalid', pw: hashPassword(p.dirk) }, { id: 'u-markus', email: 'markus@stromkai-abnahme.invalid', pw: hashPassword(p.markus) }] });
+const accounts = (p, reset) => JSON.stringify({ users: [{ id: 'u-admin', email: 'dirk@stromkai-abnahme.invalid', pw: hashPassword(p.dirk), ...(reset ? { reset: true } : {}) }, { id: 'u-markus', email: 'markus@stromkai-abnahme.invalid', pw: hashPassword(p.markus), ...(reset ? { reset: true } : {}) }] });
 process.env.BESS_ACCOUNTS = accounts(start);
 
 let server, base;
@@ -127,7 +127,22 @@ test('Test 3 – Markus: Login, nur Vertrieb Nord; Admin kann Einmalpasswort ver
   assert.equal((await c.form('/portal/admin/passwort-neu', { _csrf: tok(ab, '_csrf'), userId: 'u-admin' })).status, 404, 'Markus darf keine Passwörter vergeben');
 });
 
-test('Kontenabgleich: neue Provisionierung setzt Passwörter und MFA zurück und beendet alle Sitzungen', async () => {
+test('Kontenabgleich (AW-014): neue Provisionierung ohne „reset“ lässt eigenes Passwort und Sitzung bestehen', async () => {
+  const c = new C(); const [, lp] = await c.text('/portal/login');
+  const st0 = JSON.parse(blobs.get('abnahme/state/db.json').data);
+  await c.form('/portal/anmelden', { _t: tok(lp, '_t'), email: 'dirk@stromkai-abnahme.invalid', password: 'Sonnenwind-Kai-2026!x' });
+  const [, mb] = await c.text('/portal/mfa');
+  await c.form('/portal/mfa', { _csrf: tok(mb, '_csrf'), code: totp(st0.users.find((u) => u.id === 'u-admin').totp) });
+  assert.equal((await c.req('/portal')).status, 200);
+  process.env.BESS_ACCOUNTS = accounts({ dirk: randomBytes(9).toString('base64url'), markus: randomBytes(9).toString('base64url') });
+  assert.equal((await c.req('/portal')).status, 200, 'Sitzung bleibt: Dirks eigenes Passwort wurde nicht neu gesetzt');
+  const d = JSON.parse(blobs.get('abnahme/state/db.json').data).users.find((u) => u.id === 'u-admin');
+  assert.equal(d.mustChangePassword, false); assert.ok(d.totp, 'MFA-Einrichtung bleibt');
+  const c2 = new C(); const [, lp2] = await c2.text('/portal/login');
+  assert.equal((await c2.form('/portal/anmelden', { _t: tok(lp2, '_t'), email: 'dirk@stromkai-abnahme.invalid', password: 'Sonnenwind-Kai-2026!x' })).headers.get('location'), '/portal/mfa', 'eigenes Passwort gilt weiter');
+});
+
+test('Kontenabgleich: ausdrücklicher Reset setzt Passwörter und MFA zurück und beendet alle Sitzungen', async () => {
   const c = new C(); const [, lp] = await c.text('/portal/login');
   // bestehende Sitzung von Dirk aufbauen (eigenes Passwort, MFA eingerichtet → Code aus Zustand)
   const st0 = JSON.parse(blobs.get('abnahme/state/db.json').data);
@@ -136,7 +151,7 @@ test('Kontenabgleich: neue Provisionierung setzt Passwörter und MFA zurück und
   await c.form('/portal/mfa', { _csrf: tok(mb, '_csrf'), code: totp(st0.users.find((u) => u.id === 'u-admin').totp) });
   assert.equal((await c.req('/portal')).status, 200);
   const neu = { dirk: randomBytes(9).toString('base64url'), markus: randomBytes(9).toString('base64url') };
-  process.env.BESS_ACCOUNTS = accounts(neu);
+  process.env.BESS_ACCOUNTS = accounts(neu, true);
   assert.equal((await c.req('/portal')).headers.get('location'), '/portal/login', 'alte Sitzung ungültig');
   const st = JSON.parse(blobs.get('abnahme/state/db.json').data);
   const d = st.users.find((u) => u.id === 'u-admin');
