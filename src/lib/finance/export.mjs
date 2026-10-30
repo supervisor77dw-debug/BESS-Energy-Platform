@@ -16,10 +16,10 @@ export function berechnungCsv(ergebnis, { projektName }) {
     zeile(['Kennzahl', 'Wert', 'Einheit']),
     zeile(['Gesamtinvestition', zahl(k.gesamtinvestition), 'EUR']), zeile(['Investition je nominaler kWh', zahl(k.investitionJeKWh), 'EUR/kWh']),
     zeile(['Eigenkapitalbedarf', zahl(k.eigenkapitalbedarf), 'EUR']), zeile(['Fremdkapital', zahl(k.fremdkapital), 'EUR']), zeile(['Schuldendienst p. a.', zahl(k.schuldendienstJahr), 'EUR']),
-    zeile(['DSCR minimal', zahl(k.dscrMin, 2), 'x']), zeile(['DSCR Durchschnitt', zahl(k.dscrDurchschnitt, 2), 'x']),
+    zeile(['Modell-DSCR minimal (vor Steuern)', zahl(k.dscrMin, 2), 'x']), zeile(['Modell-DSCR Durchschnitt (vor Steuern)', zahl(k.dscrDurchschnitt, 2), 'x']),
     zeile(['Kapitalwert', zahl(k.kapitalwert), 'EUR']), zeile(['Projekt-IRR', zahl(k.projektIRR == null ? null : k.projektIRR * 100, 2), '%']), zeile(['Eigenkapital-IRR', zahl(k.eigenkapitalIRR == null ? null : k.eigenkapitalIRR * 100, 2), '%']),
     zeile(['Amortisation', zahl(k.amortisationJahre, 1), 'Jahre']), '',
-    zeile(['Jahr', 'Bruttoerlöse', 'Vermarktung', 'Betriebskosten', 'EBITDA', 'Operativer Cashflow', 'Zinsen', 'Tilgung', 'Schuldendienst', 'DSCR', 'Eigenkapital-Cashflow', 'Ausgespeichert MWh']),
+    zeile(['Jahr', 'Bruttoerlöse', 'Vermarktung', 'Betriebskosten', 'EBITDA', 'Operativer Cashflow', 'Zinsen', 'Tilgung', 'Schuldendienst', 'Modell-DSCR (vor Steuern)', 'Eigenkapital-Cashflow', 'Ausgespeichert MWh']),
     ...ergebnis.jahre.map((j) => zeile([j.jahr, zahl(j.brutto), zahl(j.vermarktung), zahl(j.opex), zahl(j.ebitda), zahl(j.operativerCF), zahl(j.zinsen), zahl(j.tilgung), zahl(j.schuldendienst), zahl(j.dscr), zahl(j.ekCF), zahl(j.ausgespeichertMWh, 1)])),
   ];
   return '﻿' + out.join('\r\n') + '\r\n';

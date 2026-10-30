@@ -350,7 +350,7 @@ test('R1-3 Oberfläche, Vergleich, CSV, Bericht und serverseitige Übergabe bei 
   const vg = await (await req(`/portal/anlagenplanung/p-n02?schritt=vergleich&v=${v}`)).text();
   const zelle = (label) => [...vg.split(`<th scope="row">${label}</th>`)[1].split('</tr>')[0].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((m) => m[1]);
   assert.equal(zelle('Kapitalwert Basis')[1], NB); assert.match(zelle('Kapitalwert Basis')[0], /€|EUR/);
-  assert.equal(zelle('Erlösquelle (verwendet)')[1], `Keine – ${NB}`); assert.equal(zelle('Kapitalwert Netzentgelt A')[1], NB); assert.equal(zelle('DSCR min (Basis)')[1], NB);
+  assert.equal(zelle('Erlösquelle (verwendet)')[1], `Keine – ${NB}`); assert.equal(zelle('Kapitalwert Netzentgelt A')[1], NB); assert.equal(zelle('Modell-DSCR min. vor Steuern (Basis)')[1], NB);
   assert.doesNotMatch(zelle('Wesentliche Risiken')[1], /historischer Simulation/); assert.match(zelle('Wesentliche Risiken')[1], /Netz begrenzt Bezug auf 12(,0)? MW/);
   // CSV: Kennzahlen von B mit Status, A mit Zahl
   const csvText = await (await req(`/portal/anlagenplanung/p-n02/export.csv?v=${v}`)).text();

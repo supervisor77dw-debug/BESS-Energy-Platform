@@ -125,3 +125,41 @@ export function referenzPruefung(db, pid, verweis) {
   if (fm.referenzbasis.modellVersion !== MODELL_VERSION || verweis.modellVersion !== MODELL_VERSION) return { fehler: `Referenzbasis ${fm.referenzbasis.kennung} gehört zu ${fm.referenzbasis.modellVersion}, gerechnet wird mit ${MODELL_VERSION}. Bitte eine aktuelle Referenzbasis zuordnen.` };
   return { fm };
 }
+
+// ---------- Versionsstatus (Anzeige) ----------
+// Abgeleitet aus vorhandenen Daten (Referenzbasis, Planerbezug, gespeicherte Modellversion, Investorenfreigaben) und aus
+// dokumentarischen Versionshinweisen. Versionshinweise sind eine eigene, nur anhängende Sammlung (db.wmVersionshinweise):
+// sie verändern keine WM-Version; der jüngste Hinweis je Version gilt.
+export const VERSIONSHINWEISE = {
+  ueberholt: { name: 'Überholt', mark: 'mark-bad' },
+  pruefreferenz: { name: 'Prüfreferenz', mark: 'mark-aud' },
+  historisch: { name: 'Historisch', mark: 'mark-aud' },
+};
+const S = (key, name, mark, text = '') => ({ key, name, mark, text });
+export function versionStatus(db, fm) {
+  const out = [];
+  const gespeichert = fm.ergebnis?.basis?.meta?.modellVersion || null;
+  const aktuellesModell = gespeichert === MODELL_VERSION;
+  if (fm.referenzbasis) {
+    out.push(fm.referenzbasis.status === 'freigegeben' && fm.referenzbasis.modellVersion === MODELL_VERSION
+      ? S('referenz', fm.synthetisch ? 'Demo-Referenzbasis – aktuell verwendbar' : 'Referenzbasis – aktuell verwendbar', 'mark-ok', `${fm.referenzbasis.kennung}, Rechenbasis des Investitionsplaners`)
+      : S('historisch', 'Historische Referenzbasis', 'mark-aud', `${fm.referenzbasis.kennung}, ${fm.referenzbasis.modellVersion}`));
+  } else if (fm.planerRef?.wmBasis) {
+    const ok = !referenzPruefung(db, fm.projectId, fm.planerRef.wmBasis).fehler && aktuellesModell;
+    out.push(ok ? S('variante', 'Variantenberechnung – aktuell', 'mark-info', `aus ${fm.planerRef.wmBasis.kennung}, Planungsstand V${fm.planerRef.version}, ${fm.planerRef.variante}`)
+      : S('historisch', 'Historische Variantenberechnung', 'mark-aud', `Referenzbasis oder Modellversion nicht mehr aktuell (${gespeichert || 'unbekannt'})`));
+  } else {
+    if (fm.planerRef) out.push(S('ohne_referenz', 'Ohne feste Referenzbasis', 'mark-warn', 'Planerübergabe vor IP 1.1: Basis war die damals neueste WM-Version'));
+    else if (fm.notiz === 'Demo-Ausgangsmodell') out.push(S('demo', 'Demo-Ausgangsmodell', 'mark-demo', 'Synthetische Startversion'));
+    if (!aktuellesModell) out.push(S('historisch', 'Historisch', 'mark-aud', `gerechnet mit ${gespeichert || 'unbekannter Modellversion'}`));
+  }
+  const freigaben = (db.finanzFreigaben || []).filter((f) => f.modellId === fm.id);
+  if (freigaben.length) {
+    out.push(S('investor', 'Für Investoren freigegeben', 'mark-ok', freigaben.map((f) => `Szenario ${f.szenario}, ${f.freigegebenAm?.slice(0, 10)}, Kennzahlen-Schnappschuss${f.synthetisch ? ', synthetisch' : ''}`).join('; ')));
+    const befunde = kostenbasisPruefung(fm.params).filter((x) => x.art === 'bad').map((x) => x.text);
+    if (befunde.length || !aktuellesModell) out.push(S('investor_pruefung', 'Investorenfreigabe prüfungsbedürftig', 'mark-bad', [...befunde, ...(!aktuellesModell ? [`gerechnet mit ${gespeichert || 'unbekannter Modellversion'}`] : [])].join(' ')));
+  }
+  const h = (db.wmVersionshinweise || []).filter((x) => x.fmId === fm.id).sort((a, b) => b.am.localeCompare(a.am))[0];
+  if (h && VERSIONSHINWEISE[h.status]) out.push(S(h.status, `${VERSIONSHINWEISE[h.status].name} – nicht entscheidungsrelevant`, VERSIONSHINWEISE[h.status].mark, `${h.text} (${h.von}, ${h.am.slice(0, 10)}${h.quelle ? `, ${h.quelle}` : ''})`));
+  return out;
+}

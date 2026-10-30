@@ -378,3 +378,95 @@ details[open] > summary { margin-bottom: 6px; }
 .ip-feuerwehr { fill: color-mix(in srgb, var(--bad) 22%, transparent); }
 .ip-nichtnutzbar { fill: color-mix(in srgb, var(--text-2) 18%, transparent); }
 .ip-lg-feuerwehr::before { background: color-mix(in srgb, var(--bad) 22%, transparent); } .ip-lg-nichtnutzbar::before { background: color-mix(in srgb, var(--text-2) 18%, transparent); }
+
+/* Entscheidungsübersicht (Folgeauftrag „Fachliche Transparenz“): eine Farbsprache für positiv, negativ, ungeklärt und synthetisch */
+.mark-bad { color: var(--bad); background: var(--bad-bg); border-color: transparent; }
+.ed-kopf .panel-head { flex-wrap: wrap; gap: 8px; }
+.ed-status { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 14px; }
+.ed-h { margin-top: 4px; }
+.ed-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.ed-kpi { display: grid; align-content: start; gap: 2px; border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: var(--r2); padding: 10px 12px; background: var(--panel); }
+.ed-kpi.ed-neg { border-left-color: var(--bad); } .ed-kpi.ed-pos { border-left-color: var(--ok); }
+.ed-kpi-l { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.ed-kpi-v { font-size: 22px; font-weight: 650; line-height: 1.2; }
+.ed-kpi.ed-neg .ed-kpi-v { color: var(--bad); } .ed-kpi.ed-pos .ed-kpi-v { color: var(--ok); }
+.ed-kpi-z { font-size: 12.5px; color: var(--text-2); }
+.ed-kpi-e { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.ed-warum { margin: 14px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.ed-pos { color: var(--ok); } .ed-neg { color: var(--bad); }
+/* Balken (HTML, skaliert ohne Miniaturschrift) */
+.ed-bars { display: grid; gap: 6px; margin: 8px 0; }
+.ed-bar-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(60px, 3fr) max-content; gap: 10px; align-items: center; font-size: 13px; }
+.ed-bar-l { min-width: 0; overflow-wrap: anywhere; }
+.ed-bar-l .mark { font-size: 11px; padding: 0 5px; }
+.ed-bar-t { position: relative; height: 18px; background: var(--sunken); border-radius: 3px; }
+.ed-bar { position: absolute; top: 2px; bottom: 2px; border-radius: 2px; }
+.ed-zero { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--text-2); z-index: 1; }
+.ed-ref { position: absolute; top: -3px; bottom: -3px; width: 0; border-left: 2px dashed var(--info); z-index: 1; }
+.ed-bar-v { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ed-bar-pos { background: var(--ok); } .ed-bar-neg { background: var(--bad); } .ed-bar-summe { background: var(--brand-rail); } .ed-bar-aud { background: var(--muted); }
+.ed-bar-neutral { background: var(--info); } .ed-bar-neutral2 { background: color-mix(in srgb, var(--info) 45%, transparent); }
+.ed-bar-st-bestaetigtes_angebot, .ed-bar-st-freigegeben { background: var(--ok); }
+.ed-bar-st-marktbenchmark { background: var(--info); }
+.ed-bar-st-schaetzung { background: var(--warn); }
+.ed-bar-st-platzhalter { background: repeating-linear-gradient(-45deg, var(--demo) 0 4px, color-mix(in srgb, var(--demo) 35%, transparent) 4px 8px); }
+.ed-bar-st-berechnet { background: color-mix(in srgb, var(--info) 45%, transparent); }
+.ed-bar-st-fehlt { background: transparent; border: 2px dashed var(--bad); }
+.ed-legende { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin: 6px 0; }
+.ed-sw { display: inline-block; width: 18px; height: 10px; border-radius: 2px; margin-right: -8px; position: relative; }
+.ed-box { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r2); padding: 8px 12px; margin: 8px 0; }
+.ed-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 28px; }
+.ed-grid2 h4, .panel h4 { margin: 10px 0 2px; font-size: 13.5px; }
+.ed-daten { margin: 6px 0 10px; }
+.ed-wf .ed-bar-summe { background: var(--brand-rail); }
+.ed-tornado .ed-bar-v { white-space: normal; text-align: left; }
+/* Anlagenfluss */
+.ed-flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0; margin: 6px 0 10px; }
+.ed-node { flex: 1 1 150px; border: 1px solid var(--ctl-line); border-radius: var(--r2); padding: 8px 10px; background: var(--panel); font-size: 12.5px; min-width: 0; }
+.ed-node strong { display: block; font-size: 13px; margin-bottom: 4px; }
+.ed-node ul { margin: 0; padding-left: 14px; }
+.ed-node-bad { border: 2px solid var(--bad); background: var(--bad-bg); }
+.ed-link { flex: 0 1 92px; display: flex; align-items: center; justify-content: center; position: relative; font-size: 11px; color: var(--muted); text-align: center; padding: 18px 4px 4px; }
+.ed-link::before { content: ""; position: absolute; left: 4px; right: 10px; top: 50%; height: 2px; background: var(--ctl-line); }
+.ed-link::after { content: ""; position: absolute; right: 4px; top: calc(50% - 5px); border: 6px solid transparent; border-left-color: var(--ctl-line); border-right: 0; }
+.ed-link span { position: relative; top: -12px; background: var(--bg); padding: 0 2px; }
+.ed-link-bad { color: var(--bad); font-weight: 600; } .ed-link-bad::before { background: repeating-linear-gradient(90deg, var(--bad) 0 6px, transparent 6px 10px); }
+.ed-link-bad::after { border-left-color: var(--bad); }
+/* Datenqualität */
+.ed-quali { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-bottom: 10px; }
+.ed-quali-k { display: grid; gap: 2px; border: 1px solid var(--line); border-radius: var(--r2); padding: 8px 10px; }
+.ed-quali-k strong { font-size: 22px; }
+/* Zahlungsströme */
+.ed-scroll { overflow-x: auto; }
+.ed-cf { min-width: 560px; }
+.ed-cf .cf-erl { fill: var(--c-ebitda); } .ed-cf .cf-opex { fill: color-mix(in srgb, var(--warn) 70%, transparent); }
+.ed-cf .cf-zins { fill: var(--bad); } .ed-cf .cf-tilg { fill: color-mix(in srgb, var(--bad) 45%, transparent); }
+.ed-cf .cf-null { stroke: var(--text-2); stroke-width: 1.5; }
+.ed-cf .cf-ek { fill: none; stroke: var(--brand-link); stroke-width: 2.5; }
+.ed-cf .cf-ebitda { fill: none; stroke: var(--info); stroke-width: 2; stroke-dasharray: 5 4; }
+.lg-cf-erl::before { background: var(--c-ebitda); } .lg-cf-opex::before { background: color-mix(in srgb, var(--warn) 70%, transparent); }
+.lg-cf-zins::before { background: var(--bad); } .lg-cf-tilg::before { background: color-mix(in srgb, var(--bad) 45%, transparent); }
+.lg-cf-ebitda::before { background: var(--info); height: 3px; } .lg-cf-ek::before { background: var(--brand-link); height: 3px; }
+@media (max-width: 767px) {
+  .ed-bar-row { grid-template-columns: 1fr minmax(96px, auto); }
+  .ed-bar-row .ed-bar-t { grid-column: 1 / -1; grid-row: 2; }
+  .ed-grid2 { grid-template-columns: 1fr; }
+  .ed-flow { flex-direction: column; }
+  .ed-link { flex: 0 0 auto; padding: 4px 0 4px 28px; justify-content: flex-start; text-align: left; min-height: 30px; }
+  .ed-link::before { left: 14px; right: auto; top: 0; bottom: 0; width: 2px; height: auto; }
+  .ed-link::after { left: 9px; right: auto; top: auto; bottom: -2px; border: 6px solid transparent; border-top-color: var(--ctl-line); border-bottom: 0; }
+  .ed-link span { top: 0; }
+}
+/* Balkenspur als SVG (CSP ohne Inline-Styles): Füllungen über Klassen */
+svg.ed-bar-t { display: block; width: 100%; height: 18px; overflow: visible; background: none; }
+.ed-track { fill: var(--sunken); }
+.ed-zero { stroke: var(--text-2); stroke-width: 2; }
+.ed-ref { stroke: var(--info); stroke-width: 2; stroke-dasharray: 3 3; }
+rect.ed-bar-pos { fill: var(--ok); } rect.ed-bar-neg { fill: var(--bad); } rect.ed-bar-summe { fill: var(--brand-rail); } rect.ed-bar-aud { fill: var(--muted); }
+rect.ed-bar-neutral { fill: var(--info); } rect.ed-bar-neutral2 { fill: color-mix(in srgb, var(--info) 45%, transparent); }
+rect.ed-bar-st-bestaetigtes_angebot, rect.ed-bar-st-freigegeben { fill: var(--ok); } rect.ed-bar-st-marktbenchmark { fill: var(--info); }
+rect.ed-bar-st-schaetzung { fill: var(--warn); } rect.ed-bar-st-platzhalter { fill: url(#ed-schraffur); stroke: var(--demo); stroke-width: 1; }
+rect.ed-bar-st-berechnet { fill: color-mix(in srgb, var(--info) 45%, transparent); } rect.ed-bar-st-fehlt { fill: none; stroke: var(--bad); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.ed-schraffur-g { fill: color-mix(in srgb, var(--demo) 30%, transparent); } .ed-schraffur-v { fill: var(--demo); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) rect.ed-bar-summe { fill: #7cc4bb; } }
+.ed-status .mark, .ed-bar-l .mark { white-space: normal; max-width: 100%; }

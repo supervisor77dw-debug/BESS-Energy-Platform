@@ -12,6 +12,7 @@ import { eur, num, pct, parseZahl } from '../lib/finance/geld.mjs';
 import * as WM from '../lib/finance/wirtschaftlichkeit.mjs';
 import * as IP from '../lib/planer/planer.mjs';
 import * as REF from '../lib/finance/referenz.mjs';
+import { entscheidungsuebersicht } from './entscheidung.mjs';
 import * as D from '../lib/strommarkt/daten.mjs';
 
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
@@ -19,7 +20,7 @@ const nf = () => new HttpError(404, 'Nicht gefunden');
 export const darfPlanung = (u, pid) => P.rolesForProject(u, pid).some((r) => r === 'admin' || r === 'projektleitung');
 export const darfPlanungIrgendwo = (u) => P.rolesOf(u).some((r) => r === 'admin' || r === 'projektleitung');
 const csrf = (s) => raw(`<input type="hidden" name="_csrf" value="${s.csrf}">`);
-const SCHRITTE = [['grundstueck', 'Grundstück und Standort'], ['technik', 'Technische Konfiguration'], ['kosten', 'Investitionskosten'], ['finanzierung', 'Finanzierung'], ['wirtschaftlichkeit', 'Wirtschaftlichkeit'], ['vergleich', 'Variantenvergleich und Entscheidung']];
+const SCHRITTE = [['grundstueck', 'Grundstück und Standort'], ['technik', 'Technische Konfiguration'], ['kosten', 'Investitionskosten'], ['finanzierung', 'Finanzierung'], ['wirtschaftlichkeit', 'Wirtschaftlichkeit'], ['vergleich', 'Variantenvergleich und Entscheidung'], ['uebersicht', 'Entscheidungsübersicht']];
 const VAR_KEYS = ['A', 'B', 'C', 'D'];
 const ERLOES_KURZ = { wm: 'WM-Annahmen der Referenzbasis', b2_A: 'Backtest B2 · Netzentgelt A', b2_B: 'Backtest B2 · Netzentgelt B' };
 const mark = (st) => html`<span class="mark ${IP.DATENSTATUS[st]?.mark || 'mark-aud'}">${IP.DATENSTATUS[st]?.name || st}</span>`;
@@ -128,7 +129,7 @@ export async function handleAnlagenplanung({ res, url, path, method, u, s, view,
       const schritt = SCHRITTE.some(([k]) => k === url.searchParams.get('schritt')) ? url.searchParams.get('schritt') : 'grundstueck';
       const varKey = stand.varianten.some((v) => v.key === url.searchParams.get('var')) ? url.searchParams.get('var') : stand.varianten[0]?.key;
       const msg = { ok: 'Neue Version gespeichert.', wm: 'An STROMKAI-WM übergeben: neue Berechnungsversion angelegt.', frei: 'Stand zur Investitionsentscheidung freigegeben.', angebot: 'Angebot erfasst.' }[url.searchParams.get('m')];
-      return view(`Anlagenplanung ${p.code}`, akte({ db, u, s, p, alle, stand, schritt, varKey, msg }), db.spvs.find((x) => x.id === p.spvId)?.name);
+      return view(`Anlagenplanung ${p.code}`, akte({ db, u, s, p, alle, stand, schritt, varKey, msg, url }), db.spvs.find((x) => x.id === p.spvId)?.name);
     }
     if (aktion === 'export.csv' && method === 'GET') {
       audit('anlagenplanung_export', u, { projekt: p.id, version: stand.version });
@@ -337,10 +338,11 @@ ${alle.length ? html`<details class="small"><summary>Versionen (${alle.length})<
 <nav aria-label="Planungsschritte"><ol class="ip-schritte">${SCHRITTE.map(([k, n], i) => html`<li><a href="${link(k)}"${k === schritt ? raw(' aria-current="step"') : ''}><span class="ip-nr">${i + 1}</span>${n}</a></li>`)}</ol></nav></section>`;
 }
 
-function akte({ db, u, s, p, alle, stand, schritt, varKey, msg, fehler }) {
+function akte({ db, u, s, p, alle, stand, schritt, varKey, msg, fehler, url = new URL('http://lokal/') }) {
   const rs = rechne(db, stand);
   const r = rs.find((x) => x.v.key === varKey) || rs[0];
-  const inhalt = { grundstueck: () => schrittGrundstueck(s, p, stand, rs), technik: () => schrittTechnik(db, s, p, stand, rs), kosten: () => schrittKosten(db, s, p, stand, rs, r), finanzierung: () => schrittFinanzierung(s, p, stand, rs, r), wirtschaftlichkeit: () => schrittWirtschaft(db, u, s, p, stand, rs, r), vergleich: () => schrittVergleich(db, u, s, p, stand, rs) }[schritt]();
+  const inhalt = { grundstueck: () => schrittGrundstueck(s, p, stand, rs), technik: () => schrittTechnik(db, s, p, stand, rs), kosten: () => schrittKosten(db, s, p, stand, rs, r), finanzierung: () => schrittFinanzierung(s, p, stand, rs, r), wirtschaftlichkeit: () => schrittWirtschaft(db, u, s, p, stand, rs, r), vergleich: () => schrittVergleich(db, u, s, p, stand, rs),
+    uebersicht: () => { const ex = exportDaten(); return entscheidungsuebersicht({ db, p, stand, rs, r, url, varTabs: varTabs(p, stand, 'uebersicht', r?.v.key), ctx: { katalog: db.planerKatalog, angebote: db.planerAngebote.filter((a) => a.projectId === stand.projectId), ergebnisse: ex?.ergebnisse, datenversion: ex?.datenversion || null } }); } }[schritt]();
   return html`${msg ? html`<div class="notice" role="status">${msg}</div>` : ''}${fehler?.length ? html`<div class="alert" role="alert"><strong>Nicht gespeichert.</strong><ul class="assume">${fehler.map((x) => html`<li>${x}</li>`)}</ul></div>` : ''}
 ${kopf({ p, alle, stand, schritt, varKey: r?.v.key })}${inhalt}`;
 }
@@ -504,13 +506,13 @@ ${f ? html`<section class="panel"><div class="panel-head"><h2>Finanzierungsbedar
 <div><h3>Tilgungsplan</h3><div class="tbl-wrap"><table class="tbl tbl-num tbl-compact"><thead><tr><th>Jahr</th><th class="num">Zinsen</th><th class="num">Tilgung</th><th class="num">Schuldendienst</th><th class="num">Restschuld</th></tr></thead><tbody>${f.jahre.map((x) => html`<tr><td>${x.jahr}</td><td class="num">${eur(x.zinsen, true)}</td><td class="num">${eur(x.tilgung, true)}</td><td class="num">${eur(x.schuldendienst, true)}</td><td class="num">${eur(x.restschuld, true)}</td></tr>`)}</tbody></table></div></div></div></section>` : html`<section class="panel"><div class="alert">${(r?.fehler || []).join(' ')}</div></section>`}`;
 }
 
-const kz = (k) => [['Gesamtinvestition', eur(k.gesamtinvestition, true)], ['Eigenkapitalbedarf', eur(k.eigenkapitalbedarf, true)], ['Fremdkapital', eur(k.fremdkapital, true)], ['Betriebskosten Jahr 1', eur(k.betriebskostenJahr1, true)], ['Bruttoerlöse Jahr 1', eur(k.bruttoerloeseJahr1, true)], ['EBITDA Jahr 1', eur(k.ebitdaJahr1, true)], ['Schuldendienst p. a. (max.)', eur(k.schuldendienstJahr, true)], ['DSCR minimal', k.dscrMin == null ? '–' : num(k.dscrMin, 2)], ['Kapitalwert', eur(k.kapitalwert, true)], ['Projekt-IRR', pct(k.projektIRR)], ['Eigenkapital-IRR', pct(k.eigenkapitalIRR)], ['Amortisation', k.amortisationJahre == null ? 'nicht erreicht' : `${num(k.amortisationJahre, 1)} Jahre`]];
+const kz = (k) => [['Gesamtinvestition', eur(k.gesamtinvestition, true)], ['Eigenkapitalbedarf', eur(k.eigenkapitalbedarf, true)], ['Fremdkapital', eur(k.fremdkapital, true)], ['Betriebskosten Jahr 1', eur(k.betriebskostenJahr1, true)], ['Bruttoerlöse Jahr 1', eur(k.bruttoerloeseJahr1, true)], ['EBITDA Jahr 1', eur(k.ebitdaJahr1, true)], ['Schuldendienst p. a. (max.)', eur(k.schuldendienstJahr, true)], ['Modell-DSCR minimal (vor Steuern)', k.dscrMin == null ? '–' : num(k.dscrMin, 2)], ['Kapitalwert', eur(k.kapitalwert, true)], ['Projekt-IRR', pct(k.projektIRR)], ['Eigenkapital-IRR', pct(k.eigenkapitalIRR)], ['Amortisation', k.amortisationJahre == null ? 'nicht erreicht' : `${num(k.amortisationJahre, 1)} Jahre`]];
 // Tatsächlich verwendete Erlösquelle (Korrektur -017): gleiche Angabe in Oberfläche, CSV und Bericht
 export const quelleText = (e) => (e && e.verwendet == null ? `Keine – ${IP.BELASTBARKEIT[e.gesperrt || 'netzgrenzen']}` : e ? `${IP.ERLOES_QUELLEN[e.verwendet]}${e.referenz ? ` · Strategie ${e.referenz.strategie} (Referenz; KI-Vorteil nicht belegt) · Simulationsanlage ${e.referenz.anlage} (${num(e.referenz.dauerRefH, 1)} h) · Zeitraum ${e.referenz.periode} (29.10.2024–28.10.2026) · Datenversion ${e.referenz.datenversion || 'unbekannt'}` : ''}${e.rueckfall ? ` · RÜCKFALL statt „${IP.ERLOES_QUELLEN[e.angefordert]}“: ${e.grund}` : ''}` : '–');
 function datenstand(r) {
   return html`<p class="small"><strong>Verwendete Erlösquelle:</strong> ${quelleText(r.erloes)}</p><p class="small muted">Anlage ${n1(r.dim.pcsMW)} MW PCS, Einspeisung ${r.dim.einspeise == null ? '–' : n1(r.dim.einspeise)} MW, Bezug ${r.dim.bezug == null ? '–' : n1(r.dim.bezug)} MW, ${n1(r.dim.kapNutzbar)} MWh nutzbar · Modell ${WM.MODELL_VERSION}. Historische Simulationen sind keine garantierten Zukunftserlöse.</p>`;
 }
-const GRENZEN_TEXT = 'Vereinfachtes Jahresmodell vor Steuern: keine Steuern, kein Working Capital, kein Restwert, keine Bankkovenants, Sculpting oder Cash-Sweeps; DSCR = EBITDA / Schuldendienst. Eine DSCR-Kennzahl belegt keine Bankfähigkeit.';
+const GRENZEN_TEXT = 'Vereinfachtes Jahresmodell vor Steuern: keine Steuern, kein Working Capital, kein Restwert, keine Bankkovenants, Sculpting oder Cash-Sweeps; Modell-DSCR = EBITDA / Schuldendienst. Eine Modell-DSCR-Kennzahl belegt keine Bankfähigkeit.';
 function schrittWirtschaft(db, u, s, p, stand, rs, r) {
   const ex = exportDaten();
   const b = stand.wmBasis;
@@ -528,7 +530,7 @@ ${datenstand(r)}${r.hinweise.map((x) => html`<p class="small bad">${x}</p>`)}<p 
 <div class="tbl-wrap"><table class="tbl tbl-num"><thead><tr><th>Kennzahl</th>${Object.values(r.wm).map((x) => html`<th class="num">${x.meta.szenarioName}</th>`)}</tr></thead><tbody>
 ${kz(r.wm.basis.kennzahlen).map(([l], i) => html`<tr><th scope="row">${l}</th>${Object.values(r.wm).map((x) => html`<td class="num">${kz(x.kennzahlen)[i][1]}</td>`)}</tr>`)}</tbody></table></div>
 <h3>Netzentgelt-Szenarien (Basis, Erlöse aus Backtest B2)</h3>
-<table class="tbl tbl-num tbl-compact"><thead><tr><th>Szenario</th><th class="num">Bruttoerlöse J1</th><th class="num">Variable Handelskosten J1</th><th class="num">EBITDA J1</th><th class="num">DSCR min</th><th class="num">Kapitalwert</th><th class="num">Projekt-IRR</th></tr></thead><tbody>
+<table class="tbl tbl-num tbl-compact"><thead><tr><th>Szenario</th><th class="num">Bruttoerlöse J1</th><th class="num">Variable Handelskosten J1</th><th class="num">EBITDA J1</th><th class="num">Modell-DSCR min. (vor Steuern)</th><th class="num">Kapitalwert</th><th class="num">Projekt-IRR</th></tr></thead><tbody>
 ${[['A', 'A „befreit“ – vorläufig, Befreiung nicht gesichert'], ['B', 'B „ohne Befreiung“ – nur Arbeitspreis; Leistungspreis fehlt']].map(([k, l]) => { const x = r.netz?.[k]; if (!x || x.fehler) return html`<tr><th scope="row">${l}</th><td colspan="6" class="small">${x?.fehler || '–'}</td></tr>`; const kk = x.wm.kennzahlen; const var1 = x.wm.jahre[0].opexPosten.find((o) => o.key === 'variabel')?.betrag;
   return html`<tr><th scope="row">${l}</th><td class="num">${eur(kk.bruttoerloeseJahr1, true)}</td><td class="num">${eur(var1, true)}</td><td class="num">${eur(kk.ebitdaJahr1, true)}</td><td class="num">${kk.dscrMin == null ? '–' : num(kk.dscrMin, 2)}</td><td class="num">${eur(kk.kapitalwert, true)}</td><td class="num">${pct(kk.projektIRR)}</td></tr>`; })}</tbody></table>
 <p class="small muted">Netzentgelt B enthält nur den Arbeitspreisanteil aus dem Trading-Export. Der Leistungspreis ist nicht quantifiziert und nicht mit null angesetzt, sondern fehlt (Ergebnis B zu günstig). Rechtsannahme zur Befreiung (A) ist nicht bestätigt.</p>
@@ -548,7 +550,7 @@ function risiken(r, stand) {
   if (stand.finanzierung.status !== 'zugesagt') out.push('Finanzierung nicht zugesagt');
   if (r.erloes?.verwendet?.startsWith('b2_')) out.push('Erlöse aus historischer Simulation');
   if (r.wm && r.wm.konservativ.kennzahlen.kapitalwert < 0) out.push('Kapitalwert im konservativen Szenario negativ');
-  if (r.wm && r.wm.basis.kennzahlen.dscrMin != null && r.wm.basis.kennzahlen.dscrMin < 1.2) out.push('DSCR im Basisszenario unter 1,2');
+  if (r.wm && r.wm.basis.kennzahlen.dscrMin != null && r.wm.basis.kennzahlen.dscrMin < 1.2) out.push('Modell-DSCR (vor Steuern) im Basisszenario unter 1,2');
   return out;
 }
 function schrittVergleich(db, u, s, p, stand, rs) {
@@ -571,7 +573,7 @@ ${zeile('Gesamtinvestition', (r) => eur(r.finErg?.gesamt, true))}${zeile('je kWh
 ${zeile('Anteil Platzhalter/fehlend', (r) => pct((r.anteile.platzhalter + r.anteile.fehlt) / r.basisSumme, 0))}${zeile('Schuldendienst p. a. (max.)', (r) => eur(r.finErg?.schuldendienstMax, true))}
 <tr class="ip-gruppe"><th colspan="${rs.length + 1}">Wirtschaftliche Modellrechnung (STROMKAI-WM)</th></tr>
 ${zeile('Erlösquelle (verwendet)', (r) => `${gesperrt(r) ? `Keine – ${IP.BELASTBARKEIT.netzgrenzen}` : { wm: 'WM-Annahmen', b2_A: 'B2, Szen. A', b2_B: 'B2, Szen. B' }[r.erloes?.verwendet] || '–'}${r.erloes?.rueckfall ? ' – Rückfall' : ''}`)}${zeile('Belastbarkeit', (r) => IP.BELASTBARKEIT[r.belastbarkeit] || '–')}${zeile('Netzstatus', (r) => IP.NETZSTATUS[r.dim.netzStatus])}${zeile('Betriebskosten Jahr 1', kzw('basis', 'betriebskostenJahr1', (x) => eur(x, true)))}
-${zeile('DSCR min (Basis)', kzw('basis', 'dscrMin', (x) => (x == null ? '–' : num(x, 2))))}${zeile('Kapitalwert konservativ', kzw('konservativ', 'kapitalwert', (x) => eur(x, true)))}${zeile('Kapitalwert Basis', kzw('basis', 'kapitalwert', (x) => eur(x, true)))}${zeile('Kapitalwert optimistisch', kzw('optimistisch', 'kapitalwert', (x) => eur(x, true)))}
+${zeile('Modell-DSCR min. vor Steuern (Basis)', kzw('basis', 'dscrMin', (x) => (x == null ? '–' : num(x, 2))))}${zeile('Kapitalwert konservativ', kzw('konservativ', 'kapitalwert', (x) => eur(x, true)))}${zeile('Kapitalwert Basis', kzw('basis', 'kapitalwert', (x) => eur(x, true)))}${zeile('Kapitalwert optimistisch', kzw('optimistisch', 'kapitalwert', (x) => eur(x, true)))}
 ${zeile('Projekt-IRR (Basis)', kzw('basis', 'projektIRR', (x) => pct(x)))}${zeile('Eigenkapital-IRR (Basis)', kzw('basis', 'eigenkapitalIRR', (x) => pct(x)))}${zeile('Amortisation (Basis)', kzw('basis', 'amortisationJahre', (x) => (x == null ? 'nicht erreicht' : `${num(x, 1)} J.`)))}
 ${zeile('Kapitalwert Netzentgelt A', (r) => (gesperrt(r) ? IP.BELASTBARKEIT.netzgrenzen : r.netz?.A?.wm ? eur(r.netz.A.wm.kennzahlen.kapitalwert, true) : 'keine Simulation'))}${zeile('Kapitalwert Netzentgelt B', (r) => (gesperrt(r) ? IP.BELASTBARKEIT.netzgrenzen : r.netz?.B?.wm ? eur(r.netz.B.wm.kennzahlen.kapitalwert, true) : 'keine Simulation'))}
 <tr class="ip-gruppe"><th colspan="${rs.length + 1}">Risiken</th></tr><tr><th scope="row">Wesentliche Risiken</th>${rs.map((r) => html`<td class="small">${r.dim?.bloecke ? html`<ul class="assume">${risiken(r, stand).map((x) => html`<li>${x}</li>`)}</ul>` : '–'}</td>`)}</tr>
@@ -597,7 +599,7 @@ function csv(p, stand, rs) {
     ['PCS MW', ...rs.map((r) => z(r.dim?.pcsMW))], ['Batterieleistung MW', ...rs.map((r) => z(r.dim?.batterieMW))], ['Einspeisung zulässig MW', ...rs.map((r) => z(r.dim?.einspeise))], ['Bezug zulässig MW', ...rs.map((r) => z(r.dim?.bezug))]);
   L.push(['Leistung MW', ...rs.map((r) => z(r.v.leistungMW))], ['Kapazität nutzbar MWh', ...rs.map((r) => z(r.dim?.kapNutzbar))], ['Blöcke', ...rs.map((r) => r.dim?.bloecke ?? '')], ['Flächenreserve m²', ...rs.map((r) => z(r.dim?.rest))],
     ['Gesamtinvestition EUR', ...rs.map((r) => z(r.finErg?.gesamt))], ['Bauzeitzinsen EUR', ...rs.map((r) => z(r.finErg?.bauzeitzinsen))], ['Fremdkapital EUR', ...rs.map((r) => z(r.finErg?.fk))],
-    ['Eigenkapitalbedarf EUR (WM)', ...k('basis', 'eigenkapitalbedarf')], ['DSCR min (Basis)', ...k('basis', 'dscrMin')], ['Kapitalwert konservativ EUR', ...k('konservativ', 'kapitalwert')], ['Kapitalwert Basis EUR', ...k('basis', 'kapitalwert')], ['Kapitalwert optimistisch EUR', ...k('optimistisch', 'kapitalwert')],
+    ['Eigenkapitalbedarf EUR (WM)', ...k('basis', 'eigenkapitalbedarf')], ['Modell-DSCR min. vor Steuern (Basis)', ...k('basis', 'dscrMin')], ['Kapitalwert konservativ EUR', ...k('konservativ', 'kapitalwert')], ['Kapitalwert Basis EUR', ...k('basis', 'kapitalwert')], ['Kapitalwert optimistisch EUR', ...k('optimistisch', 'kapitalwert')],
     ['Projekt-IRR Basis', ...k('basis', 'projektIRR')], ['Eigenkapital-IRR Basis', ...k('basis', 'eigenkapitalIRR')], ['Amortisation Basis Jahre', ...k('basis', 'amortisationJahre')], []);
   for (const r of rs) {
     if (!r.pos) continue;

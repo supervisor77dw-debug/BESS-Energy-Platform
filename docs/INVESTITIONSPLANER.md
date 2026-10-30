@@ -148,3 +148,18 @@ Folgeauftrag zu -017-R1 nach der Rechenabstimmung vom 30.10.2026 (Befunde F und 
 - STROMKAI-IP 1.0: -016; die Korrekturen -017/-017-R1 liefen ohne Anhebung unter 1.0. IP 1.1: Referenzbasis, Kostenregeln.
 - STROMKAI-WM 1.1: -016; -017 änderte Netzgrenzen-Prüfung, Leistungsvermarktung und Szenariozins ohne Anhebung. WM 1.2: Netz- und Messkosten nach Ursache (neue Positionen); ohne sie identisch zu 1.1 (-017) und 1.0 (Regressionstest).
 - Die WM-Akte zeigt bei älteren Versionen die gespeicherte Modellversion und kennzeichnet, wenn der Jahresverlauf mit der aktuellen Version neu gerechnet wird.
+
+## Entscheidungsübersicht (Schritt 7)
+
+Folgeauftrag „Fachliche Transparenz, Investitionsfreigaben und visuelle Entscheidungsgrundlage“ (30.10.2026).
+Ansicht `src/portal/entscheidung.mjs`, Auswertungen `src/lib/planer/auswertung.mjs`; keine eigenen Kennzahlen, jede Zahl ist eine Neuberechnung mit `rechneVariante` bzw. `WM.berechne`.
+
+- **Ebene 1 (Management):** Statusleiste (Belastbarkeit, Freigabe, synthetisch, Referenzbasis, Datenqualität); Kennzahlen mit Erläuterung und Vorzeichenfarbe; Begründung aus den Rechenergebnissen; Anlagenfluss Netz → PCS → Batterie → EMS → Vermarktung (gesperrte Netzkonfiguration rot); Investitionskosten je Position nach Datenstatus; Szenarien mit Null-Linie und Referenzlinien (Kalkulationszins, DSCR 1,0); Zahlungsströme und Finanzierung; Netz- und Messkosten; Sensitivität; Kapitalwert-Abgleich; Datenqualität und Entscheidungsreife.
+- **Ebene 2 (Fachprüfung):** Eingangsparameter mit Prüfsumme, Formeln, Quellen, Versionen, Zeitpunkte, Szenarioparameter, Modellgrenzen. Jedes Diagramm hat eine Datentabelle.
+- **Kapitalwert-Abgleich:** tauscht die Parametergruppen einer gewählten WM-Version (`vgl`) in fester Reihenfolge gegen die der Variante (Erlösannahmen → Verschleiß → Betriebskosten → Investition und Finanzierung → übrige Technik → Bewertung); jeder Schritt vollständig neu gerechnet, ungerundet; Rest und Rundungsabgleich werden ausgewiesen. Kennzeichnung „hypothetische Rechenabstimmung“: historische Annahmen werden mit dem heutigen Modell neu gerechnet; die Zwischenstufen sind keine gespeicherten Versionen.
+- **Sensitivität:** Basisszenario, je Zeile genau eine geänderte Größe; Spannweiten als dokumentierte Rechenannahmen (±10 % Erlösniveau, Batteriepreis, Betriebskosten; ±50 % Verschleiß und Netz-/Messkosten; ±1 Pp. Zins; −5 Jahre Betriebsdauer).
+- **Datenqualität:** Bestätigt, Synthetisch, Prüfungsbedürftig, Fehlend, Freigegeben. Entscheidungsreif nur ohne Sperren und offene Punkte und mit Freigabe des Stands – ein positiver Kapitalwert führt nie automatisch zu einer Freigabe.
+- **DSCR:** in allen Ansichten und Exporten (Planer Schritt 5–7, WM-Akte, Investorenansicht, WM-CSV) als „Modell-DSCR (vor Steuern)“ bezeichnet (EBITDA / Schuldendienst), kein Bank-DSCR; Formel unverändert.
+- **Diagramme:** HTML-Balken mit SVG-Spuren (die Content-Security-Policy erlaubt keine Inline-Styles), Zahlungsströme als SVG; Farben aus den Portal-Tokens.
+
+**Versionsstatus in der WM-Akte** (`REF.versionStatus`): abgeleitet aus Referenzbasis, Planerbezug, gespeicherter Modellversion und Investorenfreigaben (Demo-Referenzbasis – aktuell verwendbar, Variantenberechnung – aktuell, historisch, ohne feste Referenzbasis, Demo-Ausgangsmodell, für Investoren freigegeben, Investorenfreigabe prüfungsbedürftig). Dokumentarische Einordnungen (überholt, Prüfreferenz, historisch) als Versionshinweise in der nur anhängenden Sammlung `wmVersionshinweise` (Plattformadministration); sie verändern keine WM-Version.

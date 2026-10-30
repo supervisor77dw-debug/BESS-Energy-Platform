@@ -21,7 +21,7 @@ let FILES = 'files/';
 // Finanzmodul: Sammlungen anlegen und synthetische Demo-Daten einmalig ergänzen (Entwicklungs- und Abnahmephase)
 const ensureCollections = (d) => { for (const k of ['audit', 'downloads', 'inquiries', 'messages', 'approvals', 'uploads', 'revoked', 'gateUsers', 'invitations', 'grants']) d[k] ??= []; d.meta ??= {}; ensureFinanceDemo(d); ensurePlaner(d); return d; };
 // Investitionsplaner (AW-016): Sammlungen anlegen, Platzhalter-Katalog einmalig ergänzen (ohne Herstellerbezug und ohne Preise)
-const ensurePlaner = (d) => { for (const k of ['planerStaende', 'planerKatalog', 'planerAngebote']) d[k] ??= []; if (!d.meta.planerKatalog) { for (const x of KATALOG_START) if (!d.planerKatalog.some((y) => y.id === x.id)) d.planerKatalog.push(structuredClone(x)); d.meta.planerKatalog = 1; } };
+const ensurePlaner = (d) => { for (const k of ['planerStaende', 'planerKatalog', 'planerAngebote', 'wmVersionshinweise']) d[k] ??= []; if (!d.meta.planerKatalog) { for (const x of KATALOG_START) if (!d.planerKatalog.some((y) => y.id === x.id)) d.planerKatalog.push(structuredClone(x)); d.meta.planerKatalog = 1; } };
 
 export async function openStore(opts) {
   if (typeof opts === 'string') opts = { kind: 'file', dataDir: opts };
