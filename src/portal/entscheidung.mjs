@@ -20,8 +20,8 @@ const DSCR_TEXT = 'Modell-DSCR vor Steuern = EBITDA / Schuldendienst je Jahr. Ke
 // Balkenspur als SVG mit Prozentkoordinaten (die Content-Security-Policy erlaubt keine Inline-Styles)
 const spur = (teile, null0, ref = null) => raw(`<svg class="ed-bar-t" aria-hidden="true" focusable="false"><rect class="ed-track" x="0" y="0" width="100%" height="100%" rx="3"/>${teile.map(([l, w, cls, t]) => `<rect class="ed-bar ${cls}" x="${l.toFixed(2)}%" y="3" width="${Math.max(0.4, w).toFixed(2)}%" height="12" rx="2">${t ? `<title>${esc(t)}</title>` : ''}</rect>`).join('')}${ref != null ? `<line class="ed-ref" x1="${ref.toFixed(2)}%" x2="${ref.toFixed(2)}%" y1="0" y2="100%"/>` : ''}${null0 != null ? `<line class="ed-zero" x1="${null0.toFixed(2)}%" x2="${null0.toFixed(2)}%" y1="0" y2="100%"/>` : ''}</svg>`);
 // Horizontales Balkendiagramm in HTML (Null-Linie sichtbar, symmetrische Skala bei gemischten Vorzeichen)
-// neutral: Beträge ohne Wertung (z. B. Kosten), sonst Vorzeichenfarbe
-function balken(zeilen, { format = (x) => eur(x, true), titel, referenz, neutral = false } = {}) {
+// neutral: Beträge ohne Wertung (z. B. Kosten); schwelle: Farbe nach der Referenzlinie (IRR, DSCR), sonst Vorzeichenfarbe
+function balken(zeilen, { format = (x) => eur(x, true), titel, referenz, neutral = false, schwelle = false } = {}) {
   const werte = zeilen.map((z) => z.wert).filter((x) => x != null && Number.isFinite(x));
   const max = Math.max(...werte.map(Math.abs), referenz ? Math.abs(referenz.wert) : 0, 1e-9);
   const neg = werte.some((x) => x < 0), pos = werte.some((x) => x > 0);
@@ -31,7 +31,7 @@ function balken(zeilen, { format = (x) => eur(x, true), titel, referenz, neutral
   return html`<div class="ed-bars" role="figure" aria-label="${titel || ''}">${zeilen.map((z) => {
     if (z.wert == null || !Number.isFinite(z.wert)) return html`<div class="ed-bar-row"><span class="ed-bar-l">${z.label}</span>${spur([], null)}<span class="ed-bar-v muted">${z.leer || '–'}</span></div>`;
     const a = Math.min(x(z.wert), null0), b = Math.max(x(z.wert), null0);
-    return html`<div class="ed-bar-row"><span class="ed-bar-l">${z.label}</span>${spur([[a, b - a, z.klasse || (z.wert < 0 ? 'ed-bar-neg' : 'ed-bar-pos')]], null0, referenz ? x(referenz.wert) : null)}<span class="ed-bar-v ${neutral ? '' : vz(z.wert)}">${format(z.wert)}</span></div>`;
+    return html`<div class="ed-bar-row"><span class="ed-bar-l">${z.label}</span>${spur([[a, b - a, z.klasse || ((schwelle && referenz ? z.wert < referenz.wert : z.wert < 0) ? 'ed-bar-neg' : 'ed-bar-pos')]], null0, referenz ? x(referenz.wert) : null)}<span class="ed-bar-v ${neutral ? '' : schwelle && referenz ? (z.wert < referenz.wert ? 'ed-neg' : 'ed-pos') : vz(z.wert)}">${format(z.wert)}</span></div>`;
   })}${referenz ? html`<p class="small muted">Senkrechte Linie: ${referenz.label}</p>` : ''}</div>`;
 }
 const tabelle = (kopf, zeilen, cls = 'tbl-num') => html`<div class="tbl-wrap"><table class="tbl tbl-compact ${cls}"><thead><tr>${kopf.map((k, i) => html`<th${i ? raw(' class="num"') : ''}>${k}</th>`)}</tr></thead><tbody>${zeilen.map((z) => html`<tr>${z.map((c, i) => (i ? html`<td class="num">${c}</td>` : html`<th scope="row">${c}</th>`))}</tr>`)}</tbody></table></div>`;
@@ -119,8 +119,8 @@ function szenarien(r) {
   const zeile = (s, f) => ({ label: WM.SZENARIEN[s].name, wert: f(k(s)) });
   return html`<div class="ed-grid2">
 <div><h4>Kapitalwert</h4>${balken(SZ.map((s) => zeile(s, (x) => x.kapitalwert)), { titel: 'Kapitalwert je Szenario' })}</div>
-<div><h4>Projekt-IRR</h4>${balken(SZ.map((s) => zeile(s, (x) => x.projektIRR)), { format: (x) => pct(x, 2), titel: 'Projekt-IRR je Szenario', referenz: { wert: r.wm.basis.meta.diskontsatz, label: `Kalkulationszins ${pct(r.wm.basis.meta.diskontsatz)}` } })}</div>
-<div><h4>Modell-DSCR minimal (vor Steuern)</h4>${balken(SZ.map((s) => zeile(s, (x) => x.dscrMin)), { format: (x) => num(x, 2), titel: 'Modell-DSCR je Szenario', referenz: { wert: 1, label: 'Deckung 1,0' } })}</div>
+<div><h4>Projekt-IRR</h4>${balken(SZ.map((s) => zeile(s, (x) => x.projektIRR)), { format: (x) => pct(x, 2), titel: 'Projekt-IRR je Szenario', schwelle: true, referenz: { wert: r.wm.basis.meta.diskontsatz, label: `Kalkulationszins ${pct(r.wm.basis.meta.diskontsatz)}` } })}</div>
+<div><h4>Modell-DSCR minimal (vor Steuern)</h4>${balken(SZ.map((s) => zeile(s, (x) => x.dscrMin)), { format: (x) => num(x, 2), titel: 'Modell-DSCR je Szenario', schwelle: true, referenz: { wert: 1, label: 'Deckung 1,0' } })}</div>
 <div><h4>Gesamtinvestition und Eigenkapital</h4>${balken(SZ.flatMap((s) => [{ label: `${WM.SZENARIEN[s].name}: Investition`, wert: k(s).gesamtinvestition, klasse: 'ed-bar-neutral' }, { label: `${WM.SZENARIEN[s].name}: Eigenkapital`, wert: k(s).eigenkapitalbedarf, klasse: 'ed-bar-neutral2' }]), { titel: 'Investition und Eigenkapital je Szenario', neutral: true })}</div>
 </div>
 ${alsTabelle('Szenariovergleich', ['Kennzahl', ...SZ.map((s) => WM.SZENARIEN[s].name)], [['Kapitalwert', ...SZ.map((s) => eur(k(s).kapitalwert, true))], ['Projekt-IRR', ...SZ.map((s) => pct(k(s).projektIRR, 2))], ['Modell-DSCR minimal (vor Steuern)', ...SZ.map((s) => (k(s).dscrMin == null ? '–' : num(k(s).dscrMin, 2)))], ['Gesamtinvestition', ...SZ.map((s) => eur(k(s).gesamtinvestition, true))], ['Eigenkapitalbedarf', ...SZ.map((s) => eur(k(s).eigenkapitalbedarf, true))]])}

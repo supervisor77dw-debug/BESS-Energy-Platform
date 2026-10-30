@@ -153,6 +153,12 @@ test('Portal: Entscheidungsübersicht – Werte gleich in Ansicht, Tabelle, CSV 
   // Kennzeichnung: Wasserfall als hypothetische Rechenabstimmung, DSCR einheitlich als Modell-DSCR vor Steuern
   assert.ok(t.includes('Kapitalwert-Abgleich mit einer WM-Version (hypothetische Rechenabstimmung)') && t.includes('Hypothetische Rechenabstimmung, keine historische Aussage.'));
   assert.ok(t.includes('Modell-DSCR minimal (vor Steuern)'));
+  // Farben nach Schwelle: DSCR unter 1,0 und IRR unter dem Kalkulationszins rot, auch wenn positiv (QA 30.10.2026)
+  const fig = (titel) => (new RegExp(`aria-label="${titel}">([\\s\\S]*?)Senkrechte Linie`).exec(seite) || ['', ''])[1];
+  const farben = (h) => [...h.matchAll(/ed-bar-v (ed-neg|ed-pos)">([^<]+)</g)].map((m) => `${m[2]}:${m[1]}`);
+  assert.deepEqual(farben(fig('Modell-DSCR je Szenario')), ['0,29:ed-neg', '0,88:ed-neg', '1,35:ed-pos']);
+  assert.deepEqual(farben(fig('Projekt-IRR je Szenario')), ['-4,74 %:ed-neg', '4,95 %:ed-neg', '10,02 %:ed-pos']);
+  assert.match(await a.text(`/portal/anlagenplanung/p-n01?schritt=wirtschaftlichkeit&v=${st}&var=A`), /<div class="tbl-wrap"><table class="tbl tbl-num tbl-compact"><thead><tr><th>Szenario<\/th><th class="num">Bruttoerlöse J1/);
   assert.ok(csv.includes('Modell-DSCR min. vor Steuern (Basis);'));
   const ohneModell = /(?<!Modell-)DSCR (minimal|min\b|Durchschnitt)/;
   for (const pfad of [`/portal/anlagenplanung/p-n01?schritt=wirtschaftlichkeit&v=${st}`, `/portal/anlagenplanung/p-n01?schritt=vergleich&v=${st}`, '/portal/wirtschaftlichkeit/p-n01', '/portal/wirtschaftlichkeit/p-n01/export.csv?s=basis']) {
