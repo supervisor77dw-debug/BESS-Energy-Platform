@@ -28,7 +28,7 @@ const ICON = {
 const icon = (k) => raw(`<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${ICON[k]}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></svg>`);
 
 // Gruppen der Seitenleiste; Rollen und Ziele bestimmt allein navFor.
-const NAV_GRUPPEN = { arbeit: 'Arbeitsbereich', markt: 'Wirtschaftlichkeit & Markt', team: 'Zusammenarbeit', admin: 'Administration' };
+const NAV_GRUPPEN = { arbeit: 'Arbeitsbereich', markt: 'Wirtschaftlichkeit & Markt', team: 'Zusammenarbeit', admin: 'Administration', konto: 'Konto' };
 
 export function navFor(u) {
   const n = isAdmin(u) ? [['/portal/zentrale', 'Zentrale', 'home', 'arbeit'], ['/portal', 'Übersicht', 'chart', 'arbeit']] : [['/portal', 'Übersicht', 'home', 'arbeit']];
@@ -42,16 +42,20 @@ export function navFor(u) {
   if (rolesOf(u).some((r) => r === 'admin' || r === 'projektleitung')) n.push(['/portal/anlagenplanung', 'Anlagenplanung & Investition', 'land', 'markt'], ['/portal/strommarkt', 'Strommarkt & Backtesting', 'chart', 'markt'], ['/portal/netzentgelt', 'Netzentgelt-Szenarien', 'chart', 'markt'], ['/portal/shadow-trading', 'Shadow-Trading', 'pipe', 'markt']);
   if (isInternal(u)) n.push(['/portal/kontakte', 'Kontakte', 'people', 'team'], ['/portal/aufgaben', 'Aufgaben', 'task', 'team'], ['/portal/anfragen', 'Anfragen', 'inbox', 'team'], ['/portal/freigaben', 'Freigaben', 'check', 'team']);
   if (isAdmin(u)) n.push(['/portal/admin/handelsdaten', 'Handelsdaten', 'pipe', 'admin'], ['/portal/admin/benutzer', 'Benutzer & Berechtigungen', 'people', 'admin'], ['/portal/protokoll', 'Protokoll', 'log', 'admin'], ['/portal/admin', 'Verwaltung', 'admin', 'admin'], ['/portal/entwicklungsstand', 'Entwicklungsstand', 'log', 'admin'], ['/portal/ki', 'KI-Assistenz', 'ai', 'admin']);
+  // Eigenes Konto: Administration über Benutzer & Berechtigungen, alle anderen Rollen über diesen Menüpunkt
+  else n.push(['/portal/konto', 'Eigenes Konto', 'people', 'konto']);
   return n;
 }
 
 export function shell({ u, s, path, title, context, body, actions }) {
   const nav = navFor(u);
-  // Längster passender Pfad ist aktiv (/portal/admin/benutzer markiert nicht zusätzlich /portal/admin)
-  const aktiv = nav.map(([href]) => href).filter((href) => href === '/portal' ? path === '/portal' : path === href || path.startsWith(href + '/')).sort((a, b) => b.length - a.length)[0];
+  // Längster passender Pfad ist aktiv (/portal/admin/benutzer markiert nicht zusätzlich /portal/admin);
+  // das eigene Konto der Administration gehört zu Benutzer & Berechtigungen
+  const navPfad = path === '/portal/konto' && isAdmin(u) ? '/portal/admin/benutzer/konto' : path;
+  const aktiv = nav.map(([href]) => href).filter((href) => href === '/portal' ? navPfad === '/portal' : navPfad === href || navPfad.startsWith(href + '/')).sort((a, b) => b.length - a.length)[0];
   const gruppen = [...new Set(nav.map((x) => x[3]))];
   const mehrere = gruppen.length > 1;
-  const listen = gruppen.map((g) => html`<div class="rail-group">${mehrere ? html`<p class="rail-group-title" id="nav-${g}">${NAV_GRUPPEN[g]}</p>` : ''}<ul${mehrere ? raw(` aria-labelledby="nav-${g}"`) : ''}>${nav.filter((x) => x[3] === g).map(([href, label, ic]) => html`<li><a href="${href}" title="${label}"${href === aktiv ? raw(' aria-current="page"') : ''}>${icon(ic)}<span>${label}</span></a></li>`)}</ul></div>`);
+  const listen = gruppen.map((g) => html`<div class="rail-group">${mehrere ? html`<p class="rail-group-title" id="nav-${g}">${NAV_GRUPPEN[g]}</p>` : ''}<ul${mehrere ? raw(` aria-labelledby="nav-${g}"`) : ''}>${nav.filter((x) => x[3] === g).map(([href, label, ic]) => html`<li><a href="${href}"${href === aktiv ? raw(' aria-current="page"') : ''}>${icon(ic)}<span>${label}</span></a></li>`)}</ul></div>`);
   return html`<!doctype html>
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow, noarchive"><title>${title} · Portal · ${brand.name}</title>
@@ -65,14 +69,14 @@ export function shell({ u, s, path, title, context, body, actions }) {
       <button class="rail-menu" type="button" aria-expanded="false" aria-controls="portalnavigation">Menü</button>
     </div>
     <div class="rail-nav" id="portalnavigation">${listen}</div>
-    <button class="rail-collapse" type="button" aria-pressed="false" title="Leiste einklappen">${raw('<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>')}<span>Leiste einklappen</span></button>
+    <button class="rail-collapse" type="button" aria-pressed="false">${raw('<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>')}<span>Leiste einklappen</span></button>
   </nav>
   <div class="work">
     <header class="top">
       <div class="top-title"><h1>${title}</h1>${context ? html`<p>${context}</p>` : ''}</div>
       <div class="top-user">
         ${actions || ''}
-        <span class="who"><strong>${u.name}</strong><span>${rolesOf(u).map((r) => ROLES[r].label).join(', ')} · <a href="/portal/passwort">Passwort ändern</a></span></span>
+        <span class="who"><strong>${u.name}</strong><span>${rolesOf(u).map((r) => ROLES[r].label).join(', ')}</span></span>
         <form method="post" action="/portal/abmelden"><input type="hidden" name="_csrf" value="${s.csrf}"><button class="btn btn-quiet" type="submit">Abmelden</button></form>
       </div>
     </header>
@@ -146,22 +150,41 @@ export function mfaEnrollView({ s, secret, account, error }) {
 </div>` });
 }
 
-export function passwordView({ s, u, forced, error }) {
-  return authPage({ title: 'Passwort festlegen', body: html`
-<div class="auth-card">
-  <h1>${forced ? 'Eigenes Passwort festlegen' : 'Passwort ändern'}</h1>
-  <p class="muted">${forced ? 'Sie haben sich mit einem Startpasswort angemeldet. Bitte legen Sie jetzt ein eigenes Passwort fest. Es ist nur Ihnen bekannt.' : 'Hier können Sie Ihr Passwort jederzeit ändern.'}</p>
-  ${error ? html`<div class="alert" role="alert">${error}</div>` : ''}
-  <form method="post" action="/portal/passwort" class="stack">
+// Formular zur Änderung des eigenen Passworts; dieselbe Prüfung für die Pflichtänderung (/portal/passwort) und das Konto (/portal/konto)
+const passwordForm = ({ s, u, action }) => html`<form method="post" action="${action}" class="stack">
     <input type="hidden" name="_csrf" value="${s.csrf}">
     <input type="text" name="username" value="${u.email}" autocomplete="username" hidden>
     <label for="cur">Bisheriges Passwort</label><input id="cur" name="current" type="password" autocomplete="current-password" required>
     <label for="n1">Neues Passwort (mindestens 12 Zeichen)</label><input id="n1" name="neu" type="password" autocomplete="new-password" minlength="12" required>
     <label for="n2">Neues Passwort wiederholen</label><input id="n2" name="neu2" type="password" autocomplete="new-password" minlength="12" required>
     <button class="btn btn-primary" type="submit">Passwort speichern</button>
-  </form>
+  </form>`;
+
+export function passwordView({ s, u, forced, error }) {
+  return authPage({ title: 'Passwort festlegen', body: html`
+<div class="auth-card">
+  <h1>${forced ? 'Eigenes Passwort festlegen' : 'Passwort ändern'}</h1>
+  <p class="muted">${forced ? 'Sie haben sich mit einem Startpasswort angemeldet. Bitte legen Sie jetzt ein eigenes Passwort fest. Es ist nur Ihnen bekannt.' : 'Hier können Sie Ihr Passwort jederzeit ändern.'}</p>
+  ${error ? html`<div class="alert" role="alert">${error}</div>` : ''}
+  ${passwordForm({ s, u, action: '/portal/passwort' })}
   <form method="post" action="/portal/abmelden"><input type="hidden" name="_csrf" value="${s.csrf}"><button class="btn btn-quiet" type="submit">Abmelden</button></form>
 </div>` });
+}
+
+// Eigenes Konto (AW-STROMKAI-20261030-UI-NAVIGATION-PASSWORT-019): nur das angemeldete Konto, keine Auswahl anderer Benutzer
+export function kontoView({ s, u, tabs, error, info }) {
+  return html`${tabs || ''}${info ? html`<div class="notice" role="status">${info}</div>` : ''}
+<div class="grid-2">
+<section class="panel" aria-labelledby="konto-daten"><h2 id="konto-daten">Kontodaten</h2>
+<dl class="kv"><div><dt>Name</dt><dd>${u.name}</dd></div><div><dt>E-Mail-Adresse (Benutzername)</dt><dd>${u.email}</dd></div>
+<div><dt>Rolle</dt><dd>${rolesOf(u).map((r) => ROLES[r].label).join(', ')}</dd></div>
+<div><dt>Passwort zuletzt geändert</dt><dd>${u.passwordChangedAt ? fmtDateTime(u.passwordChangedAt) : 'nicht erfasst'}</dd></div></dl>
+<p class="small muted">Name, Rolle und Berechtigungen ändert nur die Plattformadministration.</p></section>
+<section class="panel" aria-labelledby="konto-pw"><h2 id="konto-pw">Passwort ändern</h2>
+<p class="small muted">Gilt nur für Ihr eigenes Konto. Zur Bestätigung ist das bisherige Passwort erforderlich.</p>
+${error ? html`<div class="alert" role="alert">${error}</div>` : ''}
+${passwordForm({ s, u, action: '/portal/konto' })}</section>
+</div>`;
 }
 
 // ---------- Bausteine ----------

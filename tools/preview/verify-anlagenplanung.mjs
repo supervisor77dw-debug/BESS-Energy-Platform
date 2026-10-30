@@ -42,7 +42,7 @@ const csrfVon = async (c) => tok((await c.text('/portal/anlagenplanung'))[1], '_
 const { c: a, ziel } = await sitzung('dirk@bess-vorschau.invalid');
 check('QA-Administration landet in der Zentrale', ziel === '/portal/zentrale', ziel);
 const [, css] = await a.text('/static/css/portal.css');
-check('Navigation: beschriftete Leiste ausgeliefert (keine feste 76-px-Spalte)', /--rail-w: clamp\(220px/.test(css) && !/grid-template-columns: 76px 1fr/.test(css));
+check('Navigation: beschriftete Leiste ausgeliefert (keine feste 76-px-Spalte)', /\.rail \{ width: max-content; min-width: 220px/.test(css) &&!/grid-template-columns: 76px 1fr/.test(css));
 check('Navigationsskript ausgeliefert', (await a.req('/static/js/portal.js')).status === 200);
 const [zr, zb] = await a.text('/portal/zentrale');
 const kacheln = [...zb.matchAll(/<a class="modul" href="([^"]+)"><span class="modul-kopf"><strong>([^<]+)<\/strong>/g)].map((m) => [ent(m[1]), ent(m[2])]);

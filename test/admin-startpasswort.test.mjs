@@ -102,10 +102,10 @@ test('Neue Bereitstellung mit unverändertem und mit geändertem BESS_ACCOUNTS: 
   // gleicher Wert erneut (Kaltstart einer neuen Bereitstellung): kein Abgleich
   const vorher = adminIm(zustand());
   assert.equal((await sitzung.req('/portal')).status, 200);
-  // Dirk ändert sein Passwort selbst über die Kontoeinstellungen
-  const [, pb] = await sitzung.text('/portal/passwort');
+  // Dirk ändert sein Passwort selbst über die Kontoeinstellungen (Eigenes Konto)
+  const [, pb] = await sitzung.text('/portal/konto');
   const eigenes = 'Endgueltig-Eigenes-2026!';
-  assert.equal((await sitzung.form('/portal/passwort', { _csrf: /name="_csrf" value="([^"]+)"/.exec(pb)[1], current: TEMP, neu: eigenes, neu2: eigenes })).status, 303);
+  assert.equal((await sitzung.form('/portal/konto', { _csrf: /name="_csrf" value="([^"]+)"/.exec(pb)[1], current: TEMP, neu: eigenes, neu2: eigenes })).status, 303);
   // spätere Änderung an BESS_ACCOUNTS (z. B. für ein anderes Konto) mit noch enthaltenem Reset-Eintrag
   process.env.BESS_ACCOUNTS = accounts({ adminEmail: ADRESSE, adminPw: hashPassword(TEMP), adminExtra: { mustChangePassword: false, reset: 'ar-test-1' }, markusPw: hashPassword('Neu-Fuer-Markus-2026!'), rev: 'r2' });
   const c = new C();
@@ -116,10 +116,14 @@ test('Neue Bereitstellung mit unverändertem und mit geändertem BESS_ACCOUNTS: 
   assert.deepEqual(zustand().meta.angewandteResets, ['ar-test-1']);
 });
 
-test('Kontoeinstellungen: Passwort ändern ist für das Konto erreichbar', async () => {
+test('Kontoeinstellungen: Passwort ändern ist für das Konto erreichbar (Eigenes Konto, AW-STROMKAI-20261030-UI-NAVIGATION-PASSWORT-019)', async () => {
   const c = new C(); await c.login(ADRESSE, 'Endgueltig-Eigenes-2026!');
-  const [r, b] = await c.text('/portal/passwort');
+  const alt = await c.req('/portal/passwort');
+  assert.equal(alt.status, 303); assert.equal(alt.headers.get('location'), '/portal/konto', 'bisherige Adresse führt zum eigenen Konto');
+  const [r, b] = await c.text('/portal/konto');
   assert.equal(r.status, 200); assert.match(b, /name="current"/);
+  const [, ben] = await c.text('/portal/admin/benutzer');
+  assert.match(ben, /href="\/portal\/konto">Eigenes Konto/, 'Reiter unter Benutzer & Berechtigungen');
   const [, home] = await c.text('/portal');
-  assert.match(home, /href="\/portal\/passwort"/, 'Link „Passwort ändern“ im Kopfbereich');
+  assert.doesNotMatch(/<header class="top">([\s\S]*?)<\/header>/.exec(home)[1], /Passwort/, 'nicht mehr im Kopfbereich');
 });

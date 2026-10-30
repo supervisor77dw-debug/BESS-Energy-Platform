@@ -24,7 +24,9 @@ const messen = () => {
   if (mobil && !nav.classList.contains('open')) btn.click();
   const rail = document.querySelector('.rail').getBoundingClientRect();
   const sp = [...nav.querySelectorAll('a span')];
-  const ab = sp.filter((s) => { const b = s.getBoundingClientRect(); return s.scrollWidth > s.clientWidth + 0.5 || b.right > Math.min(rail.right, innerWidth) + 0.5 || b.width < 4 || getComputedStyle(s).textOverflow === 'ellipsis'; }).map((s) => s.textContent);
+  // Eingeklappt (ab -019 automatisch zwischen 900 und 1199 px): Beschriftung erscheint als Tooltip, geprüft in nav-konto-check.mjs
+  const eng = !mobil && document.documentElement.classList.contains('nav-eng');
+  const ab = eng ? [] : sp.filter((s) => { const b = s.getBoundingClientRect(); return s.scrollWidth > s.clientWidth + 0.5 || b.right > Math.min(rail.right, innerWidth) + 0.5 || b.width < 4 || getComputedStyle(s).textOverflow === 'ellipsis'; }).map((s) => s.textContent);
   const r = { mobil, punkte: sp.length, abgeschnitten: ab, ueberlauf: document.documentElement.scrollWidth > innerWidth + 1, arbeitsflaeche: Math.round(document.querySelector('.work').getBoundingClientRect().width), aktiv: [...nav.querySelectorAll('[aria-current="page"]')].map((a) => a.textContent), ziele: sp.map((s) => s.parentElement.getAttribute('href')) };
   return r;
 };
@@ -64,7 +66,7 @@ for (const [rolle, email] of Object.entries(ROLLEN)) {
       } else if (vn === 'desktop-1280') {
         await page.goto(base + '/portal/zentrale');
         await page.click('.rail-collapse');
-        const eng = await page.evaluate(() => ({ w: document.querySelector('.rail').getBoundingClientRect().width, gedrueckt: document.querySelector('.rail-collapse').getAttribute('aria-pressed'), titel: [...document.querySelectorAll('#portalnavigation a')].every((a) => a.title && a.querySelector('span').textContent) }));
+        const eng = await page.evaluate(() => ({ w: document.querySelector('.rail').getBoundingClientRect().width, gedrueckt: document.querySelector('.rail-collapse').getAttribute('aria-pressed'), titel: [...document.querySelectorAll('#portalnavigation a')].every((a) => { a.dispatchEvent(new MouseEvent('mouseenter')); const t = document.querySelector('.rail-tip'); const ok = !t.hidden && t.textContent === a.querySelector('span').textContent; a.dispatchEvent(new MouseEvent('mouseleave')); return ok; }) }));
         await page.screenshot({ path: join(out, `${vn}_zentrale_eingeklappt.png`) });
         await page.reload();
         const bleibt = await page.evaluate(() => document.documentElement.classList.contains('nav-eng'));
