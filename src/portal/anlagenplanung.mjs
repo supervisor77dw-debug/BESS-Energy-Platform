@@ -11,6 +11,7 @@ import * as P from '../lib/policy.mjs';
 import { eur, num, pct, parseZahl } from '../lib/finance/geld.mjs';
 import * as WM from '../lib/finance/wirtschaftlichkeit.mjs';
 import * as IP from '../lib/planer/planer.mjs';
+import * as REF from '../lib/finance/referenz.mjs';
 import * as D from '../lib/strommarkt/daten.mjs';
 
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
@@ -20,7 +21,7 @@ export const darfPlanungIrgendwo = (u) => P.rolesOf(u).some((r) => r === 'admin'
 const csrf = (s) => raw(`<input type="hidden" name="_csrf" value="${s.csrf}">`);
 const SCHRITTE = [['grundstueck', 'Grundstück und Standort'], ['technik', 'Technische Konfiguration'], ['kosten', 'Investitionskosten'], ['finanzierung', 'Finanzierung'], ['wirtschaftlichkeit', 'Wirtschaftlichkeit'], ['vergleich', 'Variantenvergleich und Entscheidung']];
 const VAR_KEYS = ['A', 'B', 'C', 'D'];
-const ERLOES_KURZ = { wm: 'WM-Annahmen des Projekts', b2_A: 'Backtest B2 · Netzentgelt A', b2_B: 'Backtest B2 · Netzentgelt B' };
+const ERLOES_KURZ = { wm: 'WM-Annahmen der Referenzbasis', b2_A: 'Backtest B2 · Netzentgelt A', b2_B: 'Backtest B2 · Netzentgelt B' };
 const mark = (st) => html`<span class="mark ${IP.DATENSTATUS[st]?.mark || 'mark-aud'}">${IP.DATENSTATUS[st]?.name || st}</span>`;
 const n1 = (x) => num(x, 1), n0 = (x) => num(x, 0);
 const zahl = (v) => { if (v == null || String(v).trim() === '') return null; const n = parseZahl(v); return Number.isFinite(n) ? n : NaN; };
@@ -28,7 +29,13 @@ const text = (v, max = 300) => String(v ?? '').trim().slice(0, max);
 
 // ---------- Datenzugriff ----------
 const staende = (db, pid) => db.planerStaende.filter((x) => x.projectId === pid).sort((a, b) => b.version - a.version);
-const basisWM = (db, pid) => db.finanzmodelle.filter((m) => m.projectId === pid).sort((a, b) => b.version - a.version)[0] || null;
+// Rechenbasis (IP 1.1): ausschließlich die im Planungsstand zugeordnete, freigegebene WM-Referenzbasis – nie die zuletzt angelegte WM-Version.
+// Gespeicherte Stände einer anderen Planerversion werden nicht stillschweigend mit der aktuellen Logik neu gerechnet.
+function refVon(db, stand) {
+  if (stand.id && stand.planerVersion !== IP.PLANER_VERSION) return { fehler: `Planungsstand mit ${stand.planerVersion || 'unbekannter Planerversion'} gespeichert, aktuell gilt ${IP.PLANER_VERSION}. Zum Rechnen eine freigegebene Referenzbasis zuordnen und den Stand neu speichern.` };
+  return REF.referenzPruefung(db, stand.projectId, stand.wmBasis);
+}
+const naechsteWmVersion = (db, pid) => Math.max(0, ...db.finanzmodelle.filter((m) => m.projectId === pid).map((m) => m.version)) + 1;
 function exportDaten() {
   try { const e = D.lade('ergebnisse.json'), m = D.lade('meta.json'); return e && m ? { ergebnisse: e.ergebnisse, datenversion: m.datenversion, lauf: m.lauf } : null; } catch { return null; }
 }
@@ -42,7 +49,7 @@ function vorbelegung(db, p) {
       angaben: { ...structuredClone(IP.GRUNDSTUECK_START.angaben), flaeche: { status: p.tech?.areaHa ? 'angenommen' : 'fehlt', quelle: p.tech?.areaHa ? 'Projektakte' : '' } } },
     annahmen: structuredClone(IP.ANNAHMEN_START),
     varianten: [['A', 'Variante A', 10, 20, 2], ['B', 'Variante B', 15, 30, 2], ['C', 'Variante C', 10, 40, 4]].map(([key, name, mw, mwh, h]) => ({ key, name, systemRef: ref(sysId(h)), leistungMW: mw, kapazitaetMWh: mwh, erloesQuelle: 'wm', kosten: {} })),
-    finanzierung: structuredClone(IP.FINANZIERUNG_START), notiz: 'Vorbelegung, noch nicht gespeichert',
+    finanzierung: structuredClone(IP.FINANZIERUNG_START), wmBasis: null, notiz: 'Vorbelegung, noch nicht gespeichert',
   };
 }
 function speichere(db, u, alt, aenderung, notiz) {
@@ -56,10 +63,10 @@ function speichere(db, u, alt, aenderung, notiz) {
 }
 function rechne(db, stand) {
   const ex = exportDaten();
-  const b = basisWM(db, stand.projectId);
+  const rp = refVon(db, stand), b = rp.fm || null;
   const angebote = db.planerAngebote.filter((a) => a.projectId === stand.projectId);
   return stand.varianten.map((v) => {
-    const r = IP.rechneVariante({ stand, v, katalog: db.planerKatalog, angebote, basis: b?.params, ergebnisse: ex?.ergebnisse, datenversion: ex?.datenversion || null });
+    const r = IP.rechneVariante({ stand, v, katalog: db.planerKatalog, angebote, basis: b?.params, basisFehler: rp.fehler || null, ergebnisse: ex?.ergebnisse, datenversion: ex?.datenversion || null });
     if (r.params) {
       try { r.wm = WM.berechneSzenarien(r.params, { quelle: `Investitionsplaner V${stand.version} ${v.name}`, berechnetAm: stand.erstelltAm || now() }); } catch (e) { r.wmFehler = e.fehler || [e.message]; }
       // Netzentgelt-Szenarien A und B als getrennte Berechnungen (nur mit passender Marktsimulation)
@@ -169,12 +176,12 @@ export async function handleAnlagenplanung({ res, url, path, method, u, s, view,
       const r = rechne(db, basis).find((x) => x.v.key === fields.var);
       if (r && !IP.wmUebergabeErlaubt(r)) throw new HttpError(422, `Übergabe gesperrt: ${IP.BELASTBARKEIT[r.belastbarkeit] || 'Nicht berechenbar'}.`);
       if (!r?.params || r.wmFehler) throw new HttpError(422, 'Die Variante lässt sich nicht an STROMKAI-WM übergeben (Fehler in der Berechnung).');
-      const b = basisWM(db, p.id);
+      const b = refVon(db, basis).fm;
       const at = now();
       const quelle = `Investitionsplaner ${p.code} V${basis.version}, ${r.v.name} (${IP.PHASEN[basis.phase].name}); Erlöse: ${quelleText(r.erloes)}; ${IP.BELASTBARKEIT[r.belastbarkeit]}`;
       const ergebnis = Object.fromEntries(Object.entries(WM.berechneSzenarien(r.params, { quelle, berechnetAm: at })).map(([k, x]) => [k, { meta: x.meta, kennzahlen: x.kennzahlen }]));
-      const fm = { id: newId('fm'), projectId: p.id, spvId: p.spvId, version: (b?.version || 0) + 1, status: 'simulation', synthetisch: !!b?.synthetisch || basis.phase !== 'investitionsentscheidung', params: r.params, ergebnis, quelle,
-        planerRef: { standId: basis.id, version: basis.version, variante: r.v.key, pruefsumme: basis.pruefsumme, erloes: r.erloes, belastbarkeit: r.belastbarkeit }, erstelltVon: u.id, erstelltAm: at, notiz: `Übergabe aus Anlagenplanung V${basis.version}, ${r.v.name}` };
+      const fm = { id: newId('fm'), projectId: p.id, spvId: p.spvId, version: naechsteWmVersion(db, p.id), status: 'simulation', synthetisch: !!b?.synthetisch || basis.phase !== 'investitionsentscheidung', params: r.params, ergebnis, quelle,
+        planerRef: { standId: basis.id, version: basis.version, variante: r.v.key, pruefsumme: basis.pruefsumme, erloes: r.erloes, belastbarkeit: r.belastbarkeit, wmBasis: basis.wmBasis, planerVersion: basis.planerVersion, modellVersion: WM.MODELL_VERSION }, erstelltVon: u.id, erstelltAm: at, notiz: `Übergabe aus Anlagenplanung V${basis.version}, ${r.v.name}` };
       db.finanzmodelle.push(fm); persist();
       audit('anlagenplanung_wm_uebergabe', u, { projekt: p.id, planerVersion: basis.version, variante: r.v.key, wmVersion: fm.version });
       return redirect(res, zurueck('wirtschaftlichkeit', `&v=${basis.id}&var=${encodeURIComponent(r.v.key)}&m=wm&fm=${fm.id}`));
@@ -233,7 +240,16 @@ function formular(db, basis, schritt, f, u) {
     for (const [k, l, , art] of IP.ANNAHMEN_FELDER) { const z = nimm(`a.${k}`, l, { pflicht: true, prozent: art === 'prozent' }); if (z != null) annahmen[k] = z; }
     if (!(annahmen.cosPhi > 0 && annahmen.cosPhi <= 1)) fehler.push('cos φ muss zwischen 0 und 1 liegen.');
     if (!(annahmen.mvaJeTrafo > 0)) fehler.push('Bemessungsleistung je Trafostation muss größer als 0 sein.');
-    return { aenderung: { varianten, annahmen }, fehler };
+    // WM-Referenzbasis nur durch ausdrückliche Auswahl einer freigegebenen Referenzbasis; unverändert gewählt = bisheriger Verweis bleibt
+    const gewaehlt = text(f['wm.basis'], 80);
+    let wmBasis = null;
+    if (gewaehlt && gewaehlt === basis.wmBasis?.fmId) wmBasis = basis.wmBasis;
+    else if (gewaehlt) {
+      const fm = REF.auswahlbar(db, basis.projectId).find((x) => x.id === gewaehlt);
+      if (fm) wmBasis = REF.verweisAuf(fm, u, now(), 'Ausdrückliche Auswahl im Schritt „Technische Konfiguration“');
+      else fehler.push('Die gewählte WM-Version ist keine freigegebene Referenzbasis der aktuellen Modellversion und wird nicht übernommen.');
+    }
+    return { aenderung: { varianten, annahmen, wmBasis }, fehler };
   }
   if (schritt === 'kosten') {
     const vi = basis.varianten.findIndex((v) => v.key === f.var);
@@ -272,7 +288,7 @@ function formular(db, basis, schritt, f, u) {
       return { name: nm, anteil: nimm(`f.t.${i}.anteil`, `${nm} Anteil`, { pflicht: true, prozent: true }), zins: nimm(`f.t.${i}.zins`, `${nm} Zins`, { pflicht: true, prozent: true }), laufzeitJahre: nimm(`f.t.${i}.laufzeit`, `${nm} Laufzeit`, { pflicht: true }),
         tilgungsfreiJahre: nimm(`f.t.${i}.frei`, `${nm} tilgungsfreie Jahre`, { pflicht: true }), modell: IP.TILGUNGSMODELLE[f[`f.t.${i}.modell`]] ? f[`f.t.${i}.modell`] : 'annuitaet', gebuehrAnteil: nimm(`f.t.${i}.gebuehr`, `${nm} Gebühren`, { pflicht: true, prozent: true }) };
     }).filter(Boolean);
-    if (!fehler.length) fehler.push(...IP.pruefeFinanzierung(fin, basisWM(db, basis.projectId)?.params?.technik?.betriebsjahre));
+    if (!fehler.length) fehler.push(...IP.pruefeFinanzierung(fin, refVon(db, basis).fm?.params?.technik?.betriebsjahre));
     return { aenderung: { finanzierung: fin }, fehler };
   }
   return { aenderung: {}, fehler: ['Unbekannter Schritt.'] };
@@ -375,6 +391,14 @@ ${b.hinweise.map((x) => html`<p class="small muted">${x}</p>`)}
 ${rs[0]?.dim?.bilanz ? draufsicht(rs[0], rs[0].v.name) : ''}</section></div>`;
 }
 
+const basisText = (b) => (b ? `${b.kennung} (WM V${b.version}, Datensatz ${b.fmId}, Prüfsumme ${b.pruefsumme}, ${b.modellVersion}; Erlöse: ${b.erloes?.quelle || '–'}; übernommen ${fmtDateTime(b.uebernommenAm)} von ${b.uebernommenVon}, ${b.herkunft})` : 'keine');
+function basisAuswahl(db, p, stand) {
+  const liste = REF.auswahlbar(db, p.id);
+  const akt = stand.wmBasis;
+  return html`<fieldset class="fgroup"><legend>WM-Referenzbasis</legend><div class="fgrid"><label class="fld"><span>Rechenbasis für Betriebskosten, Erlösannahmen und Bewertung</span><select name="wm.basis"><option value="">– keine (Wirtschaftlichkeit wird nicht berechnet) –</option>${akt && !liste.some((x) => x.id === akt.fmId) ? html`<option value="${akt.fmId}" selected>${akt.kennung} · WM V${akt.version} (nicht mehr auswählbar)</option>` : ''}${liste.map((x) => html`<option value="${x.id}"${akt?.fmId === x.id ? raw(' selected') : ''}>${x.referenzbasis.kennung} · WM V${x.version} · ${x.referenzbasis.modellVersion} · Prüfsumme ${x.referenzbasis.pruefsumme}</option>`)}</select>
+<small>Nur freigegebene Referenzbasen der aktuellen Modellversion. Die zuletzt angelegte WM-Version wird nicht automatisch übernommen; Übergaben aus dem Planer sind keine Referenzbasis.</small></label></div>
+<p class="small">Zugeordnet: ${basisText(akt)}</p>${liste.length ? '' : html`<p class="small bad">Für dieses Projekt gibt es keine freigegebene Referenzbasis. Anlegen in der Projektakte Wirtschaftlichkeit (Plattformadministration).</p>`}</fieldset>`;
+}
 function schrittTechnik(db, s, p, stand, rs) {
   const katalog = IP.aktuelleSysteme(db.planerKatalog);
   const vs = [...stand.varianten]; while (vs.length < 4) vs.push({ key: VAR_KEYS[vs.length], name: '', leistungMW: null, kapazitaetMWh: null, erloesQuelle: 'wm' });
@@ -389,8 +413,9 @@ ${v.systemRef && katalog.find((x) => x.systemId === v.systemRef.systemId)?.versi
 <td data-l="Erlösannahme"><select name="v.${v.key}.erloes" aria-label="Erlösannahme Variante ${v.key}">${Object.entries(ERLOES_KURZ).map(([k, n]) => html`<option value="${k}" title="${IP.ERLOES_QUELLEN[k]}"${v.erloesQuelle === k ? raw(' selected') : ''}>${n}</option>`)}</select></td></tr>`)}
 </tbody></table></div>
 <fieldset class="fgroup"><legend>Planungsannahmen</legend><div class="fgrid">${IP.ANNAHMEN_FELDER.map(([k, l, e, art]) => html`<label class="fld"><span>${l}${e ? html` <em>${e}</em>` : ''}</span><input class="num" inputmode="decimal" name="a.${k}" value="${art === 'prozent' ? num(stand.annahmen[k] * 100, 2) : num(stand.annahmen[k], 2)}"></label>`)}
-<label class="fld"><span>Betriebskosten aus STROMKAI-WM</span><select name="a.opexSkalierung"><option value="skaliert"${stand.annahmen.opexSkalierung !== 'unveraendert' ? raw(' selected') : ''}>Kapazitätsabhängige Posten skalieren</option><option value="unveraendert"${stand.annahmen.opexSkalierung === 'unveraendert' ? raw(' selected') : ''}>Unverändert übernehmen</option></select><small>Wartung, Versicherung, Monitoring, Ersatzteile, Rückbau nach nutzbarer MWh; Netz/Messung nach MW; Pacht und IT fix</small></label></div>
+<label class="fld"><span>Betriebskosten aus STROMKAI-WM</span><select name="a.opexSkalierung"><option value="skaliert"${stand.annahmen.opexSkalierung !== 'unveraendert' ? raw(' selected') : ''}>Kapazitätsabhängige Posten skalieren</option><option value="unveraendert"${stand.annahmen.opexSkalierung === 'unveraendert' ? raw(' selected') : ''}>Unverändert übernehmen</option></select><small>Nach Kostenursache der Referenzbasis: Wartung, Versicherung, Monitoring, Ersatzteile, Rückbau je nutzbarer MWh; PCS-Instandhaltung je MW PCS; Leistungspreis je MW Bezug; Netzanschluss, Messstelle, Pacht und IT fix</small></label></div>
 <p class="small muted">${stand.annahmen.quelle}</p></fieldset>
+${basisAuswahl(db, p, stand)}
 ${speicherLeiste(stand, 'technik')}</form></section>
 ${rs.map((r) => r.fehler?.length && !r.dim?.bloecke ? html`<section class="panel"><h2>${r.v.name}</h2><div class="alert">${r.fehler.join(' ')}</div></section>` : html`<section class="panel"><div class="panel-head"><h2>${r.v.name}: ${n1(r.v.leistungMW)} MW / ${n1(r.v.kapazitaetMWh)} MWh</h2><span class="small muted">${r.sys.produkt} · ${r.sys.hersteller} V${r.sys.version} ${mark(r.sys.datenstatus)}</span></div>
 <div class="grid-2"><div><table class="tbl tbl-num tbl-compact"><tbody>
@@ -481,14 +506,14 @@ ${f ? html`<section class="panel"><div class="panel-head"><h2>Finanzierungsbedar
 
 const kz = (k) => [['Gesamtinvestition', eur(k.gesamtinvestition, true)], ['Eigenkapitalbedarf', eur(k.eigenkapitalbedarf, true)], ['Fremdkapital', eur(k.fremdkapital, true)], ['Betriebskosten Jahr 1', eur(k.betriebskostenJahr1, true)], ['Bruttoerlöse Jahr 1', eur(k.bruttoerloeseJahr1, true)], ['EBITDA Jahr 1', eur(k.ebitdaJahr1, true)], ['Schuldendienst p. a. (max.)', eur(k.schuldendienstJahr, true)], ['DSCR minimal', k.dscrMin == null ? '–' : num(k.dscrMin, 2)], ['Kapitalwert', eur(k.kapitalwert, true)], ['Projekt-IRR', pct(k.projektIRR)], ['Eigenkapital-IRR', pct(k.eigenkapitalIRR)], ['Amortisation', k.amortisationJahre == null ? 'nicht erreicht' : `${num(k.amortisationJahre, 1)} Jahre`]];
 // Tatsächlich verwendete Erlösquelle (Korrektur -017): gleiche Angabe in Oberfläche, CSV und Bericht
-export const quelleText = (e) => (e && e.verwendet == null ? `Keine – ${IP.BELASTBARKEIT.netzgrenzen}` : e ? `${IP.ERLOES_QUELLEN[e.verwendet]}${e.referenz ? ` · Strategie ${e.referenz.strategie} (Referenz; KI-Vorteil nicht belegt) · Simulationsanlage ${e.referenz.anlage} (${num(e.referenz.dauerRefH, 1)} h) · Zeitraum ${e.referenz.periode} (29.10.2024–28.10.2026) · Datenversion ${e.referenz.datenversion || 'unbekannt'}` : ''}${e.rueckfall ? ` · RÜCKFALL statt „${IP.ERLOES_QUELLEN[e.angefordert]}“: ${e.grund}` : ''}` : '–');
+export const quelleText = (e) => (e && e.verwendet == null ? `Keine – ${IP.BELASTBARKEIT[e.gesperrt || 'netzgrenzen']}` : e ? `${IP.ERLOES_QUELLEN[e.verwendet]}${e.referenz ? ` · Strategie ${e.referenz.strategie} (Referenz; KI-Vorteil nicht belegt) · Simulationsanlage ${e.referenz.anlage} (${num(e.referenz.dauerRefH, 1)} h) · Zeitraum ${e.referenz.periode} (29.10.2024–28.10.2026) · Datenversion ${e.referenz.datenversion || 'unbekannt'}` : ''}${e.rueckfall ? ` · RÜCKFALL statt „${IP.ERLOES_QUELLEN[e.angefordert]}“: ${e.grund}` : ''}` : '–');
 function datenstand(r) {
   return html`<p class="small"><strong>Verwendete Erlösquelle:</strong> ${quelleText(r.erloes)}</p><p class="small muted">Anlage ${n1(r.dim.pcsMW)} MW PCS, Einspeisung ${r.dim.einspeise == null ? '–' : n1(r.dim.einspeise)} MW, Bezug ${r.dim.bezug == null ? '–' : n1(r.dim.bezug)} MW, ${n1(r.dim.kapNutzbar)} MWh nutzbar · Modell ${WM.MODELL_VERSION}. Historische Simulationen sind keine garantierten Zukunftserlöse.</p>`;
 }
 const GRENZEN_TEXT = 'Vereinfachtes Jahresmodell vor Steuern: keine Steuern, kein Working Capital, kein Restwert, keine Bankkovenants, Sculpting oder Cash-Sweeps; DSCR = EBITDA / Schuldendienst. Eine DSCR-Kennzahl belegt keine Bankfähigkeit.';
 function schrittWirtschaft(db, u, s, p, stand, rs, r) {
   const ex = exportDaten();
-  const b = basisWM(db, p.id);
+  const b = stand.wmBasis;
   const uebergaben = db.finanzmodelle.filter((x) => x.projectId === p.id && x.planerRef).sort((a, c) => c.version - a.version);
   if (r?.belastbarkeit === 'netzgrenzen') return html`<section class="panel"><div class="panel-head"><h2>Wirtschaftliche Modellrechnung ${r.v.name}</h2>${varTabs(p, stand, 'wirtschaftlichkeit', r.v.key)}</div>
 <div class="alert"><strong>${IP.BELASTBARKEIT.netzgrenzen}</strong></div>
@@ -497,7 +522,7 @@ function schrittWirtschaft(db, u, s, p, stand, rs, r) {
   if (!r?.wm) return html`<section class="panel">${varTabs(p, stand, 'wirtschaftlichkeit', r?.v.key)}<div class="alert">${[...(r?.fehler || []), ...(r?.hinweise || []), ...(r?.wmFehler || [])].join(' ') || 'Keine Berechnung möglich.'}</div></section>`;
   return html`<section class="panel"><div class="panel-head"><h2>Wirtschaftliche Modellrechnung ${r.v.name}</h2>${varTabs(p, stand, 'wirtschaftlichkeit', r.v.key)}</div>
 <div class="ip-ebenen"><span class="mark mark-info">Technische Vorplanung</span> <span class="mark mark-warn">Wirtschaftliche Modellrechnung</span> ${stand.status === 'freigegeben' ? html`<span class="mark mark-ok">Freigegebene Investitionsgrundlage</span>` : html`<span class="mark mark-aud">Keine belegte Investitionsgrundlage</span>`}</div>
-<p class="small">Berechnet mit STROMKAI-WM (${WM.MODELL_VERSION}). Betriebskosten, Bewertung und – je nach Erlösannahme – Erlöse aus WM-Version V${b?.version} des Projekts${b?.synthetisch ? ' (synthetisch)' : ''}; Technik, Investition und Finanzierungsplan aus diesem Planungsstand.</p>
+<p class="small">Berechnet mit STROMKAI-WM (${WM.MODELL_VERSION}). Betriebskosten, Bewertung und – je nach Erlösannahme – Erlöse aus der Referenzbasis ${basisText(b)}; Technik, Investition und Finanzierungsplan aus diesem Planungsstand.</p>
 <div class="${r.belastbarkeit === 'modellrechnung' ? 'notice-info' : 'alert'} small"><strong>Belastbarkeit:</strong> ${IP.BELASTBARKEIT[r.belastbarkeit]}${r.sperren.length ? `. Übergabe/Freigabe gesperrt${r.sperren.filter((x) => x !== IP.BELASTBARKEIT[r.belastbarkeit]).length ? `: ${r.sperren.filter((x) => x !== IP.BELASTBARKEIT[r.belastbarkeit]).join('; ')}` : ''}` : ''}</div>
 ${datenstand(r)}${r.hinweise.map((x) => html`<p class="small bad">${x}</p>`)}<p class="small muted">${GRENZEN_TEXT}</p>
 <div class="tbl-wrap"><table class="tbl tbl-num"><thead><tr><th>Kennzahl</th>${Object.values(r.wm).map((x) => html`<th class="num">${x.meta.szenarioName}</th>`)}</tr></thead><tbody>
@@ -564,7 +589,7 @@ function csv(p, stand, rs) {
   const z = (x) => (x == null || !Number.isFinite(x) ? '' : String(Math.round(x * 100) / 100).replace('.', ','));
   const q = (x) => { const t = String(x ?? ''); return /[;"\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
   const L = [];
-  L.push(['STROMKAI Anlagenplanung', `${p.code} ${p.name}`], ['Planungsstand', `V${stand.version || 0}`], ['Phase', IP.PHASEN[stand.phase].name], ['Status', stand.status], ['Prüfsumme', stand.pruefsumme || ''], ['Planer', IP.PLANER_VERSION], ['Wirtschaftlichkeit', WM.MODELL_VERSION], ['Hinweis', 'Vorplanung; keine Investitionsgrundlage, keine Finanzierungszusage'], []);
+  L.push(['STROMKAI Anlagenplanung', `${p.code} ${p.name}`], ['Planungsstand', `V${stand.version || 0}`], ['Phase', IP.PHASEN[stand.phase].name], ['Status', stand.status], ['Prüfsumme', stand.pruefsumme || ''], ['Planer', stand.planerVersion || IP.PLANER_VERSION], ['Wirtschaftlichkeit', WM.MODELL_VERSION], ['WM-Referenzbasis', basisText(stand.wmBasis)], ['Hinweis', 'Vorplanung; keine Investitionsgrundlage, keine Finanzierungszusage'], []);
   L.push(['Kennzahl', ...rs.map((r) => r.v.name)]);
   const k = (sz, key) => rs.map((r) => (r.belastbarkeit === 'netzgrenzen' ? IP.BELASTBARKEIT.netzgrenzen : z(r.wm?.[sz]?.kennzahlen?.[key])));
   L.push(['Erlösquelle angefordert', ...rs.map((r) => (r.erloes ? IP.ERLOES_QUELLEN[r.erloes.angefordert] : ''))], ['Erlösquelle verwendet', ...rs.map((r) => quelleText(r.erloes))], ['Rückfall auf WM-Annahmen', ...rs.map((r) => (r.erloes ? (r.erloes.rueckfall ? `ja: ${r.erloes.grund}` : 'nein') : ''))],
@@ -585,7 +610,7 @@ function csv(p, stand, rs) {
 function bericht(db, p, stand, rs) {
   const b = IP.flaechenbilanz(stand.grundstueck, stand.annahmen);
   return html`<section class="panel ip-bericht"><h2>Kalkulationsbericht ${p.code} – Planungsstand V${stand.version || 0}</h2>
-<p class="small">${IP.PHASEN[stand.phase].name} · ${stand.status} · Prüfsumme ${stand.pruefsumme || '–'} · ${stand.erstelltAm ? fmtDateTime(stand.erstelltAm) : 'nicht gespeichert'} · ${IP.PLANER_VERSION} · ${WM.MODELL_VERSION}</p>
+<p class="small">${IP.PHASEN[stand.phase].name} · ${stand.status} · Prüfsumme ${stand.pruefsumme || '–'} · ${stand.erstelltAm ? fmtDateTime(stand.erstelltAm) : 'nicht gespeichert'} · ${stand.planerVersion || IP.PLANER_VERSION} · ${WM.MODELL_VERSION} · Referenzbasis ${basisText(stand.wmBasis)}</p>
 <p class="small"><strong>Vorplanung mit transparenten Annahmen.</strong> Keine genehmigungsfähige Fachplanung, kein Herstellerangebot, keine Finanzierungszusage, keine Anlageberatung. Historische Simulationen sind keine garantierten Erlöse.</p>
 <h3>Grundstück</h3><p>${stand.grundstueck.bezeichnung}: ${n0(b.brutto)} m², verbleibend für Speicher und Stationen ${n0(b.fuerBloecke)} m²${b.rechteck ? '' : ' (Geometrie angenommen)'}; Netzanschluss ${stand.grundstueck.netzMW == null ? 'unbekannt' : `${n1(stand.grundstueck.netzMW)} MW`}.</p>
 ${rs.map((r) => r.pos ? html`<h3>${r.v.name}: ${n1(r.v.leistungMW)} MW / ${n1(r.v.kapazitaetMWh)} MWh</h3><p class="small">${r.sys.hersteller} ${r.sys.produkt} V${r.sys.version} (${IP.DATENSTATUS[r.sys.datenstatus].name}) · ${r.dim.bloecke} Blöcke · Reserve ${n0(r.dim.rest)} m² · Investition ${eur(r.finErg?.gesamt, true)} · Kapitalwert Basis ${r.belastbarkeit === 'netzgrenzen' ? IP.BELASTBARKEIT.netzgrenzen : r.wm ? eur(r.wm.basis.kennzahlen.kapitalwert, true) : '–'}</p>

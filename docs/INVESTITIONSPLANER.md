@@ -1,4 +1,4 @@
-# Investitions- und Anlagenplaner (STROMKAI-IP 1.0)
+# Investitions- und Anlagenplaner (STROMKAI-IP 1.1)
 
 Stand 2026-10-29, Auftrag `AW-STROMKAI-20261029-INVESTITIONSPLANER-016`. Portalbereich „Anlagenplanung & Investition“ (`/portal/anlagenplanung`).
 
@@ -86,10 +86,12 @@ Stand 2026-10-29, Auftrag `AW-STROMKAI-20261029-INVESTITIONSPLANER-016`. Portalb
   - nominale Kapazität und nutzbarer Anteil;
   - Wirkungsgrad und Degradation des Systems;
   - Lebensdauer.
-- Betriebskosten aus der aktuellen WM-Version des Projekts (wahlweise skaliert):
-  - nach nutzbarer MWh: Wartung, Versicherung, Monitoring, Ersatzteile, Rückbau;
-  - nach MW: Netz/Messung;
-  - fix: Pacht, IT.
+- Betriebskosten aus der zugeordneten WM-Referenzbasis (wahlweise skaliert), je Position nach Kostenursache (`KOSTENREGELN` in `src/lib/finance/referenz.mjs`):
+  - nach nutzbarer MWh: Wartung (schließt PCS ein), Versicherung, Monitoring, Ersatzteile, Rückbau;
+  - nach MW PCS: PCS-Instandhaltung (nur wenn nicht in Wartung enthalten);
+  - nach MW zulässigem Bezug: Leistungspreis des Netzentgelts;
+  - fix: Netzanschluss (Betrieb Übergabestation), Messstelle, Pacht, IT;
+  - die pauschale Altposition „Netz- und Messkosten“ (bis WM 1.1) wird nicht mehr mit der PCS-Leistung skaliert.
 - Bewertung und Szenarien aus WM.
 
 ## 4. STROMKAI-WM 1.1
@@ -123,3 +125,26 @@ Ohne diese Angaben rechnet 1.1 identisch zu 1.0. Der Regressionstest vergleicht 
 - **Lesen und Bearbeiten:** Administration und Projektleitung, je Projekt über `rolesForProject`.
 - **Nur Administration:** Katalogpflege und Freigabe zur Investitionsentscheidung. Die Freigabe ist nur ohne Platzhalter oder fehlende Positionen möglich.
 - **Kein Zugriff:** Eigentümer, Investoren, Vertrieb und Kommunen erhalten 404. Investoren sehen Kennzahlen weiterhin nur über die Freigabe in STROMKAI-WM.
+
+
+## Referenzbasis und Versionen (IP 1.1 / WM 1.2)
+
+Folgeauftrag zu -017-R1 nach der Rechenabstimmung vom 30.10.2026 (Befunde F und G).
+
+**Referenzbasis.**
+- Eine Referenzbasis ist eine eigene, nur anhängend angelegte WM-Version mit `referenzbasis`: Kennung (`REF-<Projekt>-<n>`), Status `freigegeben`, Modellversion, Prüfsumme der Parameter, Erlösquelle und -strategie, Herkunft je Parameter, Kostenregeln, Kostenbasisprüfung, angelegt von und am, Code-Stand.
+- Anlage nur durch die Plattformadministration in der Projektakte Wirtschaftlichkeit, derzeit nur aus dem aktuellen Demo-Ausgangsmodell (synthetisch). Batterieverschleiß 8 EUR/MWh ist ausdrücklich gesetzt und als synthetische Demo-Annahme gekennzeichnet.
+- Die Kostenbasisprüfung weist ab: fehlenden Verschleiß, pauschale Netz- und Messkosten, pauschale plus getrennte Netzkosten (Doppelzählung).
+- Keine Investorenfreigabe, keine Investitionsentscheidung. Bestehende WM-Versionen bleiben unverändert.
+
+**Feste Referenz statt neuester WM-Version.**
+- Der Planungsstand trägt `wmBasis`: WM-Datensatz-ID, WM-Version, Kennung, Prüfsumme, Modellversion, Erlösquelle/-strategie, Zeitpunkt, Person und Herkunft der Übernahme. Zuordnung nur durch ausdrückliche Auswahl im Schritt „Technische Konfiguration“.
+- Gerechnet wird nur, wenn die Referenz vorhanden, freigegeben, unverändert (Prüfsumme) und von derselben Modellversion ist und der Stand mit der aktuellen Planerversion gespeichert wurde. Sonst Status „Nicht berechnet (Referenzbasis fehlt oder ungültig)“ mit Grund; Übergabe an WM und Freigabe gesperrt.
+- Übergaben an WM und Neuberechnungen in der Akte sind keine Referenzbasis und nicht auswählbar. Eine neuere WM-Version ändert die Rechnung eines Stands nicht.
+- Die Prüfsumme des Planungsstands schließt ab IP 1.1 den Verweis (Datensatz, Prüfsumme, Modellversion) ein; ältere Stände behalten ihre Prüfsumme.
+- Die Übergabe an WM speichert im `planerRef` zusätzlich `wmBasis`, `planerVersion` und `modellVersion`.
+
+**Versionen.**
+- STROMKAI-IP 1.0: -016; die Korrekturen -017/-017-R1 liefen ohne Anhebung unter 1.0. IP 1.1: Referenzbasis, Kostenregeln.
+- STROMKAI-WM 1.1: -016; -017 änderte Netzgrenzen-Prüfung, Leistungsvermarktung und Szenariozins ohne Anhebung. WM 1.2: Netz- und Messkosten nach Ursache (neue Positionen); ohne sie identisch zu 1.1 (-017) und 1.0 (Regressionstest).
+- Die WM-Akte zeigt bei älteren Versionen die gespeicherte Modellversion und kennzeichnet, wenn der Jahresverlauf mit der aktuellen Version neu gerechnet wird.

@@ -6,10 +6,16 @@
 // 1.1 (AW-STROMKAI-20261029-INVESTITIONSPLANER-016): optionale Positionen Leittechnik/EMS, Bauzeitzinsen und Sonstige;
 // optionale variable Handelskosten je ausgespeicherter MWh; optionaler Schuldendienstplan (Tranchen, tilgungsfreie Jahre)
 // aus dem Finanzierungsrechner des Investitionsplaners. Ohne diese Angaben rechnet 1.1 identisch zu 1.0 (Regressionstest).
+// 1.1 ab Korrektur -017 (ohne Anhebung der Kennung): Netzgrenzen-Prüfung, Leistungsvermarktung bis zur Netzgrenze, Szenariozins als Delta.
+// 1.2 (Referenzbasis, Folgeauftrag -017-R1): Netz- und Messkosten nach Kostenursache getrennt (PCS-Instandhaltung, Netzanschluss,
+// Messstelle, Leistungspreis); die pauschale Altposition „Netz- und Messkosten“ bleibt nur für ältere Versionen. Ohne die neuen
+// Positionen rechnet 1.2 identisch zu 1.1 (-017).
 import { createHash } from 'node:crypto';
 import { cent, sum } from './geld.mjs';
 
-export const MODELL_VERSION = 'STROMKAI-WM 1.1';
+export const MODELL_VERSION = 'STROMKAI-WM 1.2';
+// Prüfsumme der Eingangsparameter (identisch zu meta.parameterPruefsumme)
+export const parameterPruefsumme = (params) => createHash('sha256').update(JSON.stringify(params)).digest('hex').slice(0, 16);
 
 export const SZENARIEN = {
   konservativ: { name: 'Konservativ', erloes: 0.8, capex: 1.1, opex: 1.1, zinsDelta: 0.01, degradationDelta: 0.005 },
@@ -18,7 +24,8 @@ export const SZENARIEN = {
 };
 
 export const CAPEX_POSTEN = [['batterie', 'Batteriesysteme'], ['pcs', 'Wechselrichter (PCS)'], ['trafo', 'Transformatoren'], ['netzanschluss', 'Netzanschluss inkl. Baukostenzuschuss'], ['bau', 'Bau und Montage'], ['erschliessung', 'Erschließung'], ['brandschutz', 'Brandschutz'], ['planung', 'Planung'], ['genehmigung', 'Genehmigungen und Gutachten'], ['nebenkosten', 'Nebenkosten'], ['leittechnik', 'Mess-, Steuer- und Leittechnik, EMS'], ['bauzeitzinsen', 'Finanzierungskosten der Bauphase'], ['sonstige', 'Sonstige Projektkosten']];
-export const OPEX_POSTEN = [['wartung', 'Wartung'], ['versicherung', 'Versicherung'], ['grundstueck', 'Grundstückskosten (Pacht)'], ['netzMess', 'Netz- und Messkosten'], ['it', 'IT und Kommunikation'], ['monitoring', 'Monitoring und Betriebsführung'], ['ersatzteile', 'Ersatzteile'], ['rueckbau', 'Rückbauvorsorge']];
+export const OPEX_POSTEN = [['wartung', 'Wartung'], ['versicherung', 'Versicherung'], ['grundstueck', 'Grundstückskosten (Pacht)'], ['netzMess', 'Netz- und Messkosten (pauschal, bis WM 1.1)'], ['it', 'IT und Kommunikation'], ['monitoring', 'Monitoring und Betriebsführung'], ['ersatzteile', 'Ersatzteile'], ['rueckbau', 'Rückbauvorsorge'],
+  ['pcsInstandhaltung', 'PCS-Wartung und -Instandhaltung'], ['netzanschlussBetrieb', 'Netzanschluss: Betrieb und Instandhaltung Übergabestation'], ['messstelle', 'Messstellenbetrieb'], ['netzentgeltLeistung', 'Netzentgelt Leistungspreis']];
 
 const fehlerListe = (p) => {
   const f = [];
@@ -160,7 +167,7 @@ export function berechne(params, szenarioKey = 'basis', { quelle = 'Eingabe Port
   };
   return {
     meta: { modellVersion: MODELL_VERSION, berechnetAm, quelle, szenario: szenarioKey, szenarioName: sz.name, diskontsatz: bw.diskontsatz ?? 0.07,
-      parameterPruefsumme: createHash('sha256').update(JSON.stringify(params)).digest('hex').slice(0, 16), hinweis: 'Vereinfachtes Jahresmodell vor Steuern; keine Anlageberatung.' },
+      parameterPruefsumme: parameterPruefsumme(params), hinweis: 'Vereinfachtes Jahresmodell vor Steuern; keine Anlageberatung.' },
     capex: { posten: capexPosten.map((x) => ({ ...x, betrag: cent(x.betrag) })), reserve: cent(reserve), gesamt: cent(gesamtinvestition), fremdkapital: cent(fk), finanzierungskosten: cent(finanzierungskosten), dsra: cent(dsra) },
     jahre, cashflows: { projekt: projektCF, eigenkapital: ekCF }, kennzahlen,
   };

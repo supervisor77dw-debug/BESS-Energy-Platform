@@ -6,8 +6,11 @@
 import { createHash } from 'node:crypto';
 import { sum, cent } from '../finance/geld.mjs';
 import { annuitaet, CAPEX_POSTEN } from '../finance/wirtschaftlichkeit.mjs';
+import { KOSTENREGELN } from '../finance/referenz.mjs';
 
-export const PLANER_VERSION = 'STROMKAI-IP 1.0';
+// 1.0: -016; Korrekturen -017/-017-R1 rechneten noch unter 1.0. 1.1 (Referenzbasis): Wirtschaftlichkeit nur gegen eine ausdrücklich
+// zugeordnete WM-Referenzbasis, Betriebskosten nach Kostenursache skaliert (keine pauschale Skalierung mit der PCS-Leistung).
+export const PLANER_VERSION = 'STROMKAI-IP 1.1';
 
 // Datenstatus je Wert, nach Belastbarkeit absteigend. „enthalten“ = in einer anderen Position bepreist (Schutz vor Doppelzählung).
 export const DATENSTATUS = {
@@ -32,7 +35,7 @@ export const PHASEN = {
 };
 export const FIN_STATUS = { annahme: 'Annahme (keine Bankkondition)', indikativ: 'Indikatives Bankangebot', zugesagt: 'Finanzierungszusage liegt vor' };
 export const ERLOES_QUELLEN = {
-  wm: 'Erlösannahmen der aktuellen STROMKAI-WM-Version des Projekts',
+  wm: 'Erlösannahmen der zugeordneten WM-Referenzbasis',
   b2_A: 'Backtest B2 (Referenzstrategie), Netzentgelt-Szenario A „befreit“',
   b2_B: 'Backtest B2 (Referenzstrategie), Netzentgelt-Szenario B „ohne Befreiung“',
 };
@@ -421,17 +424,17 @@ export function erloesReferenz(ergebnisse, dauerH, netzvariante, periode = 'R24M
 }
 
 // ---------- Übergabe an STROMKAI-WM ----------
-const OPEX_KAP = ['wartung', 'versicherung', 'monitoring', 'ersatzteile', 'rueckbau'];
-// basis = Parameter der aktuellen WM-Version des Projekts (führend für Betriebskosten, Erlösannahmen, Bewertung).
+// basis = Parameter der zugeordneten WM-Referenzbasis (führend für Betriebskosten, Erlösannahmen, Bewertung).
+// Betriebskosten nach Kostenursache (KOSTENREGELN): Kapazität, PCS-Leistung, Bezugsleistung oder fix; ohne Regel unverändert.
 export function wmParameter({ g, ann, v, dim, sys, pos, fin, finErg, basis, referenz }) {
   const capex = Object.fromEntries(CAPEX_POSTEN.map(([k]) => [k, 0]));
   for (const p of pos) capex[p.wm] += p.gesamt;
   capex.bauzeitzinsen = finErg.bauzeitzinsen;
   capex.reserveAnteil = ann.reserveAnteil;
   const t0 = basis.technik;
-  const faktorMWh = dim.kapNutzbar / (t0.kapazitaetMWh * t0.nutzbarAnteil), faktorMW = dim.pcsMW / t0.leistungMW;
+  const faktor = { kapazitaet: dim.kapNutzbar / (t0.kapazitaetMWh * t0.nutzbarAnteil), pcs: dim.pcsMW / t0.leistungMW, bezug: (dim.bezug ?? dim.pcsMW) / (t0.bezugMW ?? t0.leistungMW), fix: 1 };
   const opex = { ...basis.opex };
-  if (ann.opexSkalierung === 'skaliert') { for (const k of OPEX_KAP) opex[k] = (basis.opex[k] || 0) * faktorMWh; opex.netzMess = (basis.opex.netzMess || 0) * faktorMW; }
+  if (ann.opexSkalierung === 'skaliert') for (const [k, regel] of Object.entries(KOSTENREGELN)) if (k in opex) opex[k] = (basis.opex[k] || 0) * faktor[regel.skalierung];
   // leistungMW = installierte PCS-Leistung; einspeiseMW/bezugMW = Netzgrenzen (WM 1.1 prüft daran den Jahresdurchsatz)
   const technik = { ...t0, leistungMW: dim.pcsMW, einspeiseMW: dim.einspeise, bezugMW: dim.bezug, kapazitaetMWh: dim.kapNominal, nutzbarAnteil: dim.kapNutzbar / dim.kapNominal, wirkungsgrad: sys.wirkungsgrad, degradationJahr: sys.degradationJahr, betriebsjahre: Math.min(t0.betriebsjahre, sys.lebensdauerJahre || t0.betriebsjahre) };
   let einnahmen = basis.einnahmen;
@@ -447,7 +450,9 @@ export function wmParameter({ g, ann, v, dim, sys, pos, fin, finErg, basis, refe
 }
 
 // Prüfsumme eines Planungsstands (Parameterübersicht ohne Metadaten)
-export const pruefsumme = (x) => createHash('sha256').update(JSON.stringify({ g: x.grundstueck, a: x.annahmen, v: x.varianten, f: x.finanzierung })).digest('hex').slice(0, 16);
+// Ab IP 1.1 einschließlich der Referenzbasis (Datensatz, Prüfsumme, Modellversion); ältere Stände ohne Verweis behalten ihre Prüfsumme.
+const basisTeil = (b) => (b ? { b: { fmId: b.fmId, pruefsumme: b.pruefsumme, modellVersion: b.modellVersion } } : {});
+export const pruefsumme = (x) => createHash('sha256').update(JSON.stringify({ g: x.grundstueck, a: x.annahmen, v: x.varianten, f: x.finanzierung, ...basisTeil(x.wmBasis) })).digest('hex').slice(0, 16);
 
 // Gesamtrechnung einer Variante ohne Erlöse: Dimension, Kosten, Finanzierung, WM-Parameter.
 export const BELASTBARKEIT = {
@@ -458,10 +463,14 @@ export const BELASTBARKEIT = {
   // nur noch in älteren Übergaben (planerRef) vorhanden; wird seit -017-R1 nicht mehr vergeben
   eingeschraenkt: 'Eingeschränkt – Netzgrenzen im Jahresmodell nicht abbildbar, nicht belastbar',
   nicht_berechenbar: 'Nicht berechenbar',
+  // IP 1.1: keine, nicht freigegebene, veränderte oder veraltete WM-Referenzbasis
+  referenz: 'Nicht berechnet (Referenzbasis fehlt oder ungültig)',
 };
 // Übergabe an STROMKAI-WM nur bei Modellrechnung oder netzseitig ungeprüft (Freigabe bleibt bei „ungeprüft“ gesperrt)
 export const wmUebergabeErlaubt = (r) => ['modellrechnung', 'ungeprueft'].includes(r?.belastbarkeit);
-export function rechneVariante({ stand, v, katalog, angebote, basis, ergebnisse, datenversion = null }) {
+// basisFehler: Grund, warum keine gültige Referenzbasis vorliegt (vom Aufrufer geprüft); dann keine WM-Parameter.
+export function rechneVariante({ stand, v, katalog, angebote, basis, basisFehler = null, ergebnisse, datenversion = null }) {
+  if (basisFehler) basis = null;
   const sys = systemVersion(katalog, v.systemRef);
   const dim = dimensioniere(v, sys, stand.grundstueck, stand.annahmen);
   if (dim.fehler?.length) return { v, sys, dim, fehler: dim.fehler };
@@ -474,18 +483,20 @@ export function rechneVariante({ stand, v, katalog, angebote, basis, ergebnisse,
   const angefordert = ERLOES_QUELLEN[v.erloesQuelle] ? v.erloesQuelle : 'wm';
   // Netzgrenze unter PCS oder 0 MW: Rechnung gesperrt, keine Erlösquelle wird verwendet (negative Werte sind ungültige Eingaben)
   const netzGesperrt = dim.netzStatus === 'eingeschraenkt' || (dim.netzStatus === 'unzulaessig' && !dim.netz.ungueltig);
-  const referenz = !netzGesperrt && angefordert.startsWith('b2_') ? erloesReferenz(ergebnisse, dim.dauerAnlageH, angefordert === 'b2_A' ? 'befreit' : 'ohne_befreiung') : null;
+  const ohneBasis = !!basisFehler;
+  const referenz = !netzGesperrt && !ohneBasis && angefordert.startsWith('b2_') ? erloesReferenz(ergebnisse, dim.dauerAnlageH, angefordert === 'b2_A' ? 'befreit' : 'ohne_befreiung') : null;
   const hinweise = [];
   const nutzeRef = referenz && !referenz.fehler;
   const erloes = {
-    angefordert, verwendet: netzGesperrt ? null : nutzeRef ? angefordert : 'wm', rueckfall: !!referenz?.fehler, grund: referenz?.fehler || null,
+    angefordert, verwendet: netzGesperrt || ohneBasis ? null : nutzeRef ? angefordert : 'wm', rueckfall: !!referenz?.fehler, grund: referenz?.fehler || null, gesperrt: netzGesperrt ? 'netzgrenzen' : ohneBasis ? 'referenz' : null,
     referenz: nutzeRef ? { anlage: referenz.anlage, dauerRefH: referenz.dauerRef, periode: referenz.periode, strategie: referenz.strategie, netzvariante: referenz.netzvariante, datenversion } : null,
   };
-  if (erloes.rueckfall) hinweise.push(`Angeforderte Erlösquelle „${ERLOES_QUELLEN[angefordert]}“ nicht anwendbar: ${referenz.fehler} Verwendet werden die Erlösannahmen der STROMKAI-WM-Version.`);
-  if (!basis) hinweise.push('Für dieses Projekt gibt es keine STROMKAI-WM-Version: Betriebskosten, Erlöse und Bewertung fehlen, Wirtschaftlichkeit nicht berechenbar.');
+  if (erloes.rueckfall) hinweise.push(`Angeforderte Erlösquelle „${ERLOES_QUELLEN[angefordert]}“ nicht anwendbar: ${referenz.fehler} Verwendet werden die Erlösannahmen der WM-Referenzbasis.`);
+  if (basisFehler) hinweise.push(basisFehler);
+  else if (!basis) hinweise.push('Für dieses Projekt gibt es keine STROMKAI-WM-Version: Betriebskosten, Erlöse und Bewertung fehlen, Wirtschaftlichkeit nicht berechenbar.');
   // Belastbarkeit der Wirtschaftlichkeit
   let belastbarkeit = netzGesperrt ? 'netzgrenzen' : { ausreichend: 'modellrechnung', ungeprueft: 'ungeprueft', unzulaessig: 'nicht_berechenbar' }[dim.netzStatus];
-  if (!basis && !netzGesperrt) belastbarkeit = 'nicht_berechenbar';
+  if (!basis && !netzGesperrt) belastbarkeit = basisFehler ? 'referenz' : 'nicht_berechenbar';
   const params = basis && ['modellrechnung', 'ungeprueft'].includes(belastbarkeit) ? wmParameter({ g: stand.grundstueck, ann: stand.annahmen, v, dim, sys, pos, fin: stand.finanzierung, finErg, basis, referenz: nutzeRef ? referenz : null }) : null;
   const anteile = Object.fromEntries(Object.keys(DATENSTATUS).map((k) => [k, sum(pos.filter((p) => p.datenstatus === k).map((p) => p.gesamt))]));
   const sperren = [];

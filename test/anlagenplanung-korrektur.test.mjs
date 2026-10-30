@@ -152,7 +152,7 @@ test('B7 unzulässige oder widersprüchliche Leistungswerte; WM prüft den Jahre
 // ---------- C: Erlösquelle ----------
 test('C1–C4 passende B2-Referenz, keine passende Dauer, fehlende Kombination, Rückfall', () => {
   const ok = rv({ netzMW: 20, einspeiseMW: 20, bezugMW: 20 }, { erloesQuelle: 'b2_A' });
-  assert.deepEqual({ ...ok.erloes, referenz: { ...ok.erloes.referenz } }, { angefordert: 'b2_A', verwendet: 'b2_A', rueckfall: false, grund: null, referenz: { anlage: ok.referenz.anlage, dauerRefH: 2, periode: 'R24M', strategie: 'B2', netzvariante: 'befreit', datenversion: 'dv-test' } });
+  assert.deepEqual({ ...ok.erloes, referenz: { ...ok.erloes.referenz } }, { angefordert: 'b2_A', verwendet: 'b2_A', rueckfall: false, grund: null, gesperrt: null, referenz: { anlage: ok.referenz.anlage, dauerRefH: 2, periode: 'R24M', strategie: 'B2', netzvariante: 'befreit', datenversion: 'dv-test' } });
   assert.equal(ok.params.einnahmen.length, 1); assert.match(ok.params.einnahmen[0].name, /B2/);
   const r1 = IP.rechneVariante({ ...{ stand: stand({ netzMW: 20, einspeiseMW: 20, bezugMW: 20 }) }, v: { key: 'X', kosten: {}, systemRef: { systemId: 'sys-ph-1h', version: 1 }, leistungMW: 10, kapazitaetMWh: 10, erloesQuelle: 'b2_A' }, katalog: IP.KATALOG_START, angebote: [], basis: demoParameter(20, 40, 0), ergebnisse: ERG, datenversion: 'dv-test' });
   assert.equal(r1.erloes.angefordert, 'b2_A'); assert.equal(r1.erloes.verwendet, 'wm'); assert.equal(r1.erloes.rueckfall, true); assert.equal(r1.erloes.referenz, null);
@@ -252,6 +252,13 @@ before(async () => {
   await new Promise((r) => server.listen(0, '127.0.0.1', r)); base = `http://127.0.0.1:${server.address().port}`;
 });
 after(() => { server?.close(); rmSync(DIR, { recursive: true, force: true }); });
+// IP 1.1: Planungsstände rechnen nur gegen eine ausdrücklich zugeordnete Referenzbasis; vorhandene verwenden, sonst anlegen
+const referenzbasis = async (form, pid) => {
+  const da = (await import('../src/lib/store.mjs')).getDb().finanzmodelle.find((x) => x.projectId === pid && x.referenzbasis);
+  if (da) return da.id;
+  const r = await form(`/portal/wirtschaftlichkeit/${pid}/referenzbasis`, {});
+  return new URL(r.headers.get('location'), base).searchParams.get('v');
+};
 test('C5 Rückfall wird in Wirtschaftlichkeit, Vergleich, CSV und Bericht gleich ausgewiesen; Übergabe trägt die Quelle', async () => {
   let cookie = '';
   const req = async (p, o = {}) => { const r = await fetch(base + p, { redirect: 'manual', ...o, headers: { ...(o.headers || {}), cookie } }); const sc = r.headers.get('set-cookie'); if (sc) cookie = sc.split(';')[0]; return r; };
@@ -261,11 +268,11 @@ test('C5 Rückfall wird in Wirtschaftlichkeit, Vergleich, CSV und Bericht gleich
   const form = (p, f) => req(p, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ _csrf: csrf, ...f }).toString() });
   let r = await form('/portal/anlagenplanung/p-n02/speichern', { schritt: 'grundstueck', 'g.bezeichnung': 'Test', 'g.laengeM': '120', 'g.breiteM': '100', 'g.grenzabstandM': '3', 'g.netzMW': '20', 'g.einspeiseMW': '20', 'g.bezugMW': '20' });
   const v1 = new URL(r.headers.get('location'), base).searchParams.get('v');
-  r = await form('/portal/anlagenplanung/p-n02/speichern', { schritt: 'technik', v: v1, 'v.A.name': 'Variante A', 'v.A.system': 'sys-ph-2h', 'v.A.mw': '10', 'v.A.mwh': '20', 'v.A.erloes': 'b2_A', 'v.B.name': 'Variante B', 'v.B.system': 'sys-ph-1h', 'v.B.mw': '10', 'v.B.mwh': '10', 'v.B.erloes': 'b2_A',
+  r = await form('/portal/anlagenplanung/p-n02/speichern', { 'wm.basis': await referenzbasis(form, 'p-n02'), schritt: 'technik', v: v1, 'v.A.name': 'Variante A', 'v.A.system': 'sys-ph-2h', 'v.A.mw': '10', 'v.A.mwh': '20', 'v.A.erloes': 'b2_A', 'v.B.name': 'Variante B', 'v.B.system': 'sys-ph-1h', 'v.B.mw': '10', 'v.B.mwh': '10', 'v.B.erloes': 'b2_A',
     'a.cosPhi': '0,95', 'a.mvaJeTrafo': '5', 'a.flaecheJeTrafoM2': '40', 'a.zufahrtBreiteM': '5', 'a.reserveAnteil': '5', 'a.opexSkalierung': 'skaliert' });
   const v2 = new URL(r.headers.get('location'), base).searchParams.get('v');
   const ws = await (await req(`/portal/anlagenplanung/p-n02?schritt=wirtschaftlichkeit&v=${v2}&var=B`)).text();
-  assert.match(ws, /Verwendete Erlösquelle:<\/strong> Erlösannahmen der aktuellen STROMKAI-WM-Version des Projekts · RÜCKFALL statt/);
+  assert.match(ws, /Verwendete Erlösquelle:<\/strong> Erlösannahmen der zugeordneten WM-Referenzbasis · RÜCKFALL statt/);
   assert.doesNotMatch(ws.split('Verwendete Erlösquelle')[1].split('</p>')[0], /Strategie B2/, 'keine B2-Angabe bei Rückfall');
   const wa = await (await req(`/portal/anlagenplanung/p-n02?schritt=wirtschaftlichkeit&v=${v2}&var=A`)).text();
   assert.match(wa, /Verwendete Erlösquelle:<\/strong> Backtest B2 \(Referenzstrategie\), Netzentgelt-Szenario A „befreit“ · Strategie B2 .*Simulationsanlage .*Zeitraum R24M .*Datenversion dv-/);
@@ -276,7 +283,7 @@ test('C5 Rückfall wird in Wirtschaftlichkeit, Vergleich, CSV und Bericht gleich
   assert.match(zeile, /RÜCKFALL statt/); assert.match(zeile, /Datenversion dv-/);
   assert.match(csvText, /Rückfall auf WM-Annahmen;nein;"?ja: Keine Simulation mit passender Speicherdauer/);
   const ber = await (await req(`/portal/anlagenplanung/p-n02/bericht?v=${v2}`)).text();
-  assert.match(ber, /Erlösquelle: Erlösannahmen der aktuellen STROMKAI-WM-Version des Projekts · RÜCKFALL statt/);
+  assert.match(ber, /Erlösquelle: Erlösannahmen der zugeordneten WM-Referenzbasis · RÜCKFALL statt/);
   // Übergabe von B: Quelle in der WM-Version
   assert.equal((await form('/portal/anlagenplanung/p-n02/wm', { v: v2, var: 'B' })).status, 303);
   const db = (await import('../src/lib/store.mjs')).getDb();
@@ -293,7 +300,7 @@ test('R1-1 Netzexportgrenze 0: Status, keine Dauer, keine WM-Parameter, keine Er
   assert.equal(r.dim.netzStatus, 'unzulaessig'); assert.equal(r.dim.einspeise, 0); assert.equal(r.dim.dauerH, null, 'keine unendliche Speicherdauer');
   assert.equal(r.belastbarkeit, 'netzgrenzen'); assert.equal(IP.BELASTBARKEIT[r.belastbarkeit], NB);
   assert.equal(r.params, null, 'keine WM-Rechnung'); assert.equal(IP.wmUebergabeErlaubt(r), false);
-  assert.deepEqual(r.erloes, { angefordert: 'b2_A', verwendet: null, rueckfall: false, grund: null, referenz: null });
+  assert.deepEqual(r.erloes, { angefordert: 'b2_A', verwendet: null, rueckfall: false, grund: null, gesperrt: 'netzgrenzen', referenz: null });
   assert.ok(r.sperren.includes(NB)); assert.ok(r.dim.meldungen.some((m) => m.art === 'bad' && m.text.includes(NB))); assert.ok(ohneWiderspruch(r.dim.meldungen));
   // Technik und Kosten bleiben berechnet (nur die Wirtschaftlichkeit ist gesperrt)
   assert.ok(r.dim.bloecke > 0 && r.basisSumme > 0 && r.finErg.gesamt > 0);
@@ -327,7 +334,7 @@ test('R1-3 Oberfläche, Vergleich, CSV, Bericht und serverseitige Übergabe bei 
   const neuerStand = async (netz) => {
     let r = await form('/portal/anlagenplanung/p-n02/speichern', { schritt: 'grundstueck', 'g.bezeichnung': 'Test R1', 'g.laengeM': '120', 'g.breiteM': '100', 'g.grenzabstandM': '3', ...netz });
     const v1 = new URL(r.headers.get('location'), base).searchParams.get('v');
-    r = await form('/portal/anlagenplanung/p-n02/speichern', { schritt: 'technik', v: v1, 'v.A.name': 'Variante A', 'v.A.system': 'sys-ph-2h', 'v.A.mw': '10', 'v.A.mwh': '20', 'v.A.erloes': 'b2_A', 'v.B.name': 'Variante B', 'v.B.system': 'sys-ph-2h', 'v.B.mw': '15', 'v.B.mwh': '30', 'v.B.erloes': 'b2_A',
+    r = await form('/portal/anlagenplanung/p-n02/speichern', { 'wm.basis': await referenzbasis(form, 'p-n02'), schritt: 'technik', v: v1, 'v.A.name': 'Variante A', 'v.A.system': 'sys-ph-2h', 'v.A.mw': '10', 'v.A.mwh': '20', 'v.A.erloes': 'b2_A', 'v.B.name': 'Variante B', 'v.B.system': 'sys-ph-2h', 'v.B.mw': '15', 'v.B.mwh': '30', 'v.B.erloes': 'b2_A',
       'a.cosPhi': '0,95', 'a.mvaJeTrafo': '5', 'a.flaecheJeTrafoM2': '40', 'a.zufahrtBreiteM': '5', 'a.reserveAnteil': '5', 'a.opexSkalierung': 'skaliert' });
     return new URL(r.headers.get('location'), base).searchParams.get('v');
   };

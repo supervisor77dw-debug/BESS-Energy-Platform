@@ -208,7 +208,7 @@ test('Handelsdaten: Prüfung, deutsches CSV, Korrekturlieferung ersetzt Periode'
 test('Export: CSV (Semikolon, Dezimalkomma, Metadaten) und PDF-Vergütungsübersicht', () => {
   const r = WM.berechne(basisParams(), 'basis', { berechnetAm: '2026-10-29T10:00:00Z', quelle: 'Test' });
   const csv = berechnungCsv(r, { projektName: 'Demo; Nord' });
-  assert.ok(csv.startsWith('﻿')); assert.match(csv, /Modellversion;STROMKAI-WM 1.1/); assert.match(csv, /Gesamtinvestition;1100000,00;EUR/); assert.match(csv, /"Demo; Nord"/);
+  assert.ok(csv.startsWith('﻿')); assert.match(csv, /Modellversion;STROMKAI-WM 1.2/); assert.match(csv, /Gesamtinvestition;1100000,00;EUR/); assert.match(csv, /"Demo; Nord"/);
   const db = dbLeer();
   const s = VT.neuerStand(db, { vertragId: 'k1', stufe: 'unterzeichnet', typ: 'festpacht', bedingungen: bed, dokumentRef: 'd-1', von: 'u' });
   const pdf = verguetungPdf({ eigentuemer: 'Eigentümer A', projekt: 'Demo', stand: s, ansprueche: VT.ansprueche(s, { heute: '2026-06-01' }), kauf: null, stichtag: '2026-06-01', synthetisch: true });

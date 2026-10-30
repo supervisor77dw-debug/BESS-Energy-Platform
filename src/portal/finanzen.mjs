@@ -11,6 +11,7 @@ import { html, raw, fmtDate } from '../lib/html.mjs';
 import * as P from '../lib/policy.mjs';
 import { eur, num, pct, parseZahl, cent } from '../lib/finance/geld.mjs';
 import * as WM from '../lib/finance/wirtschaftlichkeit.mjs';
+import * as REF from '../lib/finance/referenz.mjs';
 import * as VG from '../lib/finance/verguetung.mjs';
 import * as VT from '../lib/finance/vertraege.mjs';
 import * as HD from '../lib/finance/handelsdaten.mjs';
@@ -87,14 +88,14 @@ export async function handleFinanzen({ req, res, url, path, method, u, s, view, 
     if (!projekte.length) throw nf();
     return view('Wirtschaftlichkeit', uebersichtView(db, u, projekte), 'Projektgesellschaften, Kalkulation und Eigentümervergütung');
   }
-  if ((m = /^\/portal\/wirtschaftlichkeit\/([\w-]+)(?:\/(berechnen|export\.csv|freigeben))?$/.exec(path))) {
+  if ((m = /^\/portal\/wirtschaftlichkeit\/([\w-]+)(?:\/(berechnen|export\.csv|freigeben|referenzbasis))?$/.exec(path))) {
     const p = projekt(db, m[1]);
     if (!p || !darfWirtschaftlichkeit(u, p.id)) throw nf();
     const versionen = versionenVon(db, p.id);
     const gewaehlt = versionen.find((v) => v.id === url.searchParams.get('v')) || versionen[0];
     if (!m[2] && method === 'GET') {
       const sz = WM.SZENARIEN[url.searchParams.get('s')] ? url.searchParams.get('s') : 'basis';
-      const msg = { ok: 'Berechnung gespeichert (neue Version).', frei: 'Kennzahlen für Investoren freigegeben.' }[url.searchParams.get('m')];
+      const msg = { ok: 'Berechnung gespeichert (neue Version).', frei: 'Kennzahlen für Investoren freigegeben.', ref: 'Referenzbasis angelegt (neue Version).' }[url.searchParams.get('m')];
       return view(`Wirtschaftlichkeit ${p.code}`, akteView({ db, u, s, p, versionen, gewaehlt, sz, msg }), db.spvs.find((x) => x.id === p.spvId)?.name);
     }
     if (m[2] === 'export.csv' && method === 'GET') {
@@ -118,6 +119,16 @@ export async function handleFinanzen({ req, res, url, path, method, u, s, view, 
       db.finanzmodelle.push(neu); persist();
       audit('wirtschaftlichkeit_berechnet', u, { projekt: p.id, version: neu.version });
       return redirect(res, `/portal/wirtschaftlichkeit/${p.id}?v=${neu.id}&m=ok`);
+    }
+    // Referenzbasis (Plattformadministration): neue WM-Version aus dem aktuellen Demo-Ausgangsmodell; bestehende Versionen bleiben unverändert
+    if (m[2] === 'referenzbasis' && method === 'POST') {
+      if (!P.isAdmin(u)) throw nf();
+      await post();
+      const r = REF.neueReferenzbasis(db, p, { von: u, at: now(), codeStand: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || null });
+      if (r.fehler) return send(res, 422, String(page(`Wirtschaftlichkeit ${p.code}`, akteView({ db, u, s, p, versionen, gewaehlt, sz: 'basis', fehler: r.fehler }), 'Referenzbasis nicht angelegt')));
+      db.finanzmodelle.push(r.fm); persist();
+      audit('wm_referenzbasis_angelegt', u, { projekt: p.id, version: r.fm.version, kennung: r.fm.referenzbasis.kennung, pruefsumme: r.fm.referenzbasis.pruefsumme });
+      return redirect(res, `/portal/wirtschaftlichkeit/${p.id}?v=${r.fm.id}&m=ref`);
     }
     if (m[2] === 'freigeben' && method === 'POST') {
       if (!P.isAdmin(u)) throw nf();
@@ -307,22 +318,36 @@ ${gruppe('bewertung')}
 <div class="form-actions"><button class="btn btn-primary" type="submit">Neu berechnen und als neue Version speichern</button><span class="small muted">Frühere Versionen bleiben unverändert erhalten. Eine Berechnung verändert keine Verträge.</span></div></form>`;
 }
 
+function referenzPanel(fm) {
+  const rb = fm.referenzbasis;
+  return html`<div class="notice-info small"><strong>Referenzbasis ${rb.kennung}</strong> · ${rb.status === 'freigegeben' ? 'freigegeben' : rb.status} von ${rb.freigegebenVon} am ${fmtDate(rb.freigegebenAm)} · Modell ${rb.modellVersion} · Prüfsumme <code>${rb.pruefsumme}</code> · Datensatz ${fm.id}${rb.codeStand ? ` · Code ${rb.codeStand}` : ''}<br>${rb.grundlage}. Erlöse: ${rb.erloes.quelle} – ${rb.erloes.strategie}. ${rb.hinweis}</div>
+<details class="small"><summary>Kostenbasis und Herkunft der Eingangsparameter (${rb.herkunft.length})</summary>
+<ul class="assume">${rb.kostenbasis.map((x) => html`<li class="${x.art === 'ok' ? '' : x.art}">${x.text}</li>`)}</ul>
+<table class="tbl tbl-compact"><thead><tr><th>Betriebskosten</th><th>Skalierung im Planer</th><th>Kostenursache</th></tr></thead><tbody>${Object.entries(rb.kostenregeln).map(([k, x]) => html`<tr><td>${WM.OPEX_POSTEN.find(([kk]) => kk === k)?.[1] || k}</td><td>${REF.SKALIERUNG[x.skalierung]}</td><td>${x.ursache}</td></tr>`)}</tbody></table>
+<table class="tbl tbl-compact"><thead><tr><th>Parameter</th><th class="num">Wert</th><th>Herkunft</th><th>Status</th></tr></thead><tbody>${rb.herkunft.map((x) => html`<tr><td><code>${x.feld}</code></td><td class="num">${typeof x.wert === 'number' ? num(x.wert, 4) : x.wert}</td><td>${x.herkunft}</td><td>${x.status}</td></tr>`)}</tbody></table></details>`;
+}
+
 function akteView({ db, u, s, p, versionen, gewaehlt, sz, msg, fehler }) {
   if (!gewaehlt) return html`<section class="panel"><p>Für dieses Projekt gibt es noch keine Kalkulation.</p></section>`;
   // Bei fehlerhaftem Entwurf zeigen Kennzahlen und Verlauf die zuletzt gültige Version; das Formular behält die Eingaben.
   const gueltig = gewaehlt.entwurf ? versionen.find((v) => v.id === gewaehlt.id) || versionen[0] : gewaehlt;
   const r = WM.berechne(gueltig.params, sz, { quelle: gueltig.quelle || (gueltig.synthetisch ? 'Synthetische Demo-Annahmen' : 'Eingabe Portal'), berechnetAm: gueltig.erstelltAm });
   const ergebnis = gueltig.ergebnis;
+  // Versionskennung des gespeicherten Rechenstands (die Kennzahltabelle zeigt die gespeicherten Werte)
+  const gespeichertMit = ergebnis?.basis?.meta?.modellVersion || r.meta.modellVersion;
   const freigaben = db.finanzFreigaben.filter((f) => f.projectId === p.id);
   return html`${msg ? html`<div class="notice" role="status">${msg}</div>` : ''}
 <nav class="tabs" aria-label="Projektbereiche"><a href="/portal/wirtschaftlichkeit/${p.id}" aria-current="page">Wirtschaftlichkeit</a><a href="/portal/verguetung/${p.id}">Eigentümervergütung</a><a href="/portal/projekte/${p.id}">Projekt</a></nav>
 <section class="panel"><div class="panel-head"><h2>Kennzahlen</h2><div class="row-actions"><a class="btn btn-small" href="/portal/wirtschaftlichkeit/${p.id}/export.csv?v=${gewaehlt.id}&amp;s=${sz}">CSV exportieren</a></div></div>
-<p class="meta-line">Version ${gewaehlt.version} · berechnet ${fmtDate(gewaehlt.erstelltAm)} · Modell ${r.meta.modellVersion} · Quelle: ${r.meta.quelle} · Prüfsumme <code>${r.meta.parameterPruefsumme}</code> ${gewaehlt.synthetisch ? synth() : ''}</p>
+<p class="meta-line">Version ${gewaehlt.version} · berechnet ${fmtDate(gewaehlt.erstelltAm)} · Modell ${gespeichertMit}${gespeichertMit !== r.meta.modellVersion ? ` (Jahresverlauf mit ${r.meta.modellVersion} neu berechnet)` : ''} · Quelle: ${r.meta.quelle} · Prüfsumme <code>${r.meta.parameterPruefsumme}</code> ${gewaehlt.synthetisch ? synth() : ''}</p>
+${fehler?.length && !gewaehlt.entwurf ? html`<div class="alert" role="alert">${fehler.join(' ')}</div>` : ''}
 ${ergebnis ? kennzahlTabelle(ergebnis) : ''}
+${gueltig.referenzbasis ? referenzPanel(gueltig) : ''}
 <p class="small muted">${r.meta.hinweis} Szenarien: Konservativ (Erlöse −20 %, CAPEX und OPEX +10 %, Zins +1 Pkt., Degradation +0,5 Pkt.), Optimistisch (Erlöse +15 %, Kosten −5 %, Zins −0,5 Pkt.).</p></section>
 <section class="panel"><div class="panel-head"><h2>Verlauf</h2><nav class="seg" aria-label="Szenario">${Object.entries(WM.SZENARIEN).map(([k, v]) => html`<a href="/portal/wirtschaftlichkeit/${p.id}?v=${gewaehlt.id}&amp;s=${k}"${k === sz ? raw(' aria-current="true"') : ''}>${v.name}</a>`)}</nav></div>${cashflowChart(r)}</section>
 <section class="panel"><h2>Eingaben</h2>${eingabeFormular(s, p, gewaehlt.params, fehler)}</section>
-<section class="grid-2"><div class="panel"><h2>Versionen</h2><ol class="versions">${versionen.map((v) => html`<li${v.id === gewaehlt.id ? raw(' aria-current="true"') : ''}><a href="/portal/wirtschaftlichkeit/${p.id}?v=${v.id}">Version ${v.version}</a> <span class="muted small">${fmtDate(v.erstelltAm)} · ${db.users.find((x) => x.id === v.erstelltVon)?.name || 'Demo'}${v.notiz ? ` · ${v.notiz}` : ''}</span></li>`)}</ol></div>
+<section class="grid-2"><div class="panel"><h2>Versionen</h2><ol class="versions">${versionen.map((v) => html`<li${v.id === gewaehlt.id ? raw(' aria-current="true"') : ''}><a href="/portal/wirtschaftlichkeit/${p.id}?v=${v.id}">Version ${v.version}</a>${v.referenzbasis ? html` <span class="mark mark-ok">Referenzbasis ${v.referenzbasis.kennung}</span>` : ''} <span class="muted small">${fmtDate(v.erstelltAm)} · ${db.users.find((x) => x.id === v.erstelltVon)?.name || 'Demo'}${v.notiz ? ` · ${v.notiz}` : ''}</span></li>`)}</ol>
+${P.isAdmin(u) && REF.referenzParameter(p.id) ? html`<form method="post" action="/portal/wirtschaftlichkeit/${p.id}/referenzbasis" class="stack">${csrf(s)}<button class="btn" type="submit">Referenzbasis aus aktuellem Demo-Ausgangsmodell anlegen</button><p class="small muted">Legt eine neue Version mit Herkunft je Parameter, Prüfsumme und Modellversion ${WM.MODELL_VERSION} an. Nur diese Referenzbasen kann der Investitionsplaner als Rechenbasis wählen. Keine Investorenfreigabe.</p></form>` : ''}</div>
 <div class="panel"><h2>Für Investoren freigegeben</h2>${freigaben.length ? html`<ul class="assume">${freigaben.map((f) => html`<li>Version ${versionen.find((v) => v.id === f.modellId)?.version ?? '?'} · ${WM.SZENARIEN[f.szenario].name} · ${fmtDate(f.freigegebenAm)}</li>`)}</ul>` : html`<p class="muted">Noch keine Kennzahlen freigegeben.</p>`}
 ${P.isAdmin(u) && !gewaehlt.entwurf ? html`<form method="post" action="/portal/wirtschaftlichkeit/${p.id}/freigeben" class="stack">${csrf(s)}<input type="hidden" name="v" value="${gewaehlt.id}"><label for="fs">Szenario</label><select id="fs" name="s">${Object.entries(WM.SZENARIEN).map(([k, v]) => html`<option value="${k}"${k === 'basis' ? raw(' selected') : ''}>${v.name}</option>`)}</select><button class="btn" type="submit">Kennzahlen dieser Version freigeben</button><p class="small muted">Investoren mit Zugriff auf dieses Projekt sehen nur Gesamtinvestition, Investition je nominaler kWh, Eigenkapitalbedarf, Projekt-IRR und DSCR – keine Kostenpositionen, Margen oder Handelsstrategien.</p></form>` : ''}</div></section>`;
 }

@@ -176,9 +176,10 @@ test('Datenherkunft: Platzhalter ohne Preis, Demo-Vorbelegung gekennzeichnet, An
   assert.equal(p1.datenstatus, 'marktbenchmark'); assert.match(p1.quelle, /Katalog/); assert.equal(p1.preisstand, '2026-09');
 });
 
-test('Regression: STROMKAI-WM 1.1 rechnet ohne neue Angaben identisch zu 1.0', () => {
+// WM 1.2 (Referenzbasis): nur zusätzliche Betriebskostenpositionen; ohne sie weiterhin identisch zu 1.0
+test('Regression: STROMKAI-WM 1.2 rechnet ohne neue Angaben identisch zu 1.0', () => {
   const ref = JSON.parse(readFileSync(join(ROOT, 'test', 'fixtures', 'wm-1.0-referenz.json'), 'utf8'));
-  assert.equal(ref.modellVersion, 'STROMKAI-WM 1.0'); assert.equal(WM.MODELL_VERSION, 'STROMKAI-WM 1.1');
+  assert.equal(ref.modellVersion, 'STROMKAI-WM 1.0'); assert.equal(WM.MODELL_VERSION, 'STROMKAI-WM 1.2');
   const faelle = { 'n01-20-40': demoParameter(20, 40, 26400), 'n02-10-20': demoParameter(10, 20, 0), 's01-50-100': demoParameter(50, 100, 52000) };
   let n = 0;
   for (const [k, p] of Object.entries(faelle)) for (const sz of Object.keys(WM.SZENARIEN)) {
@@ -241,11 +242,18 @@ test('Ablauf: speichern erzeugt Versionen, alte Versionen bleiben unverändert; 
   const v1 = d.planerStaende.find((x) => x.projectId === 'p-n01' && x.version === 1);
   assert.equal(v1.grundstueck.flaecheM2, 12000); assert.equal(v1.grundstueck.angaben.flaeche.status, 'bestaetigt'); assert.match(v1.pruefsumme, /^[0-9a-f]{16}$/);
   const v1json = JSON.stringify(v1);
-  const tech = { schritt: 'technik', v: v1.id, 'v.A.name': 'Variante A', 'v.A.system': 'sys-ph-2h', 'v.A.mw': '10', 'v.A.mwh': '20', 'v.A.erloes': 'wm', 'v.B.name': 'Variante B', 'v.B.system': 'sys-ph-2h', 'v.B.mw': '15', 'v.B.mwh': '30', 'v.B.erloes': 'b2_A', 'v.C.name': 'Variante C', 'v.C.system': 'sys-ph-4h', 'v.C.mw': '10', 'v.C.mwh': '40', 'v.C.erloes': 'b2_B',
+  // IP 1.1 (Folgeauftrag -017-R1): Wirtschaftlichkeit nur gegen eine ausdrücklich gewählte, freigegebene Referenzbasis
+  r = await a.form('/portal/wirtschaftlichkeit/p-n01/referenzbasis', {}); assert.equal(r.status, 303);
+  const ref = d.finanzmodelle.find((x) => x.projectId === 'p-n01' && x.referenzbasis);
+  const tech = { 'wm.basis': ref.id, schritt: 'technik', v: v1.id, 'v.A.name': 'Variante A', 'v.A.system': 'sys-ph-2h', 'v.A.mw': '10', 'v.A.mwh': '20', 'v.A.erloes': 'wm', 'v.B.name': 'Variante B', 'v.B.system': 'sys-ph-2h', 'v.B.mw': '15', 'v.B.mwh': '30', 'v.B.erloes': 'b2_A', 'v.C.name': 'Variante C', 'v.C.system': 'sys-ph-4h', 'v.C.mw': '10', 'v.C.mwh': '40', 'v.C.erloes': 'b2_B',
     'a.cosPhi': '0,95', 'a.mvaJeTrafo': '5', 'a.flaecheJeTrafoM2': '40', 'a.zufahrtBreiteM': '5', 'a.reserveAnteil': '5', 'a.opexSkalierung': 'skaliert' };
+  // Negativtest: die Demo-Version V1 ist keine Referenzbasis und wird nicht übernommen
+  r = await a.form('/portal/anlagenplanung/p-n01/speichern', { ...tech, 'wm.basis': 'fm-p-n01-1' }); assert.equal(r.status, 422);
+  assert.match(await r.text(), /keine freigegebene Referenzbasis/); assert.equal(d.planerStaende.filter((x) => x.projectId === 'p-n01').length, 1);
   r = await a.form('/portal/anlagenplanung/p-n01/speichern', tech); assert.equal(r.status, 303);
   const v2 = d.planerStaende.find((x) => x.projectId === 'p-n01' && x.version === 2);
   assert.equal(v2.varianten.length, 3); assert.equal(v2.grundstueck.flaecheM2, 12000, 'Grundstück übernommen'); assert.equal(v2.basisVersion, 1);
+  assert.equal(v2.wmBasis.fmId, ref.id); assert.equal(v2.wmBasis.pruefsumme, ref.referenzbasis.pruefsumme); assert.equal(v2.wmBasis.modellVersion, WM.MODELL_VERSION); assert.equal(v2.planerVersion, IP.PLANER_VERSION);
   assert.equal(JSON.stringify(d.planerStaende.find((x) => x.id === v1.id)), v1json, 'V1 unverändert');
   // Ungültig: negative Leistung → 422, keine neue Version
   r = await a.form('/portal/anlagenplanung/p-n01/speichern', { ...tech, v: v2.id, 'v.A.mw': '-5' });
@@ -305,7 +313,8 @@ test('Übergabe an STROMKAI-WM: neue WM-Version mit Planerbezug, Kennzahlen iden
   assert.equal(d.finanzmodelle.filter((x) => x.projectId === 'p-n01').length, vorher + 1);
   assert.equal(fm.planerRef.standId, v4.id); assert.equal(fm.planerRef.version, 4); assert.equal(fm.planerRef.variante, 'A'); assert.equal(fm.planerRef.pruefsumme, v4.pruefsumme);
   assert.equal(fm.planerRef.belastbarkeit, 'modellrechnung'); assert.equal(fm.planerRef.erloes.verwendet, 'wm');
-  assert.equal(fm.ergebnis.basis.meta.modellVersion, 'STROMKAI-WM 1.1');
+  assert.equal(fm.ergebnis.basis.meta.modellVersion, WM.MODELL_VERSION);
+  assert.equal(fm.planerRef.wmBasis.fmId, v4.wmBasis.fmId, 'Übergabe nennt die Referenzbasis'); assert.equal(fm.planerRef.planerVersion, IP.PLANER_VERSION); assert.equal(fm.referenzbasis, undefined, 'Übergaben sind keine Referenzbasis');
   const neu = WM.berechne(fm.params, 'basis');
   assert.deepEqual(neu.kennzahlen, fm.ergebnis.basis.kennzahlen, 'gespeicherte WM-Kennzahlen reproduzierbar');
   const akte = (await a.text(`/portal/wirtschaftlichkeit/p-n01?v=${fm.id}`)).body;

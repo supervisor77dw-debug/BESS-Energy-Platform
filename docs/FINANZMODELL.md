@@ -1,7 +1,7 @@
 # Finanzmodell: Projektwirtschaftlichkeit und Eigentümervergütung
 
 Stand 2026-10-29, Auftrag `AW-STROMKAI-20261029-DESIGN-FINANCE-010`. Modellversionen:
-- `STROMKAI-WM 1.1` (Wirtschaftlichkeit; 1.1 seit AW-016 mit optionalen Positionen Leittechnik/Bauzeitzinsen/Sonstige, variablen Handelskosten und Schuldendienstplan, siehe `INVESTITIONSPLANER.md`; ohne diese Angaben identisch zu 1.0)
+- `STROMKAI-WM 1.2` (Wirtschaftlichkeit; 1.2 mit Netz- und Messkosten nach Kostenursache und Referenzbasen, siehe `INVESTITIONSPLANER.md`, Abschnitt „Referenzbasis und Versionen“; vorher 1.1 seit AW-016 mit optionalen Positionen Leittechnik/Bauzeitzinsen/Sonstige, variablen Handelskosten und Schuldendienstplan, siehe `INVESTITIONSPLANER.md`; ohne diese Angaben identisch zu 1.0)
 - `STROMKAI-VG 1.0` (Vergütung)
 - `STROMKAI-HD 1.0` (Handelsdaten, siehe `HANDELSDATEN_SCHNITTSTELLE.md`)
 
@@ -30,7 +30,7 @@ Die Module sind reine Funktionen ohne Speicherzugriff. Ausnahme: `neuerStand`, `
 | Standort | Grundstück, Fläche/Options-/Betriebsfläche ha, Netzanschlussstandort, Grundstücksmodell (Pacht/Kauf) |
 | Batterietechnik | Leistung MW, Kapazität MWh, nutzbarer Anteil, Zyklus-Wirkungsgrad, Verfügbarkeit, Degradation p. a., Zyklen/Jahr, Betriebsdauer, Batterieverschleiß EUR je ausgespeicherter MWh |
 | CAPEX | Batterie, PCS, Trafo, Netzanschluss inkl. BKZ, Bau, Erschließung, Brandschutz, Planung, Genehmigung, Nebenkosten, Reserve % |
-| OPEX | Wartung, Versicherung, Grundstück (Pacht), Netz/Messung, IT, Monitoring/Betriebsführung, Ersatzteile, Rückbauvorsorge, Vermarktung % der Bruttoerlöse, Kostensteigerung p. a. |
+| OPEX | Wartung, Versicherung, Grundstück (Pacht), Netz/Messung pauschal (bis 1.1), PCS-Instandhaltung, Netzanschluss (Betrieb), Messstelle, Netzentgelt Leistungspreis (ab 1.2), IT, Monitoring/Betriebsführung, Ersatzteile, Rückbauvorsorge, Vermarktung % der Bruttoerlöse, Kostensteigerung p. a. |
 | Finanzierung | Fremdkapitalanteil, Zins, Laufzeit (Annuität), Finanzierungskosten % des Kredits, Schuldendienstreserve (Monate) |
 | Einnahmen | Je Vermarktungsweg: Anteil der Leistung; Energie: Verkaufs-/Einkaufspreis €/MWh; Leistung: €/MW/Jahr |
 | Bewertung | Diskontsatz Kapitalwert |
