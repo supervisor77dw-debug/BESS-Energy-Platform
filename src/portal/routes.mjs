@@ -7,7 +7,7 @@ import { verifyPassword, verifyTotp, totp, createSession, getSession, destroySes
 import { parseCookies, parseForm, send, redirect, rateLimit, clientIp, formToken, checkFormToken, sniffType, tooMany, hit } from '../lib/http.mjs';
 import * as P from '../lib/policy.mjs';
 import * as V from './views.mjs';
-import { handleUserAdmin, handleActivation, passwordProblem as pwProblem } from './benutzer.mjs';
+import { handleUserAdmin, handleActivation, passwordProblem as pwProblem, adminTabs } from './benutzer.mjs';
 import { handleRecovery } from './wiederherstellung.mjs';
 import { handleFinanzen, investorKennzahlen } from './finanzen.mjs';
 import { handleStrommarkt } from './strommarkt.mjs';
@@ -143,21 +143,38 @@ export async function handlePortal(req, res, url) {
   const { s, u } = current(req, res);
   if (!u) return redirect(res, s ? '/portal/mfa' : '/portal/login');
 
-  // Eigenes Passwort festlegen (Pflicht beim ersten Login, sonst jederzeit möglich)
-  if (path === '/portal/passwort') {
-    if (method === 'GET') return out(res, V.passwordView({ s, u, forced: !!u.mustChangePassword }));
+  // Eigenes Passwort ändern: immer nur das angemeldete Konto (u aus der Sitzung); Formularfelder wie userId werden nicht ausgewertet.
+  // Gemeinsame Prüfung für die Pflichtänderung (/portal/passwort) und das eigene Konto (/portal/konto).
+  const eigenesPasswort = async () => {
     const { fields } = await parseForm(req);
     checkCsrf(s, fields);
-    if (!rateLimit(`pw:${u.id}`, 10, 15 * 60000)) return out(res, V.passwordView({ s, u, forced: !!u.mustChangePassword, error: 'Zu viele Versuche. Bitte später erneut versuchen.' }), 429);
-    if (!verifyPassword(fields.current || '', u.pw)) { audit('passwort_aenderung_fehlgeschlagen', u); return out(res, V.passwordView({ s, u, forced: !!u.mustChangePassword, error: 'Das bisherige Passwort ist nicht korrekt.' }), 401); }
+    if (!rateLimit(`pw:${u.id}`, 10, 15 * 60000)) return { status: 429, error: 'Zu viele Versuche. Bitte später erneut versuchen.' };
+    if (!verifyPassword(fields.current || '', u.pw)) { audit('passwort_aenderung_fehlgeschlagen', u); return { status: 401, error: 'Das bisherige Passwort ist nicht korrekt.' }; }
     const problem = pwProblem(u, String(fields.neu || ''), String(fields.neu2 || ''));
-    if (problem) return out(res, V.passwordView({ s, u, forced: !!u.mustChangePassword, error: problem }), 422);
+    if (problem) return { status: 422, error: problem };
     u.pw = hashPassword(String(fields.neu)); u.mustChangePassword = false; u.passwordChangedAt = now();
     persist(); audit('passwort_geaendert', u);
+    return {};
+  };
+  // Pflicht beim ersten Login (Startpasswort); bisherige Adresse bleibt für Lesezeichen erhalten und führt sonst zum eigenen Konto
+  if (path === '/portal/passwort') {
+    if (method === 'GET') return u.mustChangePassword ? out(res, V.passwordView({ s, u, forced: true })) : redirect(res, '/portal/konto');
+    const r = await eigenesPasswort();
+    if (r.error) return out(res, V.passwordView({ s, u, forced: !!u.mustChangePassword, error: r.error }), r.status);
     return redirect(res, landing(u));
   }
   if (u.mustChangePassword) return redirect(res, '/portal/passwort');
   const view = (title, body, context) => out(res, V.shell({ u, s, path, title, body, context }));
+  // Eigenes Konto: Administration unter Benutzer & Berechtigungen → Plattform-Administration → Eigenes Konto, alle anderen über das Menü
+  if (path === '/portal/konto') {
+    const konto = (extra = {}) => V.kontoView({ s, u, tabs: P.isAdmin(u) ? adminTabs('konto') : '', ...extra });
+    const kontext = P.isAdmin(u) ? 'Benutzer & Berechtigungen › Plattform-Administration › Eigenes Konto' : 'Ihre Anmeldedaten';
+    if (method === 'GET') return view('Eigenes Konto', konto({ info: url.searchParams.get('m') === 'passwort' ? 'Passwort geändert.' : '' }), kontext);
+    if (method !== 'POST') throw notFound();
+    const r = await eigenesPasswort();
+    if (r.error) return out(res, V.shell({ u, s, path, title: 'Eigenes Konto', body: konto({ error: r.error }), context: kontext }), r.status);
+    return redirect(res, '/portal/konto?m=passwort');
+  }
   const page = (title, body, context) => V.shell({ u, s, path, title, body, context });
   const internalOnly = () => { if (!P.isInternal(u)) throw notFound(); };
   const adminOnly = () => { if (!P.isAdmin(u)) throw notFound(); };
