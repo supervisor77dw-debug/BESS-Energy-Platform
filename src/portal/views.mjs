@@ -6,6 +6,7 @@ import { ROLES, AUDIENCES, isInternal, isAdmin, hasRole, rolesOf } from '../lib/
 import { PHASES } from '../public/pages.mjs';
 import { faellig as faelligeAnfrage, kennung as anfrageKennung } from './akquise.mjs';
 import { createRequire } from 'node:module';
+import { getDb } from '../lib/store.mjs';
 
 const qrcode = createRequire(import.meta.url)('../vendor/qrcode-generator.cjs');
 
@@ -29,23 +30,39 @@ const ICON = {
 const icon = (k) => raw(`<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${ICON[k]}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></svg>`);
 
 // Gruppen der Seitenleiste; Rollen und Ziele bestimmt allein navFor.
-const NAV_GRUPPEN = { arbeit: 'Arbeitsbereich', markt: 'Wirtschaftlichkeit & Markt', team: 'Zusammenarbeit', admin: 'Administration', konto: 'Konto' };
+// AW-020: Gruppierung nach Arbeitsbereichen. Jede Bedingung ist unverändert aus der bisherigen Navigation übernommen –
+// es werden nur Reihenfolge und Gruppen geändert, keine Rechte. Externe Rollen behalten eine einzige Gruppe.
+const NAV_GRUPPEN = { arbeit: 'Arbeitsbereich', vertrieb: 'Vertrieb & Akquise', projekte: 'Projektentwicklung', wirtschaft: 'Wirtschaftlichkeit', energie: 'Energiehandel & Analyse', admin: 'Administration', konto: 'Konto' };
 
 export function navFor(u) {
+  const intern = isInternal(u);
+  if (!intern) {
+    // externe Rollen: Reihenfolge und Einträge unverändert wie vor AW-020
+    const e = [['/portal', 'Übersicht', 'home', 'arbeit'], ['/portal/projekte', u.role === 'eigentuemer' ? 'Projekt' : 'Projekte', 'proj', 'arbeit']];
+    if (hasRole(u, 'eigentuemer')) e.push(['/portal/grundstuecke', 'Grundstücke', 'land', 'arbeit']);
+    e.push(['/portal/dokumente', u.role === 'investor' ? 'Datenraum' : 'Dokumente', 'doc', 'arbeit']);
+    if (hasRole(u, 'eigentuemer')) e.push(['/portal/verguetung', 'Meine Vergütung', 'euro', 'arbeit']);
+    e.push(['/portal/nachrichten', 'Nachrichten', 'msg', 'arbeit'], ['/portal/konto', 'Eigenes Konto', 'people', 'konto']);
+    return e;
+  }
+  const g = (gruppe) => gruppe;
   const n = isAdmin(u) ? [['/portal/zentrale', 'Zentrale', 'home', 'arbeit'], ['/portal', 'Übersicht', 'chart', 'arbeit']] : [['/portal', 'Übersicht', 'home', 'arbeit']];
-  if (isInternal(u)) n.push(['/portal/pipeline', 'Pipeline', 'pipe', 'arbeit']);
-  n.push(['/portal/projekte', u.role === 'eigentuemer' ? 'Projekt' : 'Projekte', 'proj', 'arbeit']);
-  if (hasRole(u, 'eigentuemer') || isInternal(u)) n.push(['/portal/grundstuecke', 'Grundstücke', 'land', 'arbeit']);
-  n.push(['/portal/dokumente', u.role === 'investor' ? 'Datenraum' : 'Dokumente', 'doc', 'arbeit']);
+  if (intern) n.push(['/portal/benachrichtigungen', 'Benachrichtigungen', 'msg', 'arbeit']);
+  if (intern) n.push(['/portal/anfragen', 'Anfragen', 'inbox', 'vertrieb'], ['/portal/pipeline', 'Pipeline', 'pipe', 'vertrieb'], ['/portal/kontakte', 'Kontakte', 'people', 'vertrieb']);
+  if (hasRole(u, 'eigentuemer') || intern) n.push(['/portal/grundstuecke', 'Grundstücke', 'land', g('vertrieb')]);
+  if (intern) n.push(['/portal/aufgaben', 'Aufgaben', 'task', 'vertrieb']);
+  n.push(['/portal/nachrichten', 'Nachrichten', 'msg', g('vertrieb')]);
+  n.push(['/portal/projekte', u.role === 'eigentuemer' ? 'Projekt' : 'Projekte', 'proj', g('projekte')]);
+  n.push(['/portal/dokumente', u.role === 'investor' ? 'Datenraum' : 'Dokumente', 'doc', g('projekte')]);
+  if (intern) n.push(['/portal/freigaben', 'Freigaben', 'check', 'projekte']);
   if (hasRole(u, 'eigentuemer')) n.push(['/portal/verguetung', 'Meine Vergütung', 'euro', 'arbeit']);
-  n.push(['/portal/nachrichten', 'Nachrichten', 'msg', 'arbeit']);
-  if (rolesOf(u).some((r) => ['admin', 'projektleitung', 'vertrieb_nord', 'vertrieb_sued'].includes(r))) n.push(['/portal/wirtschaftlichkeit', 'Wirtschaftlichkeit', 'chart', 'markt']);
-  if (rolesOf(u).some((r) => r === 'admin' || r === 'projektleitung')) n.push(['/portal/anlagenplanung', 'Anlagenplanung & Investition', 'land', 'markt'], ['/portal/strommarkt', 'Strommarkt & Backtesting', 'chart', 'markt'], ['/portal/netzentgelt', 'Netzentgelt-Szenarien', 'chart', 'markt'], ['/portal/shadow-trading', 'Shadow-Trading', 'pipe', 'markt']);
-  if (isInternal(u)) n.push(['/portal/kontakte', 'Kontakte', 'people', 'team'], ['/portal/aufgaben', 'Aufgaben', 'task', 'team'], ['/portal/anfragen', 'Anfragen', 'inbox', 'team'], ['/portal/freigaben', 'Freigaben', 'check', 'team']);
-  if (isAdmin(u)) n.push(['/portal/admin/handelsdaten', 'Handelsdaten', 'pipe', 'admin'], ['/portal/admin/benutzer', 'Benutzer & Berechtigungen', 'people', 'admin'], ['/portal/protokoll', 'Protokoll', 'log', 'admin'], ['/portal/admin', 'Verwaltung', 'admin', 'admin'], ['/portal/entwicklungsstand', 'Entwicklungsstand', 'log', 'admin'], ['/portal/ki', 'KI-Assistenz', 'ai', 'admin']);
+  if (rolesOf(u).some((r) => ['admin', 'projektleitung', 'vertrieb_nord', 'vertrieb_sued'].includes(r))) n.push(['/portal/wirtschaftlichkeit', 'Wirtschaftlichkeit', 'chart', 'wirtschaft']);
+  if (rolesOf(u).some((r) => r === 'admin' || r === 'projektleitung')) n.push(['/portal/anlagenplanung', 'Anlagenplanung & Investition', 'land', 'wirtschaft'], ['/portal/strommarkt', 'Strommarkt & Backtesting', 'chart', 'energie'], ['/portal/netzentgelt', 'Netzentgelt-Szenarien', 'chart', 'energie'], ['/portal/shadow-trading', 'Shadow-Trading', 'pipe', 'energie']);
+  if (isAdmin(u)) n.push(['/portal/admin/handelsdaten', 'Handelsdaten', 'pipe', 'energie'], ['/portal/admin/benutzer', 'Benutzer & Berechtigungen', 'people', 'admin'], ['/portal/protokoll', 'Protokoll', 'log', 'admin'], ['/portal/admin', 'Verwaltung', 'admin', 'admin'], ['/portal/entwicklungsstand', 'Entwicklungsstand', 'log', 'admin'], ['/portal/ki', 'KI-Assistenz', 'ai', 'admin']);
   // Eigenes Konto: Administration über Benutzer & Berechtigungen, alle anderen Rollen über diesen Menüpunkt
   else n.push(['/portal/konto', 'Eigenes Konto', 'people', 'konto']);
-  return n;
+  const ordnung = Object.keys(NAV_GRUPPEN);
+  return n.sort((x, y) => ordnung.indexOf(x[3]) - ordnung.indexOf(y[3]));
 }
 
 export function shell({ u, s, path, title, context, body, actions }) {
@@ -77,6 +94,7 @@ export function shell({ u, s, path, title, context, body, actions }) {
       <div class="top-title"><h1>${title}</h1>${context ? html`<p>${context}</p>` : ''}</div>
       <div class="top-user">
         ${actions || ''}
+        ${isInternal(u) ? (() => { const n = (getDb().benachrichtigungen || []).filter((x) => x.userId === u.id && !x.gelesenAm).length; return html`<a class="btn btn-quiet bell${n ? ' bell-neu' : ''}" href="/portal/benachrichtigungen" aria-label="Benachrichtigungen: ${n} ungelesen">${n ? html`<span class="badge">${n}</span> neu` : 'Hinweise'}</a>`; })() : ''}
         <span class="who"><strong>${u.name}</strong><span>${rolesOf(u).map((r) => ROLES[r].label).join(', ')}</span></span>
         <form method="post" action="/portal/abmelden"><input type="hidden" name="_csrf" value="${s.csrf}"><button class="btn btn-quiet" type="submit">Abmelden</button></form>
       </div>
@@ -382,12 +400,12 @@ ${canUpload ? html`<section class="panel"><h2>Dokument hochladen</h2>
 }
 
 // ---------- Nachrichten ----------
-export function nachrichten({ u, s, threads, projects, users, active }) {
+export function nachrichten({ u, s, threads, projects, users, active, ungelesen = {} }) {
   const byId = Object.fromEntries(projects.map((p) => [p.id, p]));
   const name = (id) => users.find((x) => x.id === id)?.name || 'Unbekannt';
   const t = threads.find((x) => x.key === active) || threads[0];
   return html`<div class="msg-layout">
-  <nav class="panel msg-list" aria-label="Unterhaltungen">${threads.length ? html`<ul>${threads.map((x) => html`<li><a href="/portal/nachrichten?t=${encodeURIComponent(x.key)}"${t && x.key === t.key ? raw(' aria-current="true"') : ''}><strong>${isInternal(u) ? name(x.externalUserId) : 'Ihr Ansprechpartner'}</strong><span class="muted small">${byId[x.projectId]?.name} · ${x.messages.length} Nachrichten</span></a></li>`)}</ul>` : empty('Keine Unterhaltungen.')}</nav>
+  <nav class="panel msg-list" aria-label="Unterhaltungen">${threads.length ? html`<ul>${threads.map((x) => html`<li><a href="/portal/nachrichten?t=${encodeURIComponent(x.key)}"${t && x.key === t.key ? raw(' aria-current="true"') : ''}><strong>${isInternal(u) ? name(x.externalUserId) : 'Ihr Ansprechpartner'}</strong>${ungelesen[x.key] ? html` <span class="badge" aria-label="${ungelesen[x.key]} ungelesen">${ungelesen[x.key]} neu</span>` : ''}<span class="muted small">${byId[x.projectId]?.name} · ${x.messages.length} Nachrichten</span></a></li>`)}</ul>` : empty('Keine Unterhaltungen.')}</nav>
   <section class="panel msg-thread">${t ? html`
     <h2>${byId[t.projectId]?.name}</h2>
     <ol class="msgs">${t.messages.map((m) => html`<li class="${m.fromUserId === u.id ? 'mine' : ''}"><p>${m.text}</p><span class="muted small">${name(m.fromUserId)} · ${fmtDateTime(m.at)}</span></li>`)}${t.messages.length ? '' : html`<li class="muted">Noch keine Nachrichten. Schreiben Sie die erste.</li>`}</ol>
@@ -402,13 +420,6 @@ export function kontakte({ contacts, users, projects }) {
   const byId = Object.fromEntries(projects.map((p) => [p.id, p]));
   return html`<section class="panel"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Kontakt</th><th>Art</th><th>Projekte</th><th>Verantwortlich</th><th>Notiz</th></tr></thead><tbody>
   ${contacts.map((c) => html`<tr><td data-l="Kontakt"><strong>${c.name}</strong><br><span class="muted small">${c.email} ${c.phone}</span></td><td data-l="Art">${c.kind}</td><td data-l="Projekte">${(c.projectIds || []).map((id) => byId[id]?.code || '(kein Zugriff)').join(', ')}</td><td data-l="Verantwortlich">${users.find((x) => x.id === c.owner)?.name || html`<span class="muted">nicht zugewiesen</span>`}</td><td data-l="Notiz">${c.note}</td></tr>`)}
-  </tbody></table></div></section>`;
-}
-export function aufgaben({ s, tasks, projects, users }) {
-  const byId = Object.fromEntries(projects.map((p) => [p.id, p]));
-  const today = new Date().toISOString().slice(0, 10);
-  return html`<section class="panel"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Frist</th><th>Aufgabe</th><th>Projekt</th><th>Zuständig</th><th>Status</th><th><span class="sr">Aktion</span></th></tr></thead><tbody>
-  ${tasks.sort((a, b) => a.due.localeCompare(b.due)).map((t) => html`<tr><td data-l="Frist" class="${t.status !== 'erledigt' && t.due < today ? 'bad' : ''}">${fmtDate(t.due)}</td><td data-l="Aufgabe">${t.title}</td><td data-l="Projekt">${byId[t.projectId]?.code}</td><td data-l="Zuständig">${users.find((x) => x.id === t.assignee)?.name || html`<span class="muted">offen</span>`}</td><td data-l="Status">${statusMark(t.status)}</td><td>${t.status !== 'erledigt' ? html`<form method="post" action="/portal/aufgaben/${t.id}/erledigt"><input type="hidden" name="_csrf" value="${s.csrf}"><button class="btn btn-small" type="submit">Erledigt</button></form>` : ''}</td></tr>`)}
   </tbody></table></div></section>`;
 }
 export function freigaben({ u, s, approvals, users, docs, projects }) {

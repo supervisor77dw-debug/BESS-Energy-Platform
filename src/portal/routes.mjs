@@ -15,6 +15,7 @@ import { handleZentrale } from './zentrale.mjs';
 import { handleAnlagenplanung } from './anlagenplanung.mjs';
 import { handleAkquise } from './akquise.mjs';
 import { spiegelAnmeldung } from '../lib/spiegel.mjs';
+import { handleArbeit, arbeitsbereich, nachrichtMelden, alsGelesen, ungelesenIn, freigabeMelden } from './arbeit.mjs';
 import { html } from '../lib/html.mjs';
 
 const DEMO_PASSWORD = 'Vorschau!Speicher-2026'; // nur für die Anzeige der Vorschau-Zugänge (siehe data/seed.mjs)
@@ -196,7 +197,7 @@ export async function handlePortal(req, res, url) {
 
   if (path === '/portal' && method === 'GET') {
     const greeting = { eigentuemer: 'Ihr persönlicher Bereich', investor: 'Investoren-Datenraum', kommune: 'Kommunales Partnerportal', technik: 'Partnerbereich Technik' }[u.role] || 'Projektsteuerung';
-    return view('Übersicht', V.dashboard(ctxFor(u)), greeting);
+    return view('Übersicht', html`${arbeitsbereich(db, u)}${V.dashboard(ctxFor(u))}`, greeting);
   }
   if (path === '/portal/pipeline' && method === 'GET') { internalOnly(); return view('Pipeline', V.pipelineBoard(P.listProjects(u)), 'Standorte nach Entwicklungsphase'); }
   if (path === '/portal/projekte' && method === 'GET') return view('Projekte', V.projectList({ u, projects: P.listProjects(u), spvs: db.spvs }));
@@ -257,17 +258,21 @@ export async function handlePortal(req, res, url) {
       const [projectId, extId] = String(fields.t || '').split(':');
       if (!P.canPostToThread(u, projectId, extId)) throw notFound();
       const text = String(fields.text || '').trim().slice(0, 4000);
-      if (text) { db.messages.push({ id: newId('m'), threadKey: P.threadKey(projectId, extId), projectId, fromUserId: u.id, text, at: now() }); persist(); audit('nachricht', u, { projekt: projectId }); }
+      if (text) { const msg = { id: newId('m'), threadKey: P.threadKey(projectId, extId), projectId, fromUserId: u.id, text, at: now() }; db.messages.push(msg); alsGelesen(db, u, msg.threadKey); nachrichtMelden(db, msg, u); persist(); audit('nachricht', u, { projekt: projectId }); }
       return redirect(res, `/portal/nachrichten?t=${encodeURIComponent(P.threadKey(projectId, extId))}`);
     }
-    return view('Nachrichten', V.nachrichten({ u, s, threads: P.listThreads(u), projects: P.listProjects(u), users: db.users, active: url.searchParams.get('t') }));
+    const threads = P.listThreads(u);
+    const ungelesen = Object.fromEntries(threads.map((t) => [t.key, ungelesenIn(db, u, t)]));
+    const aktiv = threads.find((x) => x.key === url.searchParams.get('t')) || threads[0];
+    if (aktiv && ungelesen[aktiv.key]) { alsGelesen(db, u, aktiv.key); persist(); }
+    return view('Nachrichten', V.nachrichten({ u, s, threads, projects: P.listProjects(u), users: db.users, active: aktiv?.key, ungelesen }));
   }
 
   // ---------- intern ----------
   if (path === '/portal/kontakte' && method === 'GET') { internalOnly(); return view('Kontakte', V.kontakte({ contacts: P.listContacts(u), users: db.users, projects: P.listProjects(u) })); }
-  if (path === '/portal/aufgaben' && method === 'GET') { internalOnly(); return view('Aufgaben und Fristen', V.aufgaben({ s, tasks: P.listTasks(u), projects: P.listProjects(u), users: db.users })); }
-  m = /^\/portal\/aufgaben\/([\w-]+)\/erledigt$/.exec(path);
-  if (m && method === 'POST') { internalOnly(); await post(); const t = P.listTasks(u).find((x) => x.id === m[1]); if (!t) throw notFound(); t.status = 'erledigt'; t.doneBy = u.id; t.doneAt = now(); persist(); audit('aufgabe_erledigt', u, { aufgabe: t.id }); return redirect(res, '/portal/aufgaben'); }
+  // Benachrichtigungen, Aufgaben mit Pflichtzuständigkeit und Zuordnungswarteschlange (AW-020)
+  const ar = await handleArbeit({ res, path, method, u, s, view, post, url });
+  if (ar !== null) return ar;
   // Flächen- und Kontaktanfragen mit Bearbeitung, Wiedervorlage, Dublettenprüfung und Übernahme als Standort (AW-020)
   const ak = await handleAkquise({ res, path, method, u, s, view, post, url });
   if (ak !== null) return ak;
@@ -287,6 +292,7 @@ export async function handlePortal(req, res, url) {
     if (db.approvals.some((a) => a.targetId === fields.targetId && a.kind === kind && a.state === 'offen')) return redirect(res, '/portal/freigaben');
     db.approvals.push({ id: newId('ap'), kind, targetId: fields.targetId, requestedBy: u.id, at: now(), state: 'offen', note: String(fields.note || (kind === 'project_public' ? 'Veröffentlichung auf der Website' : '')).slice(0, 200),
       payload: kind === 'project_public' ? { publicName: String(fields.publicName || '').slice(0, 120), summary: String(fields.summary || '').slice(0, 400) } : null });
+    freigabeMelden(db, db.approvals.at(-1), u);
     persist(); audit('freigabe_beantragt', u, { art: kind, ziel: fields.targetId });
     return redirect(res, '/portal/freigaben');
   }

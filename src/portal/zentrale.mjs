@@ -13,6 +13,7 @@ import { eur, pct } from '../lib/finance/geld.mjs';
 import * as D from '../lib/strommarkt/daten.mjs';
 import { darfStrommarkt } from './strommarkt.mjs';
 import { MODELL_VERSION as WM_VERSION } from '../lib/finance/wirtschaftlichkeit.mjs';
+import { arbeitsbereich, gesamtueberblick } from './arbeit.mjs';
 
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 const DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'strommarkt-daten');
@@ -63,9 +64,17 @@ function zentrale(u) {
     ['Projekte', P.listProjects(u).length, '/portal/projekte', 'synthetisch'],
     ['Projektgesellschaften', db.spvs.length, '/portal/projekte', 'synthetisch'],
     ['Aktive Benutzer', db.users.filter((x) => x.active).length, '/portal/admin/benutzer', ''],
-    ['B2 Netto-DB 15/30 (24 M.)', ref ? `${fmtNum(ref.summen.netto_db_eur_je_mw_jahr / 1000, 0)} T€/MW/a` : '–', '/portal/strommarkt?b=vergleich', 'Simulation'],
   ];
-  return html`<section class="kpis" aria-label="Kennzahlen">${kpis.map(([l, v, h, hinweis]) => html`<a class="kpi" href="${h}"><span class="kpi-v num">${v}</span><span class="kpi-l">${l}${hinweis ? html` · ${hinweis}` : ''}</span></a>`)}</section>
+  // Handelskennzahl verständlich benannt (AW-020); Definition und Werte unverändert aus dem Strommarkt-Modul (Export des Trading-Systems)
+  const handel = ref ? { wert: `${fmtNum(ref.summen.netto_db_eur_je_mw_jahr / 1000, 0)} T€`, einheit: 'je MW Leistung und Jahr' } : null;
+  return html`${arbeitsbereich(db, u)}${gesamtueberblick(db, u)}<section class="panel"><h2>Kennzahlen</h2><section class="kpis" aria-label="Kennzahlen">${kpis.map(([l, v, h, hinweis]) => html`<a class="kpi" href="${h}"><span class="kpi-v num">${v}</span><span class="kpi-l">${l}${hinweis ? html` · ${hinweis}` : ''}</span></a>`)}
+${handel ? html`<a class="kpi" href="/portal/strommarkt?b=vergleich" title="Netto-Arbitrage-Deckungsbeitrag = Brutto-Handelssaldo minus variable Kosten. Strategie B2 (Rolling Horizon, Referenzmodell), Simulationsanlage 15 MW / 30 MWh, Netzentgelt-Variante „befreit“, rollierend 24 Monate, reale SMARD-Preise. Simulation – kein Projekt- oder Ertragswert."><span class="kpi-v num">${handel.wert}</span><span class="kpi-l">Simulierter Handels-Deckungsbeitrag ${handel.einheit} · Simulation</span></a>` : ''}</section>
+${handel ? html`<details class="kpi-erklaerung"><summary>Was bedeutet der simulierte Handels-Deckungsbeitrag?</summary><dl class="kv">
+<div><dt>Kennzahl</dt><dd>Netto-Arbitrage-Deckungsbeitrag = Brutto-Handelssaldo minus variable Kosten, umgerechnet je MW Leistung und Jahr (bisherige Kurzbezeichnung: „B2 Netto-DB 15/30 (24 M.)“).</dd></div>
+<div><dt>Strategie</dt><dd>B2 – Rolling Horizon, Referenzmodell des Strommarkt-Moduls (realistisch handelbar, ohne Zukunftswissen).</dd></div>
+<div><dt>Anlage und Variante</dt><dd>Simulationsanlage 15 MW Leistung / 30 MWh Speicher, Netzentgelt-Variante „befreit“ (Befreiung nicht gesichert).</dd></div>
+<div><dt>Zeitraum und Daten</dt><dd>Rollierend 24 Monate, reale Day-Ahead-Preise (SMARD); Simulation, kein Projekt- und kein Ertragswert.</dd></div>
+</dl><p class="small"><a href="/portal/strommarkt?b=vergleich">Details und Vergleich der Strategien</a> · <a href="/portal/netzentgelt">Variante ohne Befreiung</a></p></details>` : ''}</section>
 <section class="panel"><div class="panel-head"><h2>Bereiche</h2><a class="btn btn-small" href="/portal/entwicklungsstand">Entwicklungsstand</a></div>
 <div class="modul-grid">${sichtbar.map((m) => html`<a class="modul" href="${m.href}"><span class="modul-kopf"><strong>${m.titel}</strong>${status(m.status)}</span><span class="modul-text">${m.text}</span><span class="modul-fuss">${DATEN[m.daten]}</span></a>`)}</div></section>
 <section class="panel"><h2>Datenstand</h2><div class="kv">

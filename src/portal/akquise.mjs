@@ -8,6 +8,7 @@ import { html, raw, fmtDate, fmtDateTime } from '../lib/html.mjs';
 import { getDb, persist, newId, now, audit, getFile, deleteFile } from '../lib/store.mjs';
 import { send, redirect } from '../lib/http.mjs';
 import * as P from '../lib/policy.mjs';
+import { zuweisungMelden } from './arbeit.mjs';
 
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 const notFound = () => new HttpError(404, 'Nicht gefunden');
@@ -78,13 +79,14 @@ const mark = (st) => html`<span class="mark ${st === 'neu' ? 'mark-info' : st ==
 const empty = (t) => html`<div class="empty"><p><strong>${t}</strong></p></div>`;
 
 // ---------- Ansichten ----------
-export function liste({ db, s, filter }) {
+export function liste({ db, s, u, filter }) {
   const alle = [...db.inquiries].reverse();
-  const sicht = filter === 'alle' ? alle : filter === 'faellig' ? alle.filter(faellig) : alle.filter(istOffen);
-  const n = { offen: alle.filter(istOffen).length, faellig: alle.filter(faellig).length, alle: alle.length };
+  const sichten = { offen: alle.filter(istOffen), meine: alle.filter((i) => istOffen(i) && i.assignee === u?.id), unzugewiesen: alle.filter((i) => istOffen(i) && !i.assignee), faellig: alle.filter(faellig), alle };
+  const sicht = sichten[filter] || sichten.offen;
+  const n = Object.fromEntries(Object.entries(sichten).map(([k, v]) => [k, v.length]));
   const tab = (k, t) => html`<a href="/portal/anfragen?f=${k}"${filter === k ? raw(' aria-current="true"') : ''}>${t} (${n[k]})</a>`;
   return html`<section class="panel"><div class="panel-head"><p class="small muted">Eingänge aus den öffentlichen Formularen. Aus Anfragen entstehen keine automatischen Angebote. Geeignete Flächen werden als Standort in die Pipeline übernommen.</p>
-  <nav class="seg" aria-label="Filter">${tab('offen', 'Offen')}${tab('faellig', 'Wiedervorlage fällig')}${tab('alle', 'Alle')}</nav></div>
+  <nav class="seg" aria-label="Filter">${tab('meine', 'Meine')}${tab('offen', 'Offen')}${tab('unzugewiesen', 'Nicht zugewiesen')}${tab('faellig', 'Wiedervorlage fällig')}${tab('alle', 'Alle')}</nav></div>
   ${sicht.length ? html`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Anfrage</th><th>Absender</th><th>Fläche</th><th>Status</th><th>Zuständig</th><th>Nächste Aktion</th><th><span class="sr">Aktion</span></th></tr></thead><tbody>${sicht.map((i) => {
     const d = i.anonymisiert ? [] : dubletten(db, i);
     return html`<tr><td data-l="Anfrage"><strong>${kennung(i)}</strong><br><span class="small muted">${fmtDateTime(i.at)} · ${i.kind === 'flaeche' ? 'Flächenangebot' : `Kontakt: ${i.anliegen}`}</span></td>
@@ -157,8 +159,8 @@ export async function handleAkquise({ res, path, method, u, s, view, post, url }
   if (!P.isInternal(u)) throw notFound();
   const db = getDb();
   if (path === '/portal/anfragen' && method === 'GET') {
-    const f = ['offen', 'faellig', 'alle'].includes(url.searchParams.get('f')) ? url.searchParams.get('f') : 'offen';
-    return view('Anfragen', liste({ db, s, filter: f }), 'Flächen- und Kontaktanfragen');
+    const f = ['offen', 'meine', 'unzugewiesen', 'faellig', 'alle'].includes(url.searchParams.get('f')) ? url.searchParams.get('f') : 'offen';
+    return view('Anfragen', liste({ db, s, u, filter: f }), 'Flächen- und Kontaktanfragen');
   }
   const m = /^\/portal\/anfragen\/([\w-]+)(?:\/(status|bearbeiten|standort|anonymisieren|anlage))?$/.exec(path);
   if (!m) throw notFound();
@@ -179,7 +181,7 @@ export async function handleAkquise({ res, path, method, u, s, view, post, url }
   const { fields } = await post();
   // bisherige Schnellübernahme aus der Liste
   if (aktion === 'status') {
-    if (fields.status === 'in Bearbeitung' && statusVon(i) === 'neu') { i.status = 'in Prüfung'; i.assignee ??= u.id; verlauf(i, u, 'Übernommen, Status „in Prüfung“'); persist(); audit('anfrage_uebernommen', u, { anfrage: i.id }); }
+    if (fields.status === 'in Bearbeitung' && statusVon(i) === 'neu') { i.status = 'in Prüfung'; i.assignee ??= u.id; verlauf(i, u, 'Übernommen, Status „in Prüfung“'); zuweisungMelden(db, i, u); persist(); audit('anfrage_uebernommen', u, { anfrage: i.id }); }
     return redirect(res, '/portal/anfragen');
   }
   if (aktion === 'bearbeiten') {
@@ -194,7 +196,7 @@ export async function handleAkquise({ res, path, method, u, s, view, post, url }
     if (fu !== (i.followUp || '')) { aend.push(`Wiedervorlage: ${fu ? fmtDate(fu) : '–'}`); i.followUp = fu || null; }
     const note = String(fields.note || '').trim().slice(0, 1000);
     if (note) aend.push(`Notiz: ${note}`);
-    if (aend.length) { verlauf(i, u, aend.join(' · ')); persist(); audit('anfrage_bearbeitet', u, { anfrage: i.id }); }
+    if (aend.length) { verlauf(i, u, aend.join(' · ')); if (aend.some((x) => x.startsWith('Zuständig:'))) zuweisungMelden(db, i, u); persist(); audit('anfrage_bearbeitet', u, { anfrage: i.id }); }
     return redirect(res, `/portal/anfragen/${i.id}?m=gespeichert`);
   }
   if (aktion === 'standort') {
@@ -215,7 +217,7 @@ export async function handleAkquise({ res, path, method, u, s, view, post, url }
     db.meta.standortSeq = (db.meta.standortSeq || 0) + 1;
     db.contacts.push({ id: cid, name: i.name, kind: 'Grundstückseigentümer', email: i.email, phone: i.phone, projectIds: [pid], owner: i.assignee || u.id, note: [i.rolle, `aus Anfrage ${kennung(i)}`].filter(Boolean).join(' · ') });
     db.parcels.push({ id: newId('x'), projectId: pid, ownerContactId: cid, gemarkung: i.flurstueck || '–', flur: '–', flurstueck: '–', areaHa: Number(String(i.flaeche || '').replace(',', '.')) || null, devAreaHa: null, use: i.nutzung || 'unbekannt', status: 'Erstkontakt' });
-    db.tasks.push({ id: newId('t'), projectId: pid, title: i.nextAction || 'Erstbewertung Netzentfernung und Standortkriterien', due: i.followUp || new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10), assignee: i.assignee || u.id, status: 'offen' });
+    db.tasks.push({ id: newId('t'), projectId: pid, title: i.nextAction || 'Erstbewertung Netzentfernung und Standortkriterien', due: i.followUp || new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10), assignee: i.assignee || u.id, status: 'offen', inquiryId: i.id, log: [{ at: now(), by: u.id, byName: u.name, text: `Aus Anfrage ${kennung(i)} übernommen` }] });
     i.projectId = pid; i.status = 'als Standort übernommen';
     verlauf(i, u, `Als Standort ${code} übernommen (Kontakt, Grundstück, Aufgabe angelegt)`);
     persist(); audit('anfrage_als_standort', u, { anfrage: i.id, projekt: pid });

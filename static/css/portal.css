@@ -475,3 +475,12 @@ rect.ed-bar-st-berechnet { fill: color-mix(in srgb, var(--info) 45%, transparent
 .ed-schraffur-g { fill: color-mix(in srgb, var(--demo) 30%, transparent); } .ed-schraffur-v { fill: var(--demo); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) rect.ed-bar-summe { fill: #7cc4bb; } }
 .ed-status .mark, .ed-bar-l .mark { white-space: normal; max-width: 100%; }
+
+/* AW-020: Arbeitsleitstand */
+.worktop { padding-bottom: 6px; }
+.worklist li { margin-bottom: 6px; }
+.bell { white-space: nowrap; }
+.bell-neu { font-weight: 600; }
+.kpi-erklaerung { margin-top: 12px; }
+.kpi-erklaerung summary { cursor: pointer; font-weight: 600; }
+.timeline li.unread p a { font-weight: 600; }

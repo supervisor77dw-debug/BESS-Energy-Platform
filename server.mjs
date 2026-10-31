@@ -12,6 +12,7 @@ import { handlePortal, HttpError } from './src/portal/routes.mjs';
 import { esc } from './src/lib/html.mjs';
 import { handleGate, loadGate } from './src/lib/gate.mjs';
 import { ROLLEN, naechsteKennung, regionZuordnen, REGIONEN_OEFFENTLICH } from './src/portal/akquise.mjs';
+import { anfrageEingang } from './src/portal/arbeit.mjs';
 
 const STATIC = join(ROOT, 'static');
 const TYPES = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.avif': 'image/avif', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
@@ -55,6 +56,7 @@ async function handleSiteOffer(req, res) {
   const at = now();
   db.inquiries.push({ id: newId('inq'), ref: naechsteKennung(db, at), kind: 'flaeche', at, status: 'neu', ...v, dsgvo: true, fileId });
   regionZuordnen(db, db.inquiries.at(-1));
+  anfrageEingang(db, db.inquiries.at(-1)); // nächste Aktion, Historie, Benachrichtigung (AW-020)
   persist(); audit('anfrage_flaeche', null, { anfrage: db.inquiries.at(-1).id }); // ohne Ort/Personenbezug (AW-020 R-4)
   return redirect(res, '/danke?k=flaeche');
 }
@@ -73,6 +75,7 @@ async function handleContact(req, res) {
   const db = getDb(), at = now();
   db.inquiries.push({ id: newId('inq'), ref: naechsteKennung(db, at), kind: 'kontakt', at, status: 'neu', ...v, dsgvo: true });
   regionZuordnen(db, db.inquiries.at(-1));
+  anfrageEingang(db, db.inquiries.at(-1)); // nächste Aktion, Historie, Benachrichtigung (AW-020)
   persist(); audit('anfrage_kontakt', null, { anliegen: v.anliegen });
   return redirect(res, '/danke?k=kontakt');
 }
