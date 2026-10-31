@@ -14,6 +14,7 @@ import { handleStrommarkt } from './strommarkt.mjs';
 import { handleZentrale } from './zentrale.mjs';
 import { handleAnlagenplanung } from './anlagenplanung.mjs';
 import { handleAkquise } from './akquise.mjs';
+import { spiegelAnmeldung } from '../lib/spiegel.mjs';
 import { html } from '../lib/html.mjs';
 
 const DEMO_PASSWORD = 'Vorschau!Speicher-2026'; // nur für die Anzeige der Vorschau-Zugänge (siehe data/seed.mjs)
@@ -86,6 +87,16 @@ export async function handlePortal(req, res, url) {
       audit('anmeldung_gesperrt', null, { email, ip });
       return out(res, V.loginView({ token: formToken(), error: 'Zu viele Anmeldeversuche. Bitte warten Sie 15 Minuten.', email }), 429);
     }
+    // QA-Identitätsspiegel (AW-020): bestehende Administrationsidentität der Produktion, nur lesend geprüft; in Produktion nie aktiv
+    const sp = config.qaSpiegel ? await spiegelAnmeldung(db, email, String(fields.password || '')) : null;
+    if (sp?.abgelehnt) { hit(`login-ip:${ip}`); hit(`login-user:${email}`); audit('anmeldung_fehlgeschlagen', null, { email, ip, spiegel: true }); return fail('E-Mail-Adresse oder Passwort ist nicht korrekt.'); }
+    if (sp?.user) {
+      sp.user.lastLoginAt = now(); sp.user.lastLoginIp = ip;
+      const s = createSession(sp.user.id, { mfaPending: false });
+      res.setHeader('Set-Cookie', sessionCookie(s));
+      audit('anmeldung', sp.user, { ip, spiegel: 'abnahme' });
+      return redirect(res, landing(sp.user));
+    }
     const user = db.users.find((x) => x.email.toLowerCase() === email && x.active);
     // Kontosperre nach wiederholten Fehlversuchen – gespeichert am Konto, gilt damit über alle Serverinstanzen
     if (user?.lockedUntil && Date.parse(user.lockedUntil) > Date.now()) { audit('anmeldung_gesperrt', user, { ip }); return out(res, V.loginView({ token: formToken(), error: 'Zu viele Anmeldeversuche. Bitte warten Sie 15 Minuten.', email }), 429); }
@@ -150,6 +161,7 @@ export async function handlePortal(req, res, url) {
   const eigenesPasswort = async () => {
     const { fields } = await parseForm(req);
     checkCsrf(s, fields);
+    if (u.spiegel) return { status: 409, error: 'Dieses Konto ist die Administrationsidentität der Produktion. Das Passwort wird nur dort geändert.' };
     if (!rateLimit(`pw:${u.id}`, 10, 15 * 60000)) return { status: 429, error: 'Zu viele Versuche. Bitte später erneut versuchen.' };
     if (!verifyPassword(fields.current || '', u.pw)) { audit('passwort_aenderung_fehlgeschlagen', u); return { status: 401, error: 'Das bisherige Passwort ist nicht korrekt.' }; }
     const problem = pwProblem(u, String(fields.neu || ''), String(fields.neu2 || ''));
@@ -209,6 +221,7 @@ export async function handlePortal(req, res, url) {
     const d = P.getDocument(u, m[1]);
     if (!d) { audit('download_verweigert', u, { dokument: m[1] }); throw notFound(); }
     const data = await getFile(d.file);
+    if (!data) { audit('download_datei_fehlt', u, { dokument: d.id }); throw notFound(); } // Datei fehlt im Speicher (AW-020 R-2)
     db.downloads.push({ id: newId('dl'), at: now(), userId: u.id, docId: d.id, version: d.version, projectId: d.projectId });
     audit('download', u, { dokument: d.id, version: d.version });
     const fname = d.title.replace(/[^\w\-äöüÄÖÜß ]+/g, '').replace(/\s+/g, '_').slice(0, 80) + '.' + (d.mime === 'application/pdf' ? 'pdf' : d.mime === 'image/png' ? 'png' : 'jpg');

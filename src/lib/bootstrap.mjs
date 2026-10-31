@@ -20,7 +20,7 @@ export function applyAccounts(db, acc, hash) {
   const byId = new Map((acc.users || []).map((u) => [u.id, u]));
   let geaendert = false;
   for (const u of db.users) {
-    if (u.createdVia === 'verwaltung') continue; // in der Benutzerverwaltung angelegte Konten verwaltet der Kontenabgleich nicht
+    if (u.createdVia === 'verwaltung' || u.createdVia === 'spiegel') continue; // Spiegelkonten (QA, AW-020) verwaltet der Kontenabgleich nicht // in der Benutzerverwaltung angelegte Konten verwaltet der Kontenabgleich nicht
     const a = byId.get(u.id);
     if (!a || !/^scrypt\$/.test(a.pw || '')) { u.active = false; continue; } // nicht mehr aufgeführt: gesperrt, Passwort bleibt für eine spätere Reaktivierung erhalten
     u.active = true;

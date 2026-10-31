@@ -54,7 +54,7 @@ async function handleSiteOffer(req, res) {
   const db = getDb();
   const at = now();
   db.inquiries.push({ id: newId('inq'), ref: naechsteKennung(db, at), kind: 'flaeche', at, status: 'neu', ...v, dsgvo: true, fileId });
-  persist(); audit('anfrage_flaeche', null, { lage: v.lage });
+  persist(); audit('anfrage_flaeche', null, { anfrage: db.inquiries.at(-1).id }); // ohne Ort/Personenbezug (AW-020 R-4)
   return redirect(res, '/danke?k=flaeche');
 }
 
@@ -138,7 +138,7 @@ export async function vercelHandler(req, res) {
   ready ??= (async () => {
     const { bootstrapFromEnv, syncAccounts } = await import('./src/lib/bootstrap.mjs');
     sync = syncAccounts;
-    await openStore({ kind: 'blob', bootstrap: bootstrapFromEnv, prefix: config.stage === 'abnahme' ? 'abnahme/' : '' });
+    await openStore({ kind: 'blob', bootstrap: bootstrapFromEnv, prefix: config.blobPrefix });
   })().catch((e) => { ready = null; throw e; }); // nächster Aufruf versucht es erneut
   let release; const turn = chain; chain = new Promise((r) => (release = r));
   await turn;

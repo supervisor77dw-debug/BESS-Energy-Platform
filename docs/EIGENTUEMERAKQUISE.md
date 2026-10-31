@@ -37,7 +37,7 @@ Akquisestatus und Herkunftsanfrage, Eigentümer, technische Vorprüfung, Netzans
 
 ## Löschkonzept (Vorschlag, rechtlich zu prüfen)
 
-Nur die Administration darf löschen, und nur Anfragen mit dem Status „nicht geeignet“ oder „abgeschlossen“. Gelöscht werden Name, Kontaktdaten, Rolle, Flurstück, Hinweise, Notizen in der Historie und die Unterlage (Datei). Kennung, Datum, Status und Historie bleiben als Nachweis. Übernommene Standorte bleiben unberührt. Die Löschfrist (Vorschlag 12 Monate ohne Folgekontakt) ist in der Datenschutzerklärung noch offen; eine automatische Löschung ist nicht eingerichtet.
+Nur die Administration darf löschen, und nur Anfragen mit dem Status „nicht geeignet“ oder „abgeschlossen“. Gelöscht werden Name, Kontaktdaten, Rolle, Flurstück, Hinweise, Notizen in der Historie und die Unterlage (Datei). Kennung, Datum, Status und Historie bleiben als Nachweis. Übernommene Standorte bleiben unberührt. Protokolleinträge zur Anfrage verweisen nur auf die Anfrage-ID; Ort, Name und E-Mail werden dort beim Löschen ebenfalls entfernt. Die Datei wird zuerst gelöscht, erst danach der Datensatz geändert; eine bereits fehlende Datei gilt als gelöscht, ein verwaister Verweis liefert 404. Die Löschfrist (Vorschlag 12 Monate ohne Folgekontakt) ist in der Datenschutzerklärung noch offen; eine automatische Löschung ist nicht eingerichtet.
 
 ## Benachrichtigung
 
@@ -45,4 +45,4 @@ Neue Anfragen erscheinen in der Liste und als Kennzahl. E-Mail-Benachrichtigunge
 
 ## Tests
 
-`test/akquise.test.mjs`: Formular, Rechte, Bearbeitung, Dubletten, Übernahme, Standortakte, Löschung, öffentliche Inhalte.
+`test/akquise.test.mjs` und `test/qa-isolation.test.mjs` (Speicherbereiche, Identitätsspiegel, Löschung auf dem Blob-Pfad): Formular, Rechte, Bearbeitung, Dubletten, Übernahme, Standortakte, Löschung, öffentliche Inhalte.

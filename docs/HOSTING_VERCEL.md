@@ -134,3 +134,15 @@ Es gibt keinen eigenen Server, keine Fremddatenbank und keine öffentlichen Date
 - Ablauf je Konto: Schranke → Login → MFA-Einrichtung → Pflicht-Passwortwechsel (mit Negativtests) → Rollen- und Mandantenprüfung → Abmeldung (CSRF, Sitzungsungültigkeit) → Rückkehr zum Startpasswort; am Ende setzt Dirk die MFA-Einrichtungen zurück.
 - Die Prüfung verbraucht den Pflichtwechsel-Merker der QA-Konten. Für eine weitere vollständige Prüfung (oder vor einer Übergabe an Prüfer) die QA-Zugänge neu ausstellen: `node tools/provision-vercel.mjs`, Hash-Datei als Preview-Variable `BESS_ACCOUNTS` setzen, neue Preview-Bereitstellung.
 - Ein QA-Lauf mit MFA darf nie ohne erfolgreiche Rücksetzung enden: Sonst sind die Konten mit einem nur im Testlauf bekannten MFA-Geheimnis belegt (Vorfall 2026-10-28, behoben durch Neuausstellung am 2026-10-29).
+
+## QA-Betrieb mit Identitätsspiegel und eigenem Speicherbereich (AW-020)
+
+Stand 2026-10-31, Auftrag `AW-STROMKAI-20261031-CONSOLIDATION-ACQUISITION-020`. Vorbereitet und lokal getestet (`test/qa-isolation.test.mjs`), noch nicht bereitgestellt.
+
+**Speicherbereiche (ein Blob-Store für alle Ziele):** Die Produktion (Stufe `abnahme`) arbeitet immer unter `abnahme/`. Jede andere Stufe arbeitet in der Wurzel oder in `BESS_BLOB_PREFIX` (z. B. `qa-020/`). Präfixe, die mit `abnahme` beginnen oder ungültig sind, verhindern den Start (fail closed). Der Speicher prüft beim Öffnen, ob Bereich und Stufe zusammenpassen. Dateifunktionen nehmen nur serverseitig erzeugte Namen an (`[\w-]+.ext`), keine Pfade. Fehlende Dateien liefern 404, das Löschen fehlender Dateien ist idempotent.
+
+**Identitätsspiegel (`BESS_QA_ADMIN_SPIEGEL=1`):** Er wirkt nur in Stufe `qa` und nie im Production-Ziel. Die Anmeldung prüft E-Mail und Passwort gegen aktive Konten mit Rolle `admin` in `abnahme/state/db.json`, ausschließlich lesend. Bei Erfolg entsteht in der QA ein Spiegelkonto `spiegel-<id>` ohne lokales Passwort (der Produktions-Hash wird nicht übernommen). Passwortänderung und Kontenabgleich wirken nicht auf Spiegelkonten. Mit aktivem Spiegel entfällt die Vorschau-Schranke; der äußere Schutz bleibt die Vercel Deployment Protection. `BESS_GATE=1` erzwingt die Schranke weiterhin.
+
+**Bereitstellung (nur nach Freigabe):** branchgebundene Preview-Variablen `BESS_QA_ADMIN_SPIEGEL=1` und `BESS_BLOB_PREFIX=qa-020/`. Danach Push, automatisches Preview-Deployment und Anmeldung mit der bestehenden Administrationsidentität. Rückfall: Variablen entfernen und den QA-Bereich `qa-020/` gesondert und freigegeben löschen; die Produktion ist nicht betroffen.
+
+**Restrisiko:** Das Token `BLOB_READ_WRITE_TOKEN` gilt für alle Ziele. Die Trennung leistet der Code. Vollständige Trennung auf Token-Ebene nur mit einem eigenen Store für die Produktion (Vercel-Einstellung, Kostenentscheidung).

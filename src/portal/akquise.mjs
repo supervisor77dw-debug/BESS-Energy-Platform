@@ -156,10 +156,12 @@ export async function handleAkquise({ res, path, method, u, s, view, post, url }
   if (!aktion && method === 'GET') return view(kennung(i), detail({ db, s, u, i, msg: { gespeichert: 'Gespeichert.', standort: 'Standort angelegt.', geloescht: 'Personenbezogene Angaben gelöscht.' }[url.searchParams.get('m')] }), i.kind === 'flaeche' ? 'Flächenanfrage' : 'Kontaktanfrage');
   if (aktion === 'anlage' && method === 'GET') {
     if (!i.fileId) throw notFound();
+    const data = await getFile(i.fileId);
+    if (!data) { audit('anfrage_anlage_fehlt', u, { anfrage: i.id }); throw notFound(); } // verwaister Verweis → 404 (R-2)
     audit('anfrage_anlage_abgerufen', u, { anfrage: i.id });
-    res.setHeader('Content-Disposition', `attachment; filename="${kennung(i)}-unterlage.${i.fileId.split('.').pop()}"`);
     const ext = i.fileId.split('.').pop();
-    return send(res, 200, await getFile(i.fileId), ext === 'pdf' ? 'application/pdf' : ext === 'png' ? 'image/png' : 'image/jpeg');
+    res.setHeader('Content-Disposition', `attachment; filename="${kennung(i)}-unterlage.${ext}"`);
+    return send(res, 200, data, ext === 'pdf' ? 'application/pdf' : ext === 'png' ? 'image/png' : 'image/jpeg');
   }
   if (method !== 'POST') throw notFound();
   const { fields } = await post();
@@ -212,6 +214,7 @@ export async function handleAkquise({ res, path, method, u, s, view, post, url }
     if (i.fileId) await deleteFile(i.fileId);
     for (const k of ['name', 'email', 'phone', 'flurstueck', 'nachricht', 'org', 'rolle']) if (i[k]) i[k] = k === 'name' ? 'gelöscht' : '';
     for (const x of i.log || []) x.text = x.text.replace(/Notiz: .*/s, 'Notiz: [gelöscht]');
+    for (const e of db.audit) if (e.anfrage === i.id) for (const k of ['lage', 'email', 'name']) delete e[k]; // Protokoll ohne Personenbezug (R-4)
     i.fileId = null; i.anonymisiert = now();
     verlauf(i, u, 'Personenbezogene Angaben und Unterlage gelöscht');
     persist(); audit('anfrage_anonymisiert', u, { anfrage: i.id });
