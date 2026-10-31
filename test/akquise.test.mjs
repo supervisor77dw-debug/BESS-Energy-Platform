@@ -209,3 +209,39 @@ test('Öffentliche Seiten: Zielgruppen und nächster Schritt auf der Startseite,
   for (const s of ['Technische und kaufmännische Prüfung', 'Spezialisierte Fachpartner', 'Transparenz gegenüber Eigentümern', 'Projektgesellschaft']) assert.ok(unt.includes(s), s);
   for (const h of [home, own, unt]) assert.ok(!/garantiert|Referenzprojekt|\d+\s?(€|EUR)\s?(je|pro)\s?(ha|Hektar)/i.test(h));
 });
+
+test('Feinschliff K1–K4: Rückbau vertragskonform, Investitionsreife, Ansprechpartner Nord mit Formularzuordnung, Startseite', async () => {
+  const P = await import('../src/public/pages.mjs');
+  const own = text(P.eigentuemer()), home = text(P.home()), tech = text(P.technologie()), ent = text(P.standortentwicklung()), kon = text(P.kontakt({ region: 'nord' }));
+  // K1: keine uneingeschränkte Rückbauzusage; Pflicht, Kosten und Sicherheit getrennt
+  for (const t of [own, tech, ent]) assert.ok(!/vollständig zurückgebaut|Rückbau vor Baubeginn abgesichert|vertraglich abgesichert/.test(t));
+  assert.match(own, /gesetzlichen und genehmigungsrechtlichen Vorgaben zurückgebaut/);
+  assert.match(own, /Rückbaukosten tragen nach unserem Vertragsmodell nicht Sie/);
+  assert.match(own, /soweit erforderlich/);
+  // K2: keine starre Reihenfolge, Investitionsreife erklärt
+  assert.ok(!/Erst wenn Netzanschluss, Genehmigung und Finanzierung stehen/.test(own));
+  assert.match(own, /investitionsreif/);
+  assert.match(own, /parallel erarbeitet/);
+  assert.ok(!/erst, wenn Netzanschluss und Genehmigung gesichert sind/.test(ent));
+  // K3: Markus als Ansprechpartner Nord, ohne erfundene Kontaktdaten
+  assert.match(own, /Ansprechpartner für Norddeutschland: Markus/);
+  assert.match(own, /Nachricht an Markus/);
+  assert.match(kon, /Nachricht direkt an Markus/);
+  assert.ok(!/tel:|mailto:markus/i.test(String(P.eigentuemer()) + String(P.kontakt({}))), 'keine erfundenen Kontaktdaten');
+  // K4: Startseitenüberschrift
+  assert.match(home, /Batteriespeicher an geeigneten Netzstandorten entwickeln\./);
+  // Formularweg: Region Nord → Zuordnung an die (einzige) Vertriebskoordination Nord; ungültige Region verworfen
+  const html = await (await fetch(base + '/kontakt?anliegen=eigentuemer&region=nord')).text();
+  assert.match(html, /value="nord" selected/);
+  const t = /name="_t" value="([^"]+)"/.exec(html)[1];
+  await new Promise((r) => setTimeout(r, 1600));
+  const send = (region) => fetch(base + '/kontakt', { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ _t: t, anliegen: 'eigentuemer', region, name: 'Test Nord', email: 'nord@example.invalid', nachricht: 'Bitte Rückruf', dsgvo: 'ja' }) });
+  assert.equal((await send('nord')).status, 303);
+  const i = db.inquiries.at(-1);
+  assert.equal(i.region, 'nord');
+  assert.equal(i.assignee, 'u-markus');
+  assert.match(i.log[0].text, /Automatisch zugeordnet nach Region/);
+  assert.equal((await send('<script>')).status, 303);
+  assert.equal(db.inquiries.at(-1).region, '');
+  assert.ok(!db.inquiries.at(-1).assignee);
+});

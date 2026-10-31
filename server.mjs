@@ -11,7 +11,7 @@ import * as Pub from './src/public/pages.mjs';
 import { handlePortal, HttpError } from './src/portal/routes.mjs';
 import { esc } from './src/lib/html.mjs';
 import { handleGate, loadGate } from './src/lib/gate.mjs';
-import { ROLLEN, naechsteKennung } from './src/portal/akquise.mjs';
+import { ROLLEN, naechsteKennung, regionZuordnen, REGIONEN_OEFFENTLICH } from './src/portal/akquise.mjs';
 
 const STATIC = join(ROOT, 'static');
 const TYPES = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.avif': 'image/avif', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
@@ -37,7 +37,7 @@ async function handleSiteOffer(req, res) {
   const { fields, files } = await parseForm(req);
   if (fields.firma || !checkFormToken(fields._t)) return redirect(res, '/danke?k=flaeche'); // stilles Verwerfen von Bot-Einsendungen
   if (!rateLimit(`form:${clientIp(req)}`, 8, 60 * 60000)) return send(res, 429, 'Zu viele Anfragen. Bitte später erneut versuchen.', 'text/plain; charset=utf-8');
-  const v = { name: clip(fields.name, 120), rolle: ROLLEN.includes(fields.rolle) ? fields.rolle : '', email: clip(fields.email, 160), phone: clip(fields.phone, 60), plz: clip(fields.plz, 10), lage: clip(fields.lage, 200), flurstueck: clip(fields.flurstueck, 200), flaeche: clip(fields.flaeche, 20), nutzung: clip(fields.nutzung, 40), umspannwerk: clip(fields.umspannwerk, 40), nachricht: clip(fields.nachricht, 3000), dsgvo: fields.dsgvo === 'ja' };
+  const v = { name: clip(fields.name, 120), rolle: ROLLEN.includes(fields.rolle) ? fields.rolle : '', region: REGIONEN_OEFFENTLICH.includes(fields.region) ? fields.region : '', email: clip(fields.email, 160), phone: clip(fields.phone, 60), plz: clip(fields.plz, 10), lage: clip(fields.lage, 200), flurstueck: clip(fields.flurstueck, 200), flaeche: clip(fields.flaeche, 20), nutzung: clip(fields.nutzung, 40), umspannwerk: clip(fields.umspannwerk, 40), nachricht: clip(fields.nachricht, 3000), dsgvo: fields.dsgvo === 'ja' };
   const errors = {};
   if (!v.name) errors.name = 'Bitte geben Sie Ihren Namen an.';
   if (!v.email && !v.phone) errors.email = 'Bitte geben Sie eine E-Mail-Adresse oder Telefonnummer an.';
@@ -54,6 +54,7 @@ async function handleSiteOffer(req, res) {
   const db = getDb();
   const at = now();
   db.inquiries.push({ id: newId('inq'), ref: naechsteKennung(db, at), kind: 'flaeche', at, status: 'neu', ...v, dsgvo: true, fileId });
+  regionZuordnen(db, db.inquiries.at(-1));
   persist(); audit('anfrage_flaeche', null, { anfrage: db.inquiries.at(-1).id }); // ohne Ort/Personenbezug (AW-020 R-4)
   return redirect(res, '/danke?k=flaeche');
 }
@@ -62,7 +63,7 @@ async function handleContact(req, res) {
   const { fields } = await parseForm(req);
   if (fields.firma || !checkFormToken(fields._t)) return redirect(res, '/danke?k=kontakt');
   if (!rateLimit(`form:${clientIp(req)}`, 8, 60 * 60000)) return send(res, 429, 'Zu viele Anfragen. Bitte später erneut versuchen.', 'text/plain; charset=utf-8');
-  const v = { anliegen: clip(fields.anliegen, 30), name: clip(fields.name, 120), org: clip(fields.org, 160), email: clip(fields.email, 160), phone: clip(fields.phone, 60), nachricht: clip(fields.nachricht, 4000), dsgvo: fields.dsgvo === 'ja' };
+  const v = { anliegen: clip(fields.anliegen, 30), region: REGIONEN_OEFFENTLICH.includes(fields.region) ? fields.region : '', name: clip(fields.name, 120), org: clip(fields.org, 160), email: clip(fields.email, 160), phone: clip(fields.phone, 60), nachricht: clip(fields.nachricht, 4000), dsgvo: fields.dsgvo === 'ja' };
   const errors = {};
   if (!v.name) errors.name = 'Bitte geben Sie Ihren Namen an.';
   if (!isEmail(v.email)) errors.email = 'Bitte geben Sie eine gültige E-Mail-Adresse an.';
@@ -71,6 +72,7 @@ async function handleContact(req, res) {
   if (Object.keys(errors).length) return send(res, 422, String(Pub.kontakt({ errors, values: { ...fields, dsgvo: v.dsgvo ? 'ja' : '' } })));
   const db = getDb(), at = now();
   db.inquiries.push({ id: newId('inq'), ref: naechsteKennung(db, at), kind: 'kontakt', at, status: 'neu', ...v, dsgvo: true });
+  regionZuordnen(db, db.inquiries.at(-1));
   persist(); audit('anfrage_kontakt', null, { anliegen: v.anliegen });
   return redirect(res, '/danke?k=kontakt');
 }
@@ -106,8 +108,8 @@ export async function handleRequest(req, res) {
         if (p === '/robots.txt') return send(res, 200, robots(), 'text/plain; charset=utf-8');
         if (p === '/sitemap.xml') return send(res, 200, sitemap(), 'application/xml; charset=utf-8');
         if (p === '/healthz') return send(res, 200, 'ok', 'text/plain; charset=utf-8');
-        if (p === '/standort-anbieten') return send(res, 200, String(Pub.standortAnbieten()));
-        if (p === '/kontakt') return send(res, 200, String(Pub.kontakt({ anliegen: url.searchParams.get('anliegen') })));
+        if (p === '/standort-anbieten') return send(res, 200, String(Pub.standortAnbieten({ region: url.searchParams.get('region') })));
+        if (p === '/kontakt') return send(res, 200, String(Pub.kontakt({ anliegen: url.searchParams.get('anliegen'), region: url.searchParams.get('region') })));
         if (p === '/danke') return send(res, 200, String(Pub.danke(url.searchParams.get('k'))));
         const key = p.length > 1 ? p.replace(/\/+$/, '') : p;
         if (Pub.PUBLIC_ROUTES[key]) return send(res, 200, String(Pub.PUBLIC_ROUTES[key]()));

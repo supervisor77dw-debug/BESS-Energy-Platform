@@ -6,6 +6,12 @@ import { publicProjects } from '../lib/policy.mjs';
 import { formToken } from '../lib/http.mjs';
 import { ROLLEN } from '../portal/akquise.mjs';
 
+// Regionale Ansprechpartner (AW-020 K3): nur freigegebene Angaben aus brand.json; ohne freigegebene Telefonnummer/E-Mail
+// führt der direkte Weg über das Formular, die Anfrage wird intern der regionalen Koordination zugeordnet.
+const NORD = brand.regions.find((x) => x.id === 'nord');
+const regionOptionen = (gewaehlt) => html`<option value="">weiß ich nicht</option>${brand.regions.map((r) => html`<option value="${r.id}"${gewaehlt === r.id ? raw(' selected') : ''}>${r.name}${r.status === 'besetzt' && r.contactName ? ` – Ansprechpartner ${r.contactName}` : ''}</option>`)}`;
+const regionGueltig = (r) => (brand.regions.some((x) => x.id === r) ? r : '');
+
 const HERO = heroSvg({ inline: true });
 
 export const PHASES = [
@@ -14,11 +20,11 @@ export const PHASES = [
   ['Netzanschlussprüfung', 'Wir stellen die Netzanschlussanfrage und klären mit dem Netzbetreiber Kapazität, Anschlusspunkt, Kosten einschließlich Baukostenzuschuss und Zeitplan.'],
   ['Genehmigungsplanung', 'Bauvoranfrage oder Bauantrag, Gutachten zu Schall, Boden, Natur und Brandschutz, Abstimmung mit Gemeinde und Behörden. Netzanschluss und Genehmigung laufen in der Regel parallel.'],
   ['Wirtschaftlichkeitsprüfung', 'Auslegung, Systempreise, Netzkosten und Vermarktungsszenarien werden zu einem prüfbaren Modell zusammengeführt – mit dokumentierten Annahmen.'],
-  ['Finanzierung', 'Die Projektgesellschaft wird mit Eigen- und Fremdkapital ausgestattet. Investitionsentscheidung und Finanzierungsabschluss fallen erst, wenn Netzanschluss und Genehmigung gesichert sind.'],
+  ['Finanzierung', 'Die Projektgesellschaft wird mit Eigen- und Fremdkapital ausgestattet. Investitionsentscheidung und Finanzierungsabschluss fallen, sobald das Projekt investitionsreif ist – also Netzanschluss, Baurecht und Wirtschaftlichkeit so weit gesichert sind, wie es die Finanzierung verlangt.'],
   ['Bau', 'Tiefbau, Fundamente, Lieferung und Montage der Systeme, Netzanschluss und Prüfungen – ausgeführt von spezialisierten Partnern unter Koordination der Projektgesellschaft.'],
   ['Inbetriebnahme', 'Abnahmen, Prüfungen nach den Vorgaben des Netzbetreibers, Einweisung der Feuerwehr und Aufnahme des kommerziellen Betriebs.'],
   ['Betrieb', 'Fernüberwachung rund um die Uhr, Wartung, Vermarktung der Speicherleistung und regelmäßige Information der Beteiligten.'],
-  ['Rückbau oder Repowering', 'Am Ende der Laufzeit wird die Anlage vollständig zurückgebaut oder – nach neuer Vereinbarung – modernisiert.'],
+  ['Rückbau oder Repowering', 'Am Ende der Laufzeit wird die Anlage nach den gesetzlichen und genehmigungsrechtlichen Vorgaben zurückgebaut oder – nach neuer Vereinbarung – modernisiert.'],
 ];
 
 const ORG_LD = { '@context': 'https://schema.org', '@type': 'Organization', name: brand.name, ...(realDomain() ? { url: realDomain() } : {}), description: `${brand.claim}.` };
@@ -32,7 +38,7 @@ export function home() {
 <section class="hero${heroPic ? ' hero-photo' : ''}">
   <div class="hero-art">${heroPic || raw(HERO)}</div>
   <div class="wrap hero-copy">
-    <h1>Batteriespeicher dort entwickeln, wo das Netz sie braucht.</h1>
+    <h1>Batteriespeicher an geeigneten Netzstandorten entwickeln.</h1>
     <p class="lead">${brand.name} entwickelt Batterie-Großspeicher in Deutschland – von der Fläche über Netzanschluss und Genehmigung bis zur Investitionsreife. Gemeinsam mit Grundstückseigentümern, Gemeinden und Investoren, mit einer eigenen Projektgesellschaft je Standort.</p>
     <div class="hero-actions">
       <a class="btn btn-solid btn-lg" href="/standort-anbieten">Fläche prüfen lassen</a>
@@ -178,7 +184,7 @@ ${band('modul', 'Visualisierung: Gasse zwischen Batteriecontainern mit Wartungst
   <article id="betrieb"><h2>Betriebsführung</h2><p>Ein Energiemanagementsystem steuert den Speicher nach Fahrplan und Marktsignalen. Eine Leitwarte überwacht Ladezustand, Temperaturen und Sicherheitstechnik rund um die Uhr und kann die Anlage aus der Ferne abschalten. Vor Ort ist im Normalbetrieb kein Personal nötig.</p></article>
   <article id="sicherheit"><h2>Sicherheit und Brandschutz</h2><p>Jede Anlage erhält ein eigenes Brandschutzkonzept, abgestimmt mit Bauaufsicht und Feuerwehr. Dazu gehören Zellüberwachung durch das Batteriemanagement, Gas- und Rauchdetektion, Druckentlastung der Gehäuse, Abstände oder Brandschutzwände zwischen Einheiten, Zufahrten und ein Löschwasserkonzept. Bewertet werden Prüfnachweise der Hersteller zum Brandverhalten, etwa Ergebnisse nach dem Prüfverfahren UL 9540A. Ein solcher Test beschreibt das Verhalten bei einem Zellbrand unter Laborbedingungen; er ist keine Zertifizierung der gesamten Anlage und ersetzt nicht das Brandschutzkonzept. Vor Inbetriebnahme wird die örtliche Feuerwehr eingewiesen.</p></article>
   <article id="schall"><h2>Schall</h2><p>Klimageräte, Wechselrichter und Transformatoren erzeugen Geräusche. Ein Schallgutachten weist nach, dass die Immissionsrichtwerte der TA Lärm an der nächsten Bebauung eingehalten werden – auch nachts. Wo nötig, helfen Abstand, Schallschutzwände oder leisere Komponenten.</p></article>
-  <article id="wartung"><h2>Wartung und Rückbau</h2><p>Wiederkehrende Prüfungen, Austausch von Verschleißteilen und Software-Updates gehören zur Betriebsführung. Am Ende der Laufzeit werden Anlage, Fundamente und Leitungen zurückgebaut, Batterien gehen in die Verwertung. Die Rückbauverpflichtung wird vor Baubeginn vertraglich abgesichert.</p></article>
+  <article id="wartung"><h2>Wartung und Rückbau</h2><p>Wiederkehrende Prüfungen, Austausch von Verschleißteilen und Software-Updates gehören zur Betriebsführung. Am Ende der Laufzeit werden Anlage, Fundamente und Leitungen zurückgebaut, Batterien gehen in die Verwertung. Die Rückbaupflicht wird im Nutzungsvertrag geregelt; ob und in welcher Höhe zusätzlich eine Sicherheit gestellt wird, wird vor Baubeginn anhand einer Rückbaukostenermittlung festgelegt.</p></article>
 </div></section>
 <section class="section section-tint"><div class="wrap split split-media">
   ${illus('schnitt-batteriesystem.svg', 'Schnitt durch ein Batteriesystem mit Racks, Batteriemanagement, Klimatisierung, Brandschutz, Wechselrichter und Transformator', 'Aufbau eines containerisierten Batteriesystems mit Leistungselektronik.')}
@@ -236,15 +242,15 @@ const FAQ_OWNER = [
   ['Was bedeutet Exklusivität?', 'Während der Optionszeit schließen Sie für die Entwicklungsfläche keine Verträge mit Dritten über Batteriespeicher oder unmittelbar konkurrierende Energieinfrastruktur. Andere Nutzungen, etwa die Landwirtschaft, bleiben unberührt.'],
   ['Wer entscheidet zwischen Nutzung und Kauf?', 'Nach unserem Vertragsmodell entscheidet der Projektentwickler bei Projektreife, welche Variante umgesetzt wird. Die Bedingungen beider Varianten stehen aber schon im Optionsvertrag. Sie wissen also vorab, was Sie in jedem Fall erhalten.'],
   ['Kann ich mein Grundstück später verkaufen oder vererben?', 'Ja. Die für den Speicher nötigen Rechte werden über Dienstbarkeiten im Grundbuch gesichert und gehen auf Erwerber oder Erben über. Für die Projektfläche ist zusätzlich ein Vorkaufsrecht vorgesehen. Nicht benötigte Grundstücksteile können Sie frei veräußern.'],
-  ['Was passiert nach dem Betrieb?', 'Die Anlage wird vollständig zurückgebaut, die Rückbaukosten tragen Sie nicht. Vor Baubeginn wird auf Grundlage einer fachgerechten Kostenermittlung eine Rückbausicherheit vereinbart.'],
+  ['Was passiert nach dem Betrieb?', 'Nach dem endgültigen Ende des Betriebs wird die Anlage nach den gesetzlichen und genehmigungsrechtlichen Vorgaben zurückgebaut. Die Rückbaukosten tragen nach unserem Vertragsmodell nicht Sie, sondern der Projektentwickler. Ob zusätzlich eine Sicherheit gestellt wird, etwa eine Bürgschaft, und in welcher Höhe, wird vor Baubeginn auf Grundlage einer fachgerechten Rückbaukostenermittlung festgelegt, soweit erforderlich. Verbindlich ist allein der unterzeichnete Vertrag.'],
   ['Soll ich den Vertrag prüfen lassen?', 'Ja, das empfehlen wir ausdrücklich – durch eine Person Ihres Vertrauens oder einen Rechtsanwalt. Teile wie die Kaufoption werden notariell beurkundet.'],
 ];
 const OWNER_STEPS = [
   ['Erstgespräch und Ersteinschätzung', 'Sie schicken uns ein paar Angaben. Wir prüfen Lage, Größe, Zuwegung und Netzentfernung und sagen Ihnen offen, ob sich eine Entwicklung lohnt. Kostenfrei und unverbindlich.'],
   ['Optionsvertrag', 'Sie reservieren eine Entwicklungsfläche exklusiv, zunächst für 24 Monate, zweimal um je zwölf Monate verlängerbar. Dafür erhalten Sie jährlich eine Optionsvergütung.'],
   ['Entwicklung', 'Netzanschlussanfrage, Gutachten und Genehmigungsplanung auf unsere Kosten. Auf Wunsch informieren wir Sie regelmäßig über wesentliche Fortschritte.'],
-  ['Investitionsentscheidung', 'Erst wenn Netzanschluss, Genehmigung und Finanzierung stehen, entscheidet die Projektgesellschaft über den Bau. Ist ein Projekt nicht tragfähig, endet der Vertrag; fällige Vergütungen bleiben bei Ihnen.'],
-  ['Bau und Betrieb', 'Die Betriebsfläche wird langfristig genutzt oder zu einem vorab geregelten Preis gekauft. Die Rechte werden im Grundbuch gesichert, der Rückbau vor Baubeginn abgesichert.'],
+  ['Investitionsentscheidung', 'Gebaut wird erst, wenn das Projekt investitionsreif ist. Dafür zählen vor allem verfügbare Netzanschlussleistung und -kosten, Baurecht, gesicherte Wege- und Leitungsrechte, Wirtschaftlichkeit und Finanzierbarkeit. Diese Voraussetzungen werden parallel erarbeitet; wie weit jede einzelne gesichert sein muss, bestimmen am Ende die Kapitalgeber. Ist ein Projekt nicht tragfähig, endet der Vertrag; fällige Vergütungen bleiben bei Ihnen.'],
+  ['Bau und Betrieb', 'Die Betriebsfläche wird langfristig genutzt oder zu einem vorab geregelten Preis gekauft. Die Rechte werden im Grundbuch gesichert. Den Rückbau übernimmt der Projektentwickler; eine Sicherheitsleistung wird vor Baubeginn festgelegt, soweit erforderlich.'],
 ];
 
 export function eigentuemer() {
@@ -254,7 +260,8 @@ export function eigentuemer() {
     <p class="kicker">Für Grundstückseigentümer</p>
     <h1>Ihre Fläche kann mehr.</h1>
     <p class="lead"><strong>Werden Sie Partner der Energiewende.</strong> Wir suchen Flächen in der Nähe von Umspannwerken für Batterie-Großspeicher. Sie stellen die Fläche bereit – Planung, Kosten und Entwicklungsrisiko tragen wir.</p>
-    <div class="hero-actions"><a class="btn btn-solid btn-lg" href="/standort-anbieten">Fläche prüfen lassen</a><a class="btn btn-line btn-lg" href="#ablauf">Ablauf ansehen</a></div>
+    <div class="hero-actions"><a class="btn btn-solid btn-lg" href="/standort-anbieten?region=nord">Fläche prüfen lassen</a><a class="btn btn-line btn-lg" href="#ablauf">Ablauf ansehen</a></div>
+    ${NORD?.contactName ? html`<p class="contact-person">Ihr Ansprechpartner für Norddeutschland: <strong>${NORD.contactName}</strong>, ${NORD.contactRole}. <a href="#ansprechpartner">Direkt Kontakt aufnehmen</a></p>` : ''}
   </div>
   <aside class="pledge" aria-label="Unser Grundsatz">
     <p class="pledge-q">„Was Sie bei Erfolg erhalten, legen wir gemeinsam fest, bevor wir mit der Entwicklung beginnen – nicht erst, wenn das Projekt genehmigt ist.“</p>
@@ -317,17 +324,17 @@ ${band('feld', 'Visualisierung: Blick über ein Getreidefeld auf eine Speicheran
   <p class="small muted">Allgemeiner Überblick über unser Vertragsmodell (Arbeitsstand, Änderungen vorbehalten). Verbindlich ist allein der unterzeichnete Vertrag.</p>
 </div></section>
 
-<section class="section section-tint"><div class="wrap contact-cta">
+<section class="section section-tint" id="ansprechpartner"><div class="wrap contact-cta">
   <div><h2>Erste Einschätzung zu Ihrer Fläche</h2><p>Gemeinde, Größe und Ihre Kontaktdaten genügen. Flurstücksangaben und Lageplan sind freiwillig.</p>
-  ${(() => { const r = brand.regions.find((x) => x.id === 'nord'); return r?.contactName ? html`<p class="contact-person"><strong>Ihr Ansprechpartner in Norddeutschland:</strong> ${r.contactName}, ${r.contactRole}${r.phone ? html` · ${r.phone}` : ''}${r.email ? html` · <a href="mailto:${r.email}">${r.email}</a>` : ''}</p>` : ''; })()}</div>
-  <div class="cta-row"><a class="btn btn-solid btn-lg" href="/standort-anbieten">Fläche prüfen lassen</a><a class="btn btn-line btn-lg" href="/kontakt">Persönlich sprechen</a></div>
+  ${NORD?.contactName ? html`<p class="contact-person"><strong>Ihr Ansprechpartner in Norddeutschland:</strong> ${NORD.contactName}, ${NORD.contactRole}${NORD.phone ? html` · ${NORD.phone}` : ''}${NORD.email ? html` · <a href="mailto:${NORD.email}">${NORD.email}</a>` : ''}</p>${NORD.phone || NORD.email ? '' : html`<p class="small">Schreiben Sie ${NORD.contactName} direkt über das Formular – mit der Region Nord geht Ihre Nachricht unmittelbar an ihn.</p>`}` : ''}</div>
+  <div class="cta-row"><a class="btn btn-solid btn-lg" href="/standort-anbieten?region=nord">Fläche prüfen lassen</a><a class="btn btn-line btn-lg" href="/kontakt?anliegen=eigentuemer&amp;region=nord#formular">${NORD?.contactName ? `Nachricht an ${NORD.contactName}` : 'Persönlich sprechen'}</a></div>
 </div></section>`;
   const faqLd = { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: FAQ_OWNER.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) };
   return page({ path: '/grundstueckseigentuemer', title: 'Ihre Fläche kann mehr – Grundstück für Batteriespeicher', description: 'Ihre Fläche kann mehr: Batteriespeicher auf Acker-, Grünland- oder Gewerbeflächen in Netznähe. Optionsvertrag, Vergütung ab der Entwicklungsphase, langfristige Nutzung oder Verkauf. Entwicklungskosten und Risiko trägt der Projektentwickler.', body, jsonld: faqLd });
 }
 
 // ---------------- Formular Fläche anbieten ----------------
-export function standortAnbieten({ errors = {}, values = {} } = {}) {
+export function standortAnbieten({ errors = {}, values = {}, region } = {}) {
   const v = (k) => values[k] || '';
   const err = (k) => errors[k] ? html`<p class="field-err" id="${k}-err">${errors[k]}</p>` : '';
   const inv = (k) => errors[k] ? raw(` aria-invalid="true" aria-describedby="${k}-err"`) : '';
@@ -354,6 +361,7 @@ export function standortAnbieten({ errors = {}, values = {} } = {}) {
       <p class="hint">Bitte geben Sie mindestens E-Mail oder Telefon an.</p>
     </fieldset>
     <fieldset><legend>Fläche</legend>
+      <div class="field"><label for="region">Region <span class="opt">freiwillig</span></label><select id="region" name="region">${regionOptionen(regionGueltig(values.region ?? region))}</select></div>
       <div class="field-row field-row-plz">
         <div class="field"><label for="plz">PLZ <span class="opt">freiwillig</span></label><input id="plz" name="plz" inputmode="numeric" autocomplete="postal-code" maxlength="5" value="${v('plz')}"${inv('plz')}>${err('plz')}</div>
         <div class="field"><label for="lage">Gemeinde oder Ort</label><input id="lage" name="lage" required value="${v('lage')}"${inv('lage')}>${err('lage')}</div>
@@ -461,7 +469,7 @@ export function projekte() {
 
 // ---------------- Kontakt ----------------
 const ANLIEGEN = [['flaeche', 'Ich biete eine Fläche an'], ['eigentuemer', 'Frage als Grundstückseigentümer'], ['kommune', 'Anfrage einer Kommune'], ['investition', 'Investition und Finanzierung'], ['technik', 'Technische Partnerschaft'], ['sonstiges', 'Sonstiges']];
-export function kontakt({ errors = {}, values = {}, anliegen } = {}) {
+export function kontakt({ errors = {}, values = {}, anliegen, region } = {}) {
   const v = (k) => values[k] || '';
   const sel = values.anliegen || anliegen || 'eigentuemer';
   const err = (k) => errors[k] ? html`<p class="field-err" id="${k}-err">${errors[k]}</p>` : '';
@@ -469,22 +477,23 @@ export function kontakt({ errors = {}, values = {}, anliegen } = {}) {
   const body = html`
 <section class="page-head"><div class="wrap">
   <h1>Kontakt</h1>
-  <p class="lead">Wir antworten persönlich. Für Grundstücksfragen in Norddeutschland ist die regionale Koordination Ihr direkter Ansprechpartner.</p>
+  <p class="lead">Wir antworten persönlich. Für Grundstücksfragen in Norddeutschland ist ${NORD?.contactName ? `${NORD.contactName} (${NORD.contactRole})` : 'die regionale Koordination'} Ihr direkter Ansprechpartner.</p>
 </div></section>
 <section class="section"><div class="wrap split">
   <div>
     <h2>Regionale Ansprechpartner</h2>
-    <ul class="people">${brand.regions.map((r) => html`<li><h3>${r.name}</h3><p class="muted small">${r.area}</p><p>${r.contactRole}${r.status === 'besetzt' ? html`<br><strong>${r.contactName}</strong>${r.phone ? html`<br>Telefon: ${r.phone}` : ''}${r.email ? html`<br>E-Mail: <a href="mailto:${r.email}">${r.email}</a>` : html`<br><span class="muted small">Erreichbar über das Kontaktformular oder die Zentrale</span>`}` : html`<br><em>Funktion im Aufbau – Anfragen bearbeitet die Zentrale</em>`}</p></li>`)}</ul>
+    <ul class="people">${brand.regions.map((r) => html`<li><h3>${r.name}</h3><p class="muted small">${r.area}</p><p>${r.contactRole}${r.status === 'besetzt' ? html`<br><strong>${r.contactName}</strong>${r.phone ? html`<br>Telefon: ${r.phone}` : ''}${r.email ? html`<br>E-Mail: <a href="mailto:${r.email}">${r.email}</a>` : ''}${r.phone || r.email ? '' : html`<br><a class="link" href="/kontakt?anliegen=eigentuemer&amp;region=${r.id}#formular">Nachricht direkt an ${r.contactName}</a><br><span class="muted small">Mit der ${r.name} geht Ihre Nachricht unmittelbar an ${r.contactName}.</span>`}` : html`<br><em>Funktion im Aufbau – Anfragen bearbeitet die Zentrale</em>`}</p></li>`)}</ul>
     <h2>Zentrale</h2>
     <p>${brand.legal.operator}<br>${brand.legal.address.map((l) => html`${l}<br>`)}E-Mail: ${brand.contact.email}<br>Telefon: ${brand.contact.phone}</p>
   </div>
   <div>
-    <h2>Nachricht senden</h2>
+    <h2 id="formular">Nachricht senden</h2>
     ${Object.keys(errors).length ? html`<div class="alert" role="alert">Bitte prüfen Sie die markierten Felder.</div>` : ''}
     <form class="form" method="post" action="/kontakt" novalidate>
       <input type="hidden" name="_t" value="${formToken()}">
       <div class="hp" aria-hidden="true"><label>Firma <input name="firma" tabindex="-1" autocomplete="off"></label></div>
       <div class="field"><label for="anliegen">Anliegen</label><select id="anliegen" name="anliegen">${ANLIEGEN.map(([k, l]) => html`<option value="${k}"${sel === k ? raw(' selected') : ''}>${l}</option>`)}</select></div>
+      <div class="field"><label for="region">Region <span class="opt">freiwillig</span></label><select id="region" name="region">${regionOptionen(regionGueltig(values.region ?? region))}</select></div>
       <div class="field"><label for="name">Name</label><input id="name" name="name" autocomplete="name" value="${v('name')}"${inv('name')}>${err('name')}</div>
       <div class="field"><label for="org">Organisation <span class="opt">freiwillig</span></label><input id="org" name="org" autocomplete="organization" value="${v('org')}"></div>
       <div class="field-row"><div class="field"><label for="email">E-Mail</label><input id="email" name="email" type="email" autocomplete="email" value="${v('email')}"${inv('email')}>${err('email')}</div><div class="field"><label for="phone">Telefon <span class="opt">freiwillig</span></label><input id="phone" name="phone" type="tel" autocomplete="tel" value="${v('phone')}"></div></div>

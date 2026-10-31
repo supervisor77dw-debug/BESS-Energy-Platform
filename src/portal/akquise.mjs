@@ -57,6 +57,17 @@ export function dubletten(db, i) {
   return out;
 }
 
+// Regionale Zuordnung (AW-020 K3): Wählt die anfragende Person eine Region, geht die Anfrage an die regionale
+// Vertriebskoordination – nur wenn genau ein aktives Konto diese Rolle hat. Keine Kontaktdaten, nur interne Zuständigkeit.
+export const REGIONEN_OEFFENTLICH = ['nord', 'sued'];
+export function regionZuordnen(db, i) {
+  if (!REGIONEN_OEFFENTLICH.includes(i.region)) return;
+  const rolle = `vertrieb_${i.region}`;
+  const k = db.users.filter((x) => x.active && P.rolesOf(x).includes(rolle));
+  if (k.length !== 1) return;
+  i.assignee = k[0].id;
+  (i.log ??= []).push({ at: i.at, by: null, byName: 'System', text: `Automatisch zugeordnet nach Region: ${P.ROLES[rolle].label} (${k[0].name})` });
+}
 const verlauf = (i, u, text) => { (i.log ??= []).push({ at: now(), by: u?.id ?? null, byName: u?.name ?? 'System', text }); };
 const REGIONEN = { nord: 'Nord', sued: 'Süd' };
 const regionenFuer = (u) => (P.isAdmin(u) ? Object.keys(REGIONEN) : P.rolesOf(u).map((r) => P.ROLES[r].region).filter(Boolean));
@@ -107,6 +118,7 @@ ${d.length ? html`<section class="panel"><h2>Mögliche Dubletten</h2><p class="s
   <div class="panel"><h2>Angaben</h2>${i.anonymisiert ? html`<p class="muted">Personenbezogene Angaben wurden am ${fmtDate(i.anonymisiert)} gelöscht.</p>` : html`<dl class="kv">
     <div><dt>Ansprechpartner</dt><dd>${i.name}${i.rolle ? html`<br><span class="small muted">${i.rolle}</span>` : ''}</dd></div>
     <div><dt>Kontakt</dt><dd>${i.email ? html`<a href="mailto:${i.email}">${i.email}</a>` : ''}${i.email && i.phone ? html`<br>` : ''}${i.phone || ''}</dd></div>
+    ${i.region ? html`<div><dt>Region</dt><dd>${i.region === 'nord' ? 'Nord' : 'Süd'}</dd></div>` : ''}
     ${i.kind === 'flaeche' ? html`<div><dt>Standort</dt><dd>${[i.plz, i.lage].filter(Boolean).join(' ') || '–'}</dd></div>
     <div><dt>Gemarkung / Flurstück</dt><dd>${i.flurstueck || '–'}</dd></div>
     <div><dt>Grundstücksgröße</dt><dd>${i.flaeche ? `${i.flaeche} ha` : '–'}</dd></div>
