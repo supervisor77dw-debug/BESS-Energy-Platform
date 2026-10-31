@@ -11,6 +11,7 @@ import * as Pub from './src/public/pages.mjs';
 import { handlePortal, HttpError } from './src/portal/routes.mjs';
 import { esc } from './src/lib/html.mjs';
 import { handleGate, loadGate } from './src/lib/gate.mjs';
+import { ROLLEN, naechsteKennung } from './src/portal/akquise.mjs';
 
 const STATIC = join(ROOT, 'static');
 const TYPES = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.avif': 'image/avif', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
@@ -36,12 +37,13 @@ async function handleSiteOffer(req, res) {
   const { fields, files } = await parseForm(req);
   if (fields.firma || !checkFormToken(fields._t)) return redirect(res, '/danke?k=flaeche'); // stilles Verwerfen von Bot-Einsendungen
   if (!rateLimit(`form:${clientIp(req)}`, 8, 60 * 60000)) return send(res, 429, 'Zu viele Anfragen. Bitte später erneut versuchen.', 'text/plain; charset=utf-8');
-  const v = { name: clip(fields.name, 120), email: clip(fields.email, 160), phone: clip(fields.phone, 60), lage: clip(fields.lage, 200), flurstueck: clip(fields.flurstueck, 200), flaeche: clip(fields.flaeche, 20), nutzung: clip(fields.nutzung, 40), umspannwerk: clip(fields.umspannwerk, 40), nachricht: clip(fields.nachricht, 3000), dsgvo: fields.dsgvo === 'ja' };
+  const v = { name: clip(fields.name, 120), rolle: ROLLEN.includes(fields.rolle) ? fields.rolle : '', email: clip(fields.email, 160), phone: clip(fields.phone, 60), plz: clip(fields.plz, 10), lage: clip(fields.lage, 200), flurstueck: clip(fields.flurstueck, 200), flaeche: clip(fields.flaeche, 20), nutzung: clip(fields.nutzung, 40), umspannwerk: clip(fields.umspannwerk, 40), nachricht: clip(fields.nachricht, 3000), dsgvo: fields.dsgvo === 'ja' };
   const errors = {};
   if (!v.name) errors.name = 'Bitte geben Sie Ihren Namen an.';
   if (!v.email && !v.phone) errors.email = 'Bitte geben Sie eine E-Mail-Adresse oder Telefonnummer an.';
   else if (v.email && !isEmail(v.email)) errors.email = 'Bitte prüfen Sie die E-Mail-Adresse.';
-  if (!v.lage) errors.lage = 'Bitte beschreiben Sie kurz die Lage der Fläche.';
+  if (!v.lage) errors.lage = 'Bitte nennen Sie Gemeinde oder Ort der Fläche.';
+  if (v.plz && !/^\d{5}$/.test(v.plz)) errors.plz = 'Bitte prüfen Sie die Postleitzahl (fünf Ziffern).';
   if (!v.dsgvo) errors.dsgvo = 'Ohne Ihr Einverständnis können wir die Anfrage nicht bearbeiten.';
   const f = files.find((x) => x.field === 'datei');
   let type = null;
@@ -50,7 +52,8 @@ async function handleSiteOffer(req, res) {
   let fileId = null;
   if (f) { fileId = newId('in') + '.' + type.ext; await putFile(fileId, f.data, type.mime); }
   const db = getDb();
-  db.inquiries.push({ id: newId('inq'), kind: 'flaeche', at: now(), status: 'neu', ...v, dsgvo: true, fileId });
+  const at = now();
+  db.inquiries.push({ id: newId('inq'), ref: naechsteKennung(db, at), kind: 'flaeche', at, status: 'neu', ...v, dsgvo: true, fileId });
   persist(); audit('anfrage_flaeche', null, { lage: v.lage });
   return redirect(res, '/danke?k=flaeche');
 }
@@ -66,7 +69,8 @@ async function handleContact(req, res) {
   if (!v.nachricht) errors.nachricht = 'Bitte schreiben Sie uns kurz Ihr Anliegen.';
   if (!v.dsgvo) errors.dsgvo = 'Ohne Ihr Einverständnis können wir die Nachricht nicht bearbeiten.';
   if (Object.keys(errors).length) return send(res, 422, String(Pub.kontakt({ errors, values: { ...fields, dsgvo: v.dsgvo ? 'ja' : '' } })));
-  getDb().inquiries.push({ id: newId('inq'), kind: 'kontakt', at: now(), status: 'neu', ...v, dsgvo: true });
+  const db = getDb(), at = now();
+  db.inquiries.push({ id: newId('inq'), ref: naechsteKennung(db, at), kind: 'kontakt', at, status: 'neu', ...v, dsgvo: true });
   persist(); audit('anfrage_kontakt', null, { anliegen: v.anliegen });
   return redirect(res, '/danke?k=kontakt');
 }

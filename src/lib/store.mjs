@@ -6,7 +6,7 @@
 // Ablauf je Anfrage: refresh() → Handler (ändert db, ruft persist()) → flush() vor dem Senden der Antwort.
 import { ensureFinanceDemo } from './finance/demo.mjs';
 import { KATALOG_START } from './planer/planer.mjs';
-import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
@@ -146,6 +146,12 @@ export async function getFile(name) {
   if (driver.kind === 'file') return readFileSync(join(driver.dataDir, 'files', name));
   const r = await driver.sdk.get(`${FILES}${name}`, { access: 'private' });
   return readStream(r.stream);
+}
+
+// Löschung einer einzelnen Datei (Löschkonzept Anfragen, AW-020); fehlende Dateien gelten als gelöscht
+export async function deleteFile(name) {
+  if (driver.kind === 'file') { try { unlinkSync(join(driver.dataDir, 'files', name)); } catch (e) { if (e.code !== 'ENOENT') throw e; } return; }
+  await driver.sdk.del(`${FILES}${name}`);
 }
 
 export const newId = (prefix) => `${prefix}-${randomBytes(6).toString('hex')}`;

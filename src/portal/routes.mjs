@@ -13,6 +13,7 @@ import { handleFinanzen, investorKennzahlen } from './finanzen.mjs';
 import { handleStrommarkt } from './strommarkt.mjs';
 import { handleZentrale } from './zentrale.mjs';
 import { handleAnlagenplanung } from './anlagenplanung.mjs';
+import { handleAkquise } from './akquise.mjs';
 import { html } from '../lib/html.mjs';
 
 const DEMO_PASSWORD = 'Vorschau!Speicher-2026'; // nur für die Anzeige der Vorschau-Zugänge (siehe data/seed.mjs)
@@ -192,7 +193,8 @@ export async function handlePortal(req, res, url) {
     const p = P.getProject(u, m[1]);
     if (!p) throw notFound();
     audit('projekt_angesehen', u, { projekt: p.id });
-    return view(p.name, html`${V.projectDetail({ u, s, p, spv: db.spvs.find((x) => x.id === p.spvId), docs: P.listDocuments(u, p.id), showFin: P.canSeeFinancials(u, p), showTech: P.canSeeTechnical(u, p), parcels: P.listParcels(u, p.id), approvals: db.approvals })}${investorKennzahlen(db, u, p)}`, p.code);
+    const akte = P.isInternal(u) ? V.standortakte({ u, p, db, tasks: P.listTasks(u).filter((t) => t.projectId === p.id), contacts: P.listContacts(u).filter((c) => (c.projectIds || []).includes(p.id)), contracts: P.listContracts(u).filter((c) => c.projectId === p.id) }) : '';
+    return view(p.name, html`${V.projectDetail({ u, s, p, spv: db.spvs.find((x) => x.id === p.spvId), docs: P.listDocuments(u, p.id), showFin: P.canSeeFinancials(u, p), showTech: P.canSeeTechnical(u, p), parcels: P.listParcels(u, p.id), approvals: db.approvals, akte })}${investorKennzahlen(db, u, p)}`, p.code);
   }
   if (path === '/portal/grundstuecke' && method === 'GET') {
     if (!(P.hasRole(u, 'eigentuemer') || P.isInternal(u))) throw notFound();
@@ -253,9 +255,9 @@ export async function handlePortal(req, res, url) {
   if (path === '/portal/aufgaben' && method === 'GET') { internalOnly(); return view('Aufgaben und Fristen', V.aufgaben({ s, tasks: P.listTasks(u), projects: P.listProjects(u), users: db.users })); }
   m = /^\/portal\/aufgaben\/([\w-]+)\/erledigt$/.exec(path);
   if (m && method === 'POST') { internalOnly(); await post(); const t = P.listTasks(u).find((x) => x.id === m[1]); if (!t) throw notFound(); t.status = 'erledigt'; t.doneBy = u.id; t.doneAt = now(); persist(); audit('aufgabe_erledigt', u, { aufgabe: t.id }); return redirect(res, '/portal/aufgaben'); }
-  if (path === '/portal/anfragen' && method === 'GET') { internalOnly(); return view('Anfragen', V.anfragen({ s, inquiries: db.inquiries })); }
-  m = /^\/portal\/anfragen\/([\w-]+)\/status$/.exec(path);
-  if (m && method === 'POST') { internalOnly(); const { fields } = await post(); const i = db.inquiries.find((x) => x.id === m[1]); if (!i) throw notFound(); i.status = fields.status === 'in Bearbeitung' ? 'in Bearbeitung' : i.status; i.assignee = u.id; persist(); audit('anfrage_uebernommen', u, { anfrage: i.id }); return redirect(res, '/portal/anfragen'); }
+  // Flächen- und Kontaktanfragen mit Bearbeitung, Wiedervorlage, Dublettenprüfung und Übernahme als Standort (AW-020)
+  const ak = await handleAkquise({ res, path, method, u, s, view, post, url });
+  if (ak !== null) return ak;
 
   if (path === '/portal/freigaben' && method === 'GET') {
     internalOnly();

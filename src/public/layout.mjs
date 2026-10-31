@@ -81,7 +81,7 @@ ${body}
         <li><a href="/grundstueckseigentuemer">Für Grundstückseigentümer</a></li>
         <li><a href="/kommunen">Für Kommunen</a></li>
         <li><a href="/investoren">Für Investoren</a></li>
-        <li><a href="/standort-anbieten">Fläche anbieten</a></li>
+        <li><a href="/standort-anbieten">Fläche prüfen lassen</a></li>
       </ul>
     </nav>
     <nav aria-label="Rechtliches">

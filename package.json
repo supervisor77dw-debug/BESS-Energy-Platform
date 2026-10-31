@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node server.mjs",
     "seed": "node data/seed.mjs",
-    "test": "node --test --test-concurrency=1 test/platform.test.mjs test/external.test.mjs test/blob.test.mjs test/abnahme.test.mjs test/content.test.mjs test/benutzerverwaltung.test.mjs test/finanzen.test.mjs test/finanzportal.test.mjs test/wiederherstellung.test.mjs test/admin-startpasswort.test.mjs test/strommarkt.test.mjs test/zentrale.test.mjs test/anlagenplanung.test.mjs test/anlagenplanung-korrektur.test.mjs test/referenzbasis.test.mjs test/entscheidung.test.mjs test/konto-navigation.test.mjs",
+    "test": "node --test --test-concurrency=1 test/platform.test.mjs test/external.test.mjs test/blob.test.mjs test/abnahme.test.mjs test/content.test.mjs test/benutzerverwaltung.test.mjs test/finanzen.test.mjs test/finanzportal.test.mjs test/wiederherstellung.test.mjs test/admin-startpasswort.test.mjs test/strommarkt.test.mjs test/zentrale.test.mjs test/anlagenplanung.test.mjs test/anlagenplanung-korrektur.test.mjs test/referenzbasis.test.mjs test/entscheidung.test.mjs test/konto-navigation.test.mjs test/akquise.test.mjs",
     "illustrations": "node tools/illustrations.mjs"
   },
   "dependencies": {
