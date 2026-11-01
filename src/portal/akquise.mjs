@@ -19,6 +19,10 @@ const LOESCHBAR = new Set(['nicht geeignet', 'abgeschlossen']);
 // AW-021: Bewirtschafter, Gemeinden und vermittelnde Personen können Flächen melden (Rolle bleibt freiwillig)
 export const ROLLEN = ['Eigentümer/in', 'Miteigentümer/in oder Erbengemeinschaft', 'Bevollmächtigt oder Verwaltung', 'Pächter/in', 'Bewirtschafter/in', 'Gemeinde oder Verwaltung', 'Hinweis auf eine Fläche (vermittelnd)', 'Sonstiges'];
 // Bestand vor AW-020 kannte nur „in Bearbeitung“
+// AW-021 DQ-1: angegebene Formularrolle → Kontaktrolle der Beteiligung. Die Übernahme vergibt nie einen Eigentümerstatus;
+// „Eigentümer“ bleibt „nicht bestätigt“, bis eine Grundlage dokumentiert ist (Standortakte → Beteiligte verknüpfen).
+export const KONTAKTROLLE_AUS_ANFRAGE = { 'Eigentümer/in': 'Eigentümer', 'Miteigentümer/in oder Erbengemeinschaft': 'Eigentümer', 'Pächter/in': 'Pächter', 'Bewirtschafter/in': 'Bewirtschafter', 'Gemeinde oder Verwaltung': 'Gemeinde/Verwaltung', 'Hinweis auf eine Fläche (vermittelnd)': 'Kontaktvermittler' };
+export const kontaktrolleAusAnfrage = (rolle) => KONTAKTROLLE_AUS_ANFRAGE[rolle] || 'sonstiger Projektkontakt';
 export const statusVon = (i) => (i.status === 'in Bearbeitung' ? 'in Prüfung' : i.status);
 export const istOffen = (i) => OFFEN.has(statusVon(i));
 const heute = () => new Date().toISOString().slice(0, 10);
@@ -152,7 +156,7 @@ ${d.length ? html`<section class="panel"><h2>Mögliche Dubletten</h2><p class="s
   </form></div>
 </section>
 ${i.kind === 'flaeche' && !projekt && !i.anonymisiert && darfUebernehmen(u) && OFFEN.has(st) ? html`<section class="panel"><h2>Als Standort übernehmen</h2>
-  <p class="small muted">Legt Kontakt, Standort (Phase 1 · Standortidentifikation), Grundstück und eine erste Aufgabe in der bestehenden Projektstruktur an. Keine Projektgesellschaft, kein Vertrag, keine Rechtevergabe.</p>
+  <p class="small muted">Legt Kontakt, Standort (Phase 1 · Standortidentifikation), Grundstück und eine erste Aufgabe in der bestehenden Projektstruktur an. Keine Projektgesellschaft, kein Vertrag, keine Rechtevergabe. Die anfragende Person wird als Kontaktperson mit ihrer angegebenen Rolle verknüpft; ein Eigentümerstatus entsteht erst mit dokumentierter Grundlage in der Standortakte.</p>
   <form method="post" action="/portal/anfragen/${i.id}/standort" class="stack stack-inline">${csrf}
     <label for="sn">Standortname</label><input id="sn" name="name" required maxlength="80" value="${[i.lage, i.plz].filter(Boolean).join(' ').slice(0, 80)}">
     <label for="rg">Region</label><select id="rg" name="region">${regionenFuer(u).map((r) => html`<option value="${r}">${REGIONEN[r]}</option>`)}</select>
@@ -228,13 +232,14 @@ export async function handleAkquise({ res, path, method, u, s, view, post, url }
     // ohne Rechteänderung: der Standort muss für die übernehmende Person über ihre bestehende Rolle sichtbar sein
     if (!P.getProject(u, pid)) { db.projects.pop(); throw new HttpError(403, 'Der Standort wäre für Sie nicht sichtbar. Bitte durch die Administration übernehmen lassen.'); }
     db.meta.standortSeq = (db.meta.standortSeq || 0) + 1;
-    db.contacts.push({ id: cid, name: i.name, kind: 'Grundstückseigentümer', email: i.email, phone: i.phone, projectIds: [pid], owner: i.assignee || u.id, note: [i.rolle, `aus Anfrage ${kennung(i)}`].filter(Boolean).join(' · ') });
+    const kr = kontaktrolleAusAnfrage(i.rolle);
+    db.contacts.push({ id: cid, name: i.name, kind: 'Projektkontakt', rollen: [kr], email: i.email, phone: i.phone, projectIds: [pid], owner: i.assignee || u.id, note: [i.rolle, `aus Anfrage ${kennung(i)}`].filter(Boolean).join(' · '), source: { inquiryId: i.id, ref: kennung(i) } });
     // AW-021: Flurstück strukturiert, wenn eindeutig; sonst Freitext als Altangabe erhalten und zur Prüfung markieren
     const fs = i.gemarkung || i.flur ? { gemarkung: i.gemarkung || '–', flur: i.flur || '–', flurstueck: i.flurstueck || '–' } : flurstueckParsen(i.flurstueck);
-    db.parcels.push({ id: newId('x'), projectId: pid, ownerContactId: cid, gemarkung: fs?.gemarkung || '–', flur: fs?.flur || '–', flurstueck: fs?.flurstueck || '–', gemeinde: i.lage || '', altangabe: fs ? '' : i.flurstueck || '', datenquelle: `Anfrage ${kennung(i)} (Angabe der anfragenden Person)`, erhobenAm: i.at.slice(0, 10), pruefstatus: !fs && i.flurstueck ? 'Prüfung erforderlich' : 'unbestätigt', areaHa: Number(String(i.flaeche || '').replace(',', '.')) || null, devAreaHa: null, use: i.nutzung || 'unbekannt', status: 'Erstkontakt' });
+    db.parcels.push({ id: newId('x'), projectId: pid, ownerContactId: null, strukturiert: true, beteiligte: [{ id: newId('bt'), contactId: cid, rolle: kr, eigentum: 'nicht bestätigt', grundlage: '', angabe: i.rolle || 'keine Angabe', at: now(), by: u.id }], gemarkung: fs?.gemarkung || '–', flur: fs?.flur || '–', flurstueck: fs?.flurstueck || '–', gemeinde: i.lage || '', altangabe: fs ? '' : i.flurstueck || '', datenquelle: `Anfrage ${kennung(i)} (Angabe der anfragenden Person)`, erhobenAm: i.at.slice(0, 10), pruefstatus: !fs && i.flurstueck ? 'Prüfung erforderlich' : 'unbestätigt', areaHa: Number(String(i.flaeche || '').replace(',', '.')) || null, devAreaHa: null, use: i.nutzung || 'unbekannt', status: 'Erstkontakt' });
     db.tasks.push({ id: newId('t'), projectId: pid, title: i.nextAction || 'Erstbewertung Netzentfernung und Standortkriterien', due: i.followUp || new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10), assignee: i.assignee || u.id, status: 'offen', inquiryId: i.id, log: [{ at: now(), by: u.id, byName: u.name, text: `Aus Anfrage ${kennung(i)} übernommen` }] });
     i.projectId = pid; i.status = 'als Standort übernommen';
-    verlauf(i, u, `Als Standort ${code} übernommen (Kontakt, Grundstück, Aufgabe angelegt)`);
+    verlauf(i, u, `Als Standort ${code} übernommen (Kontakt, Grundstück, Aufgabe angelegt; Rolle ${kr}, Eigentum nicht bestätigt)`);
     persist(); audit('anfrage_als_standort', u, { anfrage: i.id, projekt: pid });
     return redirect(res, `/portal/anfragen/${i.id}?m=standort`);
   }

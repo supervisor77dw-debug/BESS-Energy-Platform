@@ -305,6 +305,7 @@ details[open] > summary { margin-bottom: 6px; }
 @media (max-width: 767px) {
   .btn { min-height: 44px; } .btn-small { min-height: 40px; }
   input, select, textarea, .fld input, .fld select, .stack input, .stack select { font-size: 16px !important; min-height: 44px; }
+  .checks input[type="checkbox"], .check input[type="checkbox"] { min-height: 0; } /* AW-021 UI-1: Kästchen neben der Beschriftung */
   .seg a { min-height: 44px; }
   .status-strip { grid-template-columns: 1fr 1fr; }
   .status-strip .st:nth-child(3) { border-left: 0; } .status-strip .st:nth-child(n+3) { border-top: 1px solid var(--line); }

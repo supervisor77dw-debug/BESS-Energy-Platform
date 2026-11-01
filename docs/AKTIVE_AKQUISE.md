@@ -102,9 +102,27 @@ Technische Umsetzung:
 | `BESS_AKTIVE_AKQUISE` | `1` an, `0` aus. Ohne Wert: an in QA und lokal, aus in der Stufe `abnahme`. |
 | `BESS_AKQUISE_ECHTDATEN` | Wirkt nur in der Stufe `abnahme`. Ist erst nach Datenschutzfreigabe zu setzen. |
 
+## DQ-1: Übernahme ohne automatischen Eigentümerstatus (Folgecommit)
+
+Ursache (seit -020): „Anfrage als Standort übernehmen“ setzte für jede anfragende Person `kind: 'Grundstückseigentümer'` und `ownerContactId`, unabhängig von der angegebenen Rolle. Pächter, Bewirtschafter, Gemeinden und Hinweisgeber wurden so Eigentümer.
+
+Jetzt getrennt:
+
+| Ebene | Feld | Entsteht durch |
+|---|---|---|
+| Angegebene Kontaktrolle | `contacts[].rollen`, `beteiligte[].angabe` (Formularrolle wörtlich) | Übernahme (Zuordnung `KONTAKTROLLE_AUS_ANFRAGE`, unbekannt → „sonstiger Projektkontakt“) |
+| Zuordnung zum Grundstück | `parcels[].beteiligte[]` mit Rolle, `eigentum: 'nicht bestätigt'` | Übernahme oder „Beteiligte verknüpfen“ |
+| Bestätigter Eigentümerstatus | `eigentum: 'bestätigt'` + Grundlage → `ownerContactId` (nur wenn leer) und `kind: 'Grundstückseigentümer'` | ausschließlich Bestätigung mit Grundlage, nur Rolle Eigentümer |
+
+- Wird eine Bestätigung beendet oder zurückgenommen, wird nur zurückgesetzt, was diese Bestätigung gesetzt hat (`ownerGesetzt`, `kindVorher`).
+- Vergütung (`finanzen.mjs`) und Portal-Einladung (`benutzer.mjs`) wählen Eigentümer weiter über `kind`. Sie greifen damit erst nach der Bestätigung. Ein Konto oder Recht entsteht dadurch nicht.
+- **Historische Fehlzuordnungen** (Kontakt `kind` Eigentümer, Notiz „<Rolle> · aus Anfrage …“ mit Nicht-Eigentümerrolle oder ohne Rolle) werden in der Kopfzeile der Standortakte, in der Kontaktliste und in der Kontaktakte als „Eigentümerstatus prüfen“ markiert. Es gibt keine automatische Änderung. Die Prüfliste liefert `tools/akquise-altdaten.mjs`.
+- UI-1: Kontrollkästchen in `.checks`/`.check` ohne die mobile Mindesthöhe von 44 px.
+- Tests: `test/aktive-akquise.test.mjs` Test 10. Er deckt alle Formularrollen, die Grundlage, das Beenden, Mehrfachrollen, Dubletten und die erneute Übernahme ab, außerdem die Nachbildung von QA-Fall ANF-2026-0006 und den markierten Altfall.
+
 ## Tests
 
-`test/aktive-akquise.test.mjs` (10 Tests) prüft:
+`test/aktive-akquise.test.mjs` (11 Tests) prüft:
 
 - Anlage ohne Anfrage und das Freigabetor,
 - Rechte je Rolle und Region,
@@ -118,4 +136,4 @@ Technische Umsetzung:
 - öffentliches Formular,
 - Schalter.
 
-Die gesamte Suite (`npm test`) läuft mit 225/225.
+Die gesamte Suite (`npm test`) läuft mit 226/226.

@@ -165,7 +165,10 @@ test('Flurstücke und Beteiligte: mehrere Flurstücke und Kontakte, Eigentum nur
   assert.equal(X1.beteiligte.filter((b) => b.rolle === 'Eigentümer').length, 1, 'aktualisiert statt doppelt');
   assert.equal(X1.beteiligte.find((b) => b.rolle === 'Eigentümer').eigentum, 'bestätigt');
   assert.ok(C1.projectIds.includes(K.id), 'Kontakt nachträglich mit Standort verknüpft');
-  assert.equal(X1.ownerContactId, null, 'Eigentümerportal unverändert – kein Portalzugang durch Verknüpfung');
+  // DQ-1: erst die Bestätigung mit Grundlage ordnet das Flurstück dem Eigentümer zu (keine Konto- oder Rechtevergabe)
+  assert.equal(X1.ownerContactId, C1.id);
+  assert.equal(C1.kind, 'Grundstückseigentümer');
+  assert.ok(!db.users.some((x) => x.contactId === C1.id), 'kein Portalkonto angelegt');
   // Verknüpfung beenden statt löschen
   const b2 = X1.beteiligte.find((b) => b.contactId === C2.id);
   assert.equal((await m.form(`/portal/projekte/${K.id}/beteiligte/${b2.id}/beenden`, { _csrf: m.token, parcelId: X1.id })).status, 303);
@@ -316,12 +319,101 @@ test('Öffentliches Formular: Gemarkung/Flur/Flurstück getrennt und freiwillig,
   const x = db.parcels.at(-1);
   assert.deepEqual([x.gemarkung, x.flur, x.flurstueck, x.gemeinde], ['Feldmark', '9', '44', 'Feldhausen']);
   assert.match(x.datenquelle, /^Anfrage ANF-/);
-  // Eigentümerzuordnung aus Anfrage mit Rolle Bewirtschafter wird zur Prüfung markiert
-  const p = db.projects.find((y) => y.id === x.projectId);
-  assert.match((await m.text(`/portal/projekte/${p.id}`)).body, /Rolle laut Anfrage: Bewirtschafter\/in/);
+  // DQ-1: Bewirtschafterin wird Kontaktperson mit ihrer Rolle, nicht Eigentümerin
+  assert.equal(x.ownerContactId, null);
+  assert.deepEqual(x.beteiligte.map((b) => [b.rolle, b.eigentum]), [['Bewirtschafter', 'nicht bestätigt']]);
   // Freitext-Altform weiterhin: nicht eindeutig → Altangabe + Prüfung erforderlich
   const { flurstueckParsen } = await import('../src/portal/akquise.mjs');
   assert.equal(flurstueckParsen('hinter der Scheune'), null);
+});
+
+test('DQ-1: Übernahme vergibt nie automatisch Eigentümerstatus; Rolle, Zuordnung und Bestätigung getrennt; ANF-2026-0006 nachgebildet', async () => {
+  const { naechsteKennung } = await import('../src/portal/akquise.mjs');
+  const m = await login('markus@demo.invalid');
+  // gespeicherte Flächenanfragen je Rolle (synthetisch); Übernahme über die echte Route
+  const anfrage = (rolle, name, extra = {}) => { const i = { id: `inq-dq1-${db.inquiries.length}`, ref: naechsteKennung(db), at: new Date().toISOString(), kind: 'flaeche', status: 'neu', name, rolle, email: `${db.inquiries.length}.dq1@example.invalid`, phone: '', plz: '', lage: `DQ1-Ort ${db.inquiries.length}`, flaeche: '', nutzung: 'Acker', umspannwerk: 'Weiß ich nicht', flurstueck: '', log: [], ...extra }; db.inquiries.push(i); return i; };
+  const uebernehmen = async (i) => {
+    const csrf = await m.csrf(`/portal/anfragen/${i.id}`);
+    assert.equal((await m.form(`/portal/anfragen/${i.id}/standort`, { _csrf: csrf, name: i.lage, region: 'nord', dublettenGeprueft: 'ja' })).status, 303, i.rolle);
+    const p = db.projects.find((y) => y.id === i.projectId);
+    return { p, x: db.parcels.find((y) => y.projectId === p.id), c: db.contacts.find((y) => (y.projectIds || []).includes(p.id) && y.source?.inquiryId === i.id) };
+  };
+  const faelle = [['Eigentümer/in', 'Eigentümer'], ['Miteigentümer/in oder Erbengemeinschaft', 'Eigentümer'], ['Pächter/in', 'Pächter'], ['Bewirtschafter/in', 'Bewirtschafter'], ['Gemeinde oder Verwaltung', 'Gemeinde/Verwaltung'], ['Hinweis auf eine Fläche (vermittelnd)', 'Kontaktvermittler'], ['Bevollmächtigt oder Verwaltung', 'sonstiger Projektkontakt'], ['Sonstiges', 'sonstiger Projektkontakt'], ['', 'sonstiger Projektkontakt']];
+  const ergebnis = {};
+  for (const [rolle, erwartet] of faelle) {
+    const { x, c } = await uebernehmen(anfrage(rolle, `DQ1 ${rolle || 'ohne Rolle'} (synthetisch)`));
+    assert.equal(x.ownerContactId, null, `${rolle}: kein Eigentümer am Flurstück`);
+    assert.equal(c.kind, 'Projektkontakt', `${rolle}: kein Eigentümerkontakt`);
+    assert.deepEqual(c.rollen, [erwartet]);
+    assert.deepEqual(x.beteiligte.map((b) => [b.contactId, b.rolle, b.eigentum, b.angabe]), [[c.id, erwartet, 'nicht bestätigt', rolle || 'keine Angabe']]);
+    ergebnis[rolle] = { x, c };
+  }
+  // Eigentümerangabe ohne Grundlage: Kopfzeile mit Status, nicht für Vergütung auswählbar (kind), Vorqualifizierung verlangt Bestätigung
+  const E = ergebnis['Eigentümer/in'];
+  let akte = (await m.text(`/portal/projekte/${E.x.projectId}`)).body;
+  assert.match(akte, /<dt>Eigentümer<\/dt><dd>DQ1 Eigentümer\/in \(synthetisch\) \(nicht bestätigt\)/);
+  const { fehlendeAngaben } = await import('../src/portal/flaechen.mjs');
+  assert.ok(fehlendeAngaben(db, db.projects.find((p) => p.id === E.x.projectId), { netzstufe: 'keine Prüfung', planungsrecht: 'ungeprüft', sicherung: 'kein Kontakt' }).includes('bestätigter Eigentümer'));
+  // Eigentümeranfrage mit dokumentierter Grundlage → Zuordnung und Eigentümerstatus; Beenden nimmt beides zurück
+  const bet = (p, f) => m.form(`/portal/projekte/${p}/beteiligte`, { _csrf: m.token, ...f });
+  assert.equal((await bet(E.x.projectId, { parcelId: E.x.id, contactId: E.c.id, rolle: 'Eigentümer', eigentum: 'bestätigt' })).status, 422, 'ohne Grundlage');
+  assert.equal(E.x.ownerContactId, null);
+  assert.equal((await bet(E.x.projectId, { parcelId: E.x.id, contactId: E.c.id, rolle: 'Eigentümer', eigentum: 'bestätigt', grundlage: 'Grundbuchauszug vom 01.11.2026 (synthetisch)' })).status, 303);
+  assert.equal(E.x.ownerContactId, E.c.id);
+  assert.equal(E.c.kind, 'Grundstückseigentümer');
+  assert.equal(E.x.beteiligte.length, 1, 'bestehende Beteiligung aktualisiert');
+  akte = (await m.text(`/portal/projekte/${E.x.projectId}`)).body;
+  assert.match(akte, /<dt>Eigentümer<\/dt><dd>DQ1 Eigentümer\/in \(synthetisch\) \(bestätigt\)/);
+  assert.equal((await m.form(`/portal/projekte/${E.x.projectId}/beteiligte/${E.x.beteiligte[0].id}/beenden`, { _csrf: m.token, parcelId: E.x.id })).status, 303);
+  assert.equal(E.x.ownerContactId, null, 'Zuordnung zurückgenommen');
+  assert.equal(E.c.kind, 'Projektkontakt');
+  // Pächter, Bewirtschafter, Gemeinde, Hinweisgeber: nie als Eigentümer bestätigbar über ihre Rolle
+  for (const r of ['Pächter/in', 'Bewirtschafter/in', 'Gemeinde oder Verwaltung', 'Hinweis auf eine Fläche (vermittelnd)']) {
+    const { x, c } = ergebnis[r];
+    assert.equal((await bet(x.projectId, { parcelId: x.id, contactId: c.id, rolle: c.rollen[0], eigentum: 'bestätigt', grundlage: 'Vertrag' })).status, 422, r);
+    assert.equal(x.ownerContactId, null);
+  }
+  // Mehrfachrollen: Pächterin ist zusätzlich nachweislich Miteigentümerin → nur mit Grundlage
+  const PA = ergebnis['Pächter/in'];
+  assert.equal((await bet(PA.x.projectId, { parcelId: PA.x.id, contactId: PA.c.id, rolle: 'Eigentümer', eigentum: 'bestätigt', grundlage: 'Erbschein und Grundbuchauszug (synthetisch)' })).status, 303);
+  assert.deepEqual(PA.c.rollen, ['Pächter', 'Eigentümer']);
+  assert.deepEqual(PA.x.beteiligte.map((b) => [b.rolle, b.eigentum]), [['Pächter', 'nicht bestätigt'], ['Eigentümer', 'bestätigt']]);
+  assert.equal(PA.x.ownerContactId, PA.c.id);
+  // Dubletten und erneute Übernahme: unverändert
+  const doppel = anfrage('Pächter/in', 'DQ1 Doppel (synthetisch)', { email: ergebnis['Bewirtschafter/in'].c.email });
+  const csrf = await m.csrf(`/portal/anfragen/${doppel.id}`);
+  assert.equal((await m.form(`/portal/anfragen/${doppel.id}/standort`, { _csrf: csrf, name: 'x', region: 'nord' })).status, 422, 'Dublettenbestätigung');
+  assert.equal((await m.form(`/portal/anfragen/${ergebnis['Sonstiges'].c.source.inquiryId}/standort`, { _csrf: csrf, name: 'x', region: 'nord', dublettenGeprueft: 'ja' })).status, 403, 'keine zweite Übernahme');
+
+  // QA-Fall ANF-2026-0006 nachgebildet (öffentliches Formular → Übernahme)
+  const form = await (await fetch(base + '/standort-anbieten')).text();
+  const t = /name="_t" value="([^"]+)"/.exec(form)[1];
+  await new Promise((r) => setTimeout(r, 1600));
+  const f = new FormData();
+  Object.entries({ _t: t, name: 'QA021 Pächter Formular (synthetisch)', rolle: 'Pächter/in', email: 'qa021.paechter@example.invalid', lage: 'QA021-Wiesenau (synthetisch)', plz: '24999', gemarkung: 'QA021-Wiesenmark', flur: '2', flurstueck: '7', flaeche: '2,5', nutzung: 'Acker', umspannwerk: 'Weiß ich nicht', dsgvo: 'ja' }).forEach(([k, v]) => f.set(k, v));
+  assert.equal((await fetch(base + '/standort-anbieten', { method: 'POST', body: f, redirect: 'manual' })).status, 303);
+  const Q = await uebernehmen(db.inquiries.at(-1));
+  assert.equal(Q.x.ownerContactId, null);
+  assert.equal(Q.c.kind, 'Projektkontakt');
+  assert.deepEqual([Q.x.gemarkung, Q.x.flur, Q.x.flurstueck, Q.x.areaHa], ['QA021-Wiesenmark', '2', '7', 2.5]);
+  akte = (await m.text(`/portal/projekte/${Q.p.id}`)).body;
+  assert.match(akte, /<dt>Eigentümer<\/dt><dd>–<\/dd>/, 'Kopfzeile nennt die Pächterin nicht als Eigentümerin');
+  assert.match(akte, /QA021 Pächter Formular \(synthetisch\)<\/a> · Pächter/);
+  assert.ok(!/Rolle laut Anfrage/.test(akte), 'kein Altfall');
+
+  // Historische Fehlzuordnung (Stand vor DQ-1): erkannt und markiert, nicht verändert
+  db.contacts.push({ id: 'c-dq1-alt', name: 'DQ1 Altfall Pächter (synthetisch)', kind: 'Grundstückseigentümer', email: '', phone: '', projectIds: ['p-n02'], owner: 'u-markus', note: 'Pächter/in · aus Anfrage ANF-2026-0098' });
+  db.parcels.push({ id: 'x-dq1-alt', projectId: 'p-n02', ownerContactId: 'c-dq1-alt', gemarkung: 'DQ1-Mark', flur: '1', flurstueck: '1', areaHa: null, devAreaHa: null, use: 'Acker', status: 'Erstkontakt' });
+  const vorher = JSON.stringify([db.contacts.at(-1), db.parcels.at(-1)]);
+  akte = (await m.text('/portal/projekte/p-n02')).body;
+  assert.match(akte, /DQ1 Altfall Pächter \(synthetisch\) \(Bestand – nicht geprüft; Rolle laut Anfrage: Pächter\/in – prüfen\)/);
+  assert.match((await m.text('/portal/kontakte')).body, /Eigentümerstatus prüfen \(laut Anfrage: Pächter\/in\)/);
+  assert.match((await m.text('/portal/kontakte/c-dq1-alt')).body, /Eigentümerstatus prüfen/);
+  assert.equal(JSON.stringify([db.contacts.find((c) => c.id === 'c-dq1-alt'), db.parcels.find((x) => x.id === 'x-dq1-alt')]), vorher, 'keine automatische Änderung');
+  // Bestandskontakte mit Vertrag unverändert und unmarkiert
+  assert.equal(db.contacts.find((c) => c.id === 'c-own-a').kind, 'Grundstückseigentümer');
+  assert.equal(db.parcels.find((x) => x.id === 'x-1').ownerContactId, 'c-own-a');
+  assert.ok(!/Eigentümerstatus prüfen \(laut Anfrage[^)]*\)[^<]*<\/span><br><span class="muted small">eigentuemer\.a/.test((await m.text('/portal/kontakte')).body));
 });
 
 test('Schalter: Abnahmestufe ohne aktive Akquise, Echtdaten nie in Vorschauen', () => {

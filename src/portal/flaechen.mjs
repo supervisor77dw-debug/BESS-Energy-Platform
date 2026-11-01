@@ -102,12 +102,15 @@ function beteiligteVon(db, x) {
 }
 // Übernahme aus Anfrage vor AW-021: Kontakt wurde unabhängig von der angegebenen Rolle als Eigentümer zugeordnet
 const NICHT_EIGENTUEMER = ['Pächter/in', 'Bewirtschafter/in', 'Bevollmächtigt oder Verwaltung', 'Gemeinde oder Verwaltung', 'Hinweis auf eine Fläche (vermittelnd)', 'Sonstiges'];
-const rolleLautAnfrage = (c) => NICHT_EIGENTUEMER.find((r) => String(c?.note || '').startsWith(`${r} · aus Anfrage`)) || null;
+export const rolleLautAnfrage = (c) => NICHT_EIGENTUEMER.find((r) => String(c?.note || '').startsWith(`${r} · aus Anfrage`)) || (String(c?.note || '').startsWith('aus Anfrage') ? 'keine Angabe' : null);
+// Historische Fehlzuordnung (DQ-1): Eigentümerkontakt aus einer Anfrage ohne Eigentümerrolle → prüfbedürftig, nie automatisch geändert
+export const eigentumPruefen = (db, c) => !!c && c.kind === 'Grundstückseigentümer' && !!rolleLautAnfrage(c) && !db.parcels.some((x) => aktiveBeteiligte(x).some((b) => b.contactId === c.id && b.rolle === 'Eigentümer' && b.eigentum === 'bestätigt'));
+// Kopfzeile „Eigentümer“ der Standortakte: immer mit Status; Fehlzuordnungen aus Anfragen als prüfbedürftig (DQ-1)
 export function eigentuemerText(db, p, contacts) {
-  const alt = contacts.filter((c) => c.kind === 'Grundstückseigentümer').map((c) => c.name);
-  const neu = db.parcels.filter((x) => x.projectId === p.id).flatMap((x) => aktiveBeteiligte(x)).filter((b) => b.rolle === 'Eigentümer')
-    .map((b) => `${db.contacts.find((c) => c.id === b.contactId)?.name || '–'} (${b.eigentum})`);
-  return [...new Set([...alt, ...neu])].join(', ');
+  const eig = db.parcels.filter((x) => x.projectId === p.id).flatMap((x) => beteiligteVon(db, x)).filter((b) => b.rolle === 'Eigentümer');
+  const text = eig.map((b) => `${b.kontakt?.name || '–'} (${b.eigentum}${b.id === null && rolleLautAnfrage(b.kontakt) ? `; Rolle laut Anfrage: ${rolleLautAnfrage(b.kontakt)} – prüfen` : ''})`);
+  const ohne = contacts.filter((c) => c.kind === 'Grundstückseigentümer' && !eig.some((b) => b.contactId === c.id)).map((c) => `${c.name} (${BESTAND_OFFEN})`);
+  return [...new Set([...text, ...ohne])].join(', ');
 }
 
 // ---------- Dubletten (Kontakte, Grundstücke, Standorte) ----------
@@ -224,6 +227,7 @@ function kontaktDetail({ db, u, s, c, msg }) {
   const versuche = [...(c.kontaktversuche || [])].reverse();
   return html`${msg ? html`<div class="notice" role="status">${msg}</div>` : ''}
 ${gesperrt(c) ? html`<div class="alert" role="alert"><strong>Verarbeitung gesperrt</strong> – ${ds.sperrgrund || 'Widerspruch oder Kontakt nicht erwünscht'}. Keine weiteren Kontaktversuche.</div>` : ''}
+${eigentumPruefen(db, c) ? html`<div class="alert" role="alert"><strong>Eigentümerstatus prüfen</strong> – als Grundstückseigentümer geführt, laut Anfrage aber „${rolleLautAnfrage(c)}“. Keine automatische Korrektur; Eigentum nur mit Grundlage bestätigen.</div>` : ''}
 ${art14Faellig(c) ? html`<div class="alert" role="alert"><strong>Art.-14-Information überfällig</strong> – Daten seit ${fmtDate(ds.erhobenAm)} erhoben, Information spätestens nach einem Monat bzw. beim ersten Kontakt.</div>` : ''}
 <section class="grid-2">
   <div class="panel"><h2>Kontakt${testMark(c)}</h2>${kontaktFormular({ db, u, s, c })}</div>
@@ -513,7 +517,7 @@ export async function handleFlaechen({ res, path, method, u, s, view, post, url 
     if (pp[3]) {
       const b = (x.beteiligte || []).find((y) => y.id === pp[3]);
       if (pp[4] !== 'beenden' || !b) throw notFound();
-      if (!b.beendetAm) { b.beendetAm = now(); b.beendetVon = u.id; persist(); audit('beteiligung_beendet', u, { projekt: p.id, grundstueck: x.id, kontakt: b.contactId }); }
+      if (!b.beendetAm) { b.beendetAm = now(); b.beendetVon = u.id; eigentumAbgleichen(db, x, b, db.contacts.find((c) => c.id === b.contactId)); persist(); audit('beteiligung_beendet', u, { projekt: p.id, grundstueck: x.id, kontakt: b.contactId }); }
       return zurueck('beteiligte');
     }
     const c = P.getContact(u, txt(fields.contactId, 40));
@@ -524,7 +528,7 @@ export async function handleFlaechen({ res, path, method, u, s, view, post, url 
     const grundlage = txt(fields.grundlage, 200);
     if (eigentum === 'bestätigt' && rolle !== 'Eigentümer') throw new HttpError(422, 'Nur die Rolle Eigentümer kann als bestätigt gelten. Bewirtschafter und Pächter sind nicht Eigentümer.');
     if (eigentum === 'bestätigt' && !grundlage) throw new HttpError(422, 'Für ein bestätigtes Eigentum ist die Grundlage anzugeben (z. B. Grundbuchauszug, Vertrag, Vollmacht).');
-    verknuepfen(c, x, rolle, eigentum, grundlage, u);
+    eigentumAbgleichen(db, x, verknuepfen(c, x, rolle, eigentum, grundlage, u), c);
     persist(); audit('beteiligung_verknuepft', u, { projekt: p.id, grundstueck: x.id, kontakt: c.id, rolle, eigentum });
     return zurueck('beteiligte');
   }
@@ -559,6 +563,21 @@ function verknuepfen(c, x, rolle, eigentum, grundlage, u) {
   else x.beteiligte.push({ id: newId('bt'), contactId: c.id, rolle, eigentum, grundlage, at: now(), by: u.id });
   if (!(c.projectIds ||= []).includes(x.projectId)) c.projectIds.push(x.projectId);
   if (!(c.rollen ||= []).includes(rolle)) c.rollen.push(rolle);
+  return b || x.beteiligte.at(-1);
+}
+// Bestätigtes Eigentum (Rolle Eigentümer + Grundlage) ist der einzige Weg zum Eigentümerstatus (DQ-1): setzt die bestehende
+// Zuordnung ownerContactId nur, wenn das Flurstück noch keinen Eigentümer hat, und kind für Vergütung/Einladung.
+// Wird die Bestätigung beendet oder zurückgenommen, wird nur zurückgesetzt, was diese Bestätigung gesetzt hat.
+function eigentumAbgleichen(db, x, b, c) {
+  if (!c) return;
+  const bestaetigt = (y) => !y.beendetAm && y.rolle === 'Eigentümer' && y.eigentum === 'bestätigt';
+  if (bestaetigt(b)) {
+    if (!x.ownerContactId) { x.ownerContactId = c.id; b.ownerGesetzt = true; }
+    if (c.kind !== 'Grundstückseigentümer') { c.kindVorher ??= c.kind || 'Projektkontakt'; c.kind = 'Grundstückseigentümer'; }
+    return;
+  }
+  if (b.ownerGesetzt && x.ownerContactId === c.id) { x.ownerContactId = null; b.ownerGesetzt = false; }
+  if (c.kindVorher && !db.parcels.some((y) => (y.beteiligte || []).some((z) => z.contactId === c.id && bestaetigt(z)))) { c.kind = c.kindVorher; delete c.kindVorher; }
 }
 
 export const AKQUISE_MELDUNGEN = { erfasst: 'Fläche erfasst. Bitte Eigentümer- und Kontaktstatus prüfen.', flurstueck: 'Flurstück gespeichert.', beteiligte: 'Beteiligte gespeichert.', vorqualifizierung: 'Vorqualifizierung gespeichert.', unvollstaendig: 'Gespeichert als „Vorprüfung – nicht bestätigt“: Für eine Vorqualifizierung fehlen Angaben oder ein Ausschlusskriterium liegt vor.', pipeline: 'In die Pipeline übernommen.' };
