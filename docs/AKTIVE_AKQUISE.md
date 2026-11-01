@@ -120,9 +120,26 @@ Jetzt getrennt:
 - UI-1: Kontrollkästchen in `.checks`/`.check` ohne die mobile Mindesthöhe von 44 px.
 - Tests: `test/aktive-akquise.test.mjs` Test 10. Er deckt alle Formularrollen, die Grundlage, das Beenden, Mehrfachrollen, Dubletten und die erneute Übernahme ab, außerdem die Nachbildung von QA-Fall ANF-2026-0006 und den markierten Altfall.
 
+## R-DQ-e/f: Eigentümerstatus einheitlich, Vergütung nur für bestätigte Eigentümer (Folgecommit)
+
+| Begriff | Bedeutung | Quelle |
+|---|---|---|
+| Kontaktrolle | Angabe, darf historisch bestehen bleiben („Eigentümer (laut Angabe)“, „Eigentümer (laut Bestand)“, Pächter …) | `contacts[].rollen` bzw. `kind` |
+| Eigentümerstatus | `bestätigt` · `Prüfung erforderlich` · `nicht geprüft` | `eigentuemerstatus()` / `statusAmFlurstueck()` in `flaechen.mjs` |
+| Bestätigungsgrundlage | ausschließlich **aktuell gültig**: aktive Bestätigung (Rolle Eigentümer + Grundlage), Vertrag zum Flurstück, verbindlicher Vertragsstand (Eckdaten, unterzeichnet, Nachtrag) des Bestandseigentümers | `grundlageVon()` |
+
+- „Prüfung erforderlich“ bezeichnet historische Fehlzuordnungen: Bestandseigentümer aus einer Anfrage mit einer anderen Rolle oder ohne Rollenangabe.
+- Eine beendete Bestätigung führt zurück zu „nicht geprüft“. Die Rolle bleibt erhalten, der Status nicht.
+- Kontaktliste, Kontaktakte und Standortakte (Kopfzeile und Beteiligte) verwenden dieselbe Funktion und dasselbe Vokabular. Die Kontaktakte zeigt die Grundlage mit Zeitpunkt und bestätigender Person; der Wechsel ist zusätzlich im Protokoll `beteiligung_verknuepft` mit `eigentum` erfasst.
+- **Vergütung** (`finanzen.mjs`):
+  - Die Auswahl zeigt alle Eigentümerangaben mit Status. Nicht bestätigte sind gesperrt (`disabled`), mit Hinweis auf die Standortakte.
+  - **Serverseitig** lehnen `simulation` (Simulation, Verhandlungsvorschlag) und `verbindlich` (Übernahme eines Angebots) Kontakte ohne bestätigten Status mit 409 ab und protokollieren `verguetung_abgelehnt_eigentum`.
+  - Vorhandene Angebote, Vertragsstände und Verträge werden nicht verändert.
+  - Vorher prüfte `simulation` nur die Projektzugehörigkeit des Kontakts; ein direkter Aufruf mit einem Nicht-Eigentümer war möglich.
+
 ## Tests
 
-`test/aktive-akquise.test.mjs` (11 Tests) prüft:
+`test/aktive-akquise.test.mjs` (12 Tests) prüft:
 
 - Anlage ohne Anfrage und das Freigabetor,
 - Rechte je Rolle und Region,
@@ -136,4 +153,4 @@ Jetzt getrennt:
 - öffentliches Formular,
 - Schalter.
 
-Die gesamte Suite (`npm test`) läuft mit 226/226.
+Die gesamte Suite (`npm test`) läuft mit 227/227.

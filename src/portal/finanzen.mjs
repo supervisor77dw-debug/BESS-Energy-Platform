@@ -17,6 +17,8 @@ import * as VT from '../lib/finance/vertraege.mjs';
 import * as HD from '../lib/finance/handelsdaten.mjs';
 import { berechnungCsv, verguetungPdf } from '../lib/finance/export.mjs';
 import { PHASES } from '../public/pages.mjs';
+import { eigentuemerstatus, STATUS_BESTAETIGT } from './flaechen.mjs';
+const NICHT_BESTAETIGT = 'Für diesen Kontakt ist kein Eigentümerstatus bestätigt. Vergütungsangebote nur für Eigentümer mit dokumentierter Grundlage (Standortakte → Beteiligte verknüpfen).';
 
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 const nf = () => new HttpError(404, 'Nicht gefunden');
@@ -172,6 +174,8 @@ export async function handleFinanzen({ req, res, url, path, method, u, s, view, 
       const e = rechnerEingabe(fields);
       const kontakt = db.contacts.find((c) => c.id === fields.ownerContactId && (c.projectIds || []).includes(p.id));
       if (!kontakt) throw new HttpError(400, 'Bitte einen Eigentümer-Kontakt dieses Projekts wählen.');
+      // AW-021 R-DQ-f: Vergütungsangebote nur für Eigentümer mit aktuell gültiger Grundlage (serverseitig, nicht nur in der Auswahl)
+      if (eigentuemerstatus(db, kontakt, p.id)?.status !== STATUS_BESTAETIGT) { audit('verguetung_abgelehnt_eigentum', u, { projekt: p.id, kontakt: kontakt.id }); throw new HttpError(409, NICHT_BESTAETIGT); }
       const vertragId = db.vertragsstaende.concat(db.verguetungsangebote).find((x) => x.projectId === p.id && x.ownerContactId === kontakt.id && x.typ !== 'variabel')?.vertragId || `k-${p.id}-${kontakt.id}`;
       VT.neuerStand(db, { vertragId, projectId: p.id, ownerContactId: kontakt.id, stufe, typ: e.typ, bedingungen: bedingungenAus(e), von: u.id, notiz: String(fields.notiz || '').slice(0, 300) });
       persist(); audit(stufe === 'vorschlag' ? 'verguetung_vorschlag' : 'verguetung_simulation', u, { projekt: p.id, vertrag: vertragId });
@@ -181,6 +185,7 @@ export async function handleFinanzen({ req, res, url, path, method, u, s, view, 
       if (!darfWirtschaftlichkeit(u, p.id)) throw nf();
       const angebot = db.verguetungsangebote.find((a) => a.id === fields.angebotId && a.projectId === p.id);
       if (!angebot) throw new HttpError(400, 'Bitte das zu übernehmende Angebot wählen.');
+      if (eigentuemerstatus(db, db.contacts.find((c) => c.id === angebot.ownerContactId), p.id)?.status !== STATUS_BESTAETIGT) { audit('verguetung_abgelehnt_eigentum', u, { projekt: p.id, kontakt: angebot.ownerContactId }); throw new HttpError(409, NICHT_BESTAETIGT); }
       const stufe = ['eckdaten', 'unterzeichnet', 'nachtrag'].includes(fields.stufe) ? fields.stufe : null;
       if (!stufe) throw new HttpError(400, 'Bitte die Vertragsstufe wählen.');
       const dok = String(fields.dokumentRef || '').trim();
@@ -371,7 +376,9 @@ ${P.isAdmin(u) && !gewaehlt.entwurf ? html`<form method="post" action="/portal/w
 
 function verguetungIntern({ db, u, s, p, eingabe, msg }) {
   const econ = darfWirtschaftlichkeit(u, p.id);
-  const kontakte = db.contacts.filter((c) => (c.projectIds || []).includes(p.id) && /eigentümer/i.test(c.kind || ''));
+  // AW-021 R-DQ-f: alle Eigentümerangaben mit Status; auswählbar nur bestätigte (Server prüft zusätzlich)
+  const kontakte = db.contacts.filter((c) => (c.projectIds || []).includes(p.id)).map((c) => ({ c, st: eigentuemerstatus(db, c, p.id) })).filter((k) => k.st);
+  const waehlbar = kontakte.filter((k) => k.st.status === STATUS_BESTAETIGT);
   const vertragIds = [...new Set(db.vertragsstaende.concat(db.verguetungsangebote).filter((x) => x.projectId === p.id).map((x) => x.vertragId))];
   const e = eingabe;
   let rechnung = null, rfehler = null;
@@ -399,8 +406,9 @@ ${rfehler ? html`<div class="alert" role="alert">${rfehler}</div>` : html`<div c
 <div><dt>Kaufpreis / Anfangspacht</dt><dd class="num">${num(rechnung.kp.betrag / rechnung.jp, 1)}×</dd></div></dl>
 <div class="tbl-wrap"><table class="tbl tbl-num"><caption class="sr">Variantenvergleich</caption><thead><tr><th>Variante</th><th class="num">Zahlungen nominal</th><th class="num">Barwert</th><th>Eigentum am Ende</th></tr></thead><tbody>${rechnung.vgl.varianten.map((v) => html`<tr><th scope="row">${v.name}</th><td class="num">${eur(v.nominal, true)}</td><td class="num">${eur(v.barwert, true)}</td><td>${v.eigentumAmEnde ? 'Projekt' : 'Eigentümer'}</td></tr>`)}</tbody></table></div></div>
 ${kontakte.length ? html`<form method="post" action="/portal/verguetung/${p.id}/simulation" class="stack stack-inline save-form">${csrf(s)}${Object.entries(e).map(([k, v]) => html`<input type="hidden" name="${k}" value="${typeof v === 'number' ? num(['vpiRate', 'vpiAnteil', 'indexierung', 'diskont'].includes(k) ? v * 100 : v, 6) : v}">`)}
-<label for="okc">Eigentümer</label><select id="okc" name="ownerContactId">${kontakte.map((c) => html`<option value="${c.id}">${c.name}</option>`)}</select>
-<label for="notiz">Notiz</label><input id="notiz" name="notiz" maxlength="300"><button class="btn" name="stufe" value="simulation" type="submit">Als Simulation speichern</button><button class="btn" name="stufe" value="vorschlag" type="submit">Als Verhandlungsvorschlag speichern</button></form>` : ''}`}</section>
+<label for="okc">Eigentümer</label><select id="okc" name="ownerContactId">${waehlbar.length ? '' : html`<option value="" selected disabled>kein bestätigter Eigentümer – Bestätigung erforderlich</option>`}${kontakte.map(({ c, st }) => html`<option value="${c.id}"${st.status === STATUS_BESTAETIGT ? '' : raw(' disabled')}>${c.name} – Eigentümerstatus: ${st.status}${st.rolleLautAnfrage ? ` (laut Anfrage: ${st.rolleLautAnfrage})` : ''}</option>`)}</select>
+${waehlbar.length < kontakte.length ? html`<p class="small muted">Nicht bestätigte Eigentümerangaben sind gesperrt. Freigabe erst nach dokumentierter Bestätigung in der <a href="/portal/projekte/${p.id}#flaechenakquise">Standortakte</a>.</p>` : ''}
+<label for="notiz">Notiz</label><input id="notiz" name="notiz" maxlength="300"><button class="btn" name="stufe" value="simulation" type="submit"${waehlbar.length ? '' : raw(' disabled')}>Als Simulation speichern</button><button class="btn" name="stufe" value="vorschlag" type="submit"${waehlbar.length ? '' : raw(' disabled')}>Als Verhandlungsvorschlag speichern</button></form>` : ''}`}</section>
 <section class="panel"><h2>Angebote und Vertragsstände</h2><p class="small muted">Stufen: 1 Simulation · 2 Verhandlungsvorschlag (unverbindlich) · 3 vereinbarte Eckdaten · 4 unterzeichneter Vertrag · 5 Nachtrag (verbindlich, versioniert, unveränderlich) · 6 abgerechnete Zahlungen.</p>
 ${vertragIds.length ? vertragIds.map((vid) => vertragBlock(db, u, s, p, vid)) : html`<p class="muted">Noch keine Angebote oder Verträge.</p>`}</section>`;
 }

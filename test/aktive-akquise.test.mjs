@@ -159,7 +159,7 @@ test('Flurstücke und Beteiligte: mehrere Flurstücke und Kontakte, Eigentum nur
   assert.equal((await bet({ contactId: C2.id, rolle: 'Pächter' })).status, 303);
   assert.equal((await bet({ contactId: C1.id, rolle: 'Eigentümer', eigentum: 'nicht bestätigt' })).status, 303);
   let akte = (await m.text(`/portal/projekte/${K.id}`)).body;
-  assert.match(akte, /Eigentümer[\s\S]*nicht bestätigt/);
+  assert.match(akte, /Eigentümer \(laut Angabe\)[\s\S]*Eigentümerstatus: nicht geprüft/);
   assert.equal(X1.beteiligte.length, 3, 'mehrere Kontakte und Rollen je Flurstück');
   assert.equal((await bet({ contactId: C1.id, rolle: 'Eigentümer', eigentum: 'bestätigt', grundlage: 'Grundbuchauszug (synthetisch)' })).status, 303);
   assert.equal(X1.beteiligte.filter((b) => b.rolle === 'Eigentümer').length, 1, 'aktualisiert statt doppelt');
@@ -351,7 +351,7 @@ test('DQ-1: Übernahme vergibt nie automatisch Eigentümerstatus; Rolle, Zuordnu
   // Eigentümerangabe ohne Grundlage: Kopfzeile mit Status, nicht für Vergütung auswählbar (kind), Vorqualifizierung verlangt Bestätigung
   const E = ergebnis['Eigentümer/in'];
   let akte = (await m.text(`/portal/projekte/${E.x.projectId}`)).body;
-  assert.match(akte, /<dt>Eigentümer<\/dt><dd>DQ1 Eigentümer\/in \(synthetisch\) \(nicht bestätigt\)/);
+  assert.match(akte, /<dt>Eigentümer<\/dt><dd>DQ1 Eigentümer\/in \(synthetisch\) \(nicht geprüft\)/);
   const { fehlendeAngaben } = await import('../src/portal/flaechen.mjs');
   assert.ok(fehlendeAngaben(db, db.projects.find((p) => p.id === E.x.projectId), { netzstufe: 'keine Prüfung', planungsrecht: 'ungeprüft', sicherung: 'kein Kontakt' }).includes('bestätigter Eigentümer'));
   // Eigentümeranfrage mit dokumentierter Grundlage → Zuordnung und Eigentümerstatus; Beenden nimmt beides zurück
@@ -406,14 +406,80 @@ test('DQ-1: Übernahme vergibt nie automatisch Eigentümerstatus; Rolle, Zuordnu
   db.parcels.push({ id: 'x-dq1-alt', projectId: 'p-n02', ownerContactId: 'c-dq1-alt', gemarkung: 'DQ1-Mark', flur: '1', flurstueck: '1', areaHa: null, devAreaHa: null, use: 'Acker', status: 'Erstkontakt' });
   const vorher = JSON.stringify([db.contacts.at(-1), db.parcels.at(-1)]);
   akte = (await m.text('/portal/projekte/p-n02')).body;
-  assert.match(akte, /DQ1 Altfall Pächter \(synthetisch\) \(Bestand – nicht geprüft; Rolle laut Anfrage: Pächter\/in – prüfen\)/);
-  assert.match((await m.text('/portal/kontakte')).body, /Eigentümerstatus prüfen \(laut Anfrage: Pächter\/in\)/);
-  assert.match((await m.text('/portal/kontakte/c-dq1-alt')).body, /Eigentümerstatus prüfen/);
+  assert.match(akte, /DQ1 Altfall Pächter \(synthetisch\) \(Prüfung erforderlich; Rolle laut Anfrage: Pächter\/in\)/);
+  assert.match((await m.text('/portal/kontakte')).body, /Eigentümerstatus: Prüfung erforderlich \(laut Anfrage: Pächter\/in\)/);
+  assert.match((await m.text('/portal/kontakte/c-dq1-alt')).body, /Eigentümerstatus: Prüfung erforderlich/);
   assert.equal(JSON.stringify([db.contacts.find((c) => c.id === 'c-dq1-alt'), db.parcels.find((x) => x.id === 'x-dq1-alt')]), vorher, 'keine automatische Änderung');
   // Bestandskontakte mit Vertrag unverändert und unmarkiert
   assert.equal(db.contacts.find((c) => c.id === 'c-own-a').kind, 'Grundstückseigentümer');
   assert.equal(db.parcels.find((x) => x.id === 'x-1').ownerContactId, 'c-own-a');
-  assert.ok(!/Eigentümerstatus prüfen \(laut Anfrage[^)]*\)[^<]*<\/span><br><span class="muted small">eigentuemer\.a/.test((await m.text('/portal/kontakte')).body));
+  assert.match((await m.text('/portal/kontakte')).body, /Eigentümer A \(synthetisch\)[\s\S]*?Eigentümer \(laut Bestand\)<br><span class="mark mark-ok"[^>]*>Eigentümerstatus: bestätigt/);
+});
+
+test('R-DQ-e/f: Rolle ≠ Status in Kontaktliste, Kontaktakte und Standortakte; Vergütung nur für bestätigte Eigentümer, auch bei direktem Aufruf', async () => {
+  const m = await login('markus@demo.invalid');
+  const pl = await login('projektleitung@demo.invalid');
+  const zeile = (body, name) => { const i = body.indexOf(name); return i < 0 ? '' : body.slice(i, body.indexOf('</tr>', i)); };
+  const verg = async (c, pid) => { const b = (await c.text(`/portal/verguetung/${pid}`)).body; return [...b.matchAll(/<option value="([\w-]+)"( disabled)?>([^<]+)<\/option>/g)].filter((x) => x[3].includes('Eigentümerstatus')).map((x) => ({ id: x[1], gesperrt: !!x[2], text: x[3] })); };
+  const sim = (c, pid, ownerContactId) => c.form(`/portal/verguetung/${pid}/simulation`, { _csrf: c.token, ownerContactId, stufe: 'simulation', typ: 'festpacht', flaecheHa: '1', pachtJeHa: '10000', mindestpacht: '10000' });
+  // Pächterin aus Anfrage + nachweislich Miteigentümerin (Mehrfachrolle) – Projekt aus dem DQ-1-Test
+  const PA = db.contacts.find((c) => c.name === 'DQ1 Pächter/in (synthetisch)');
+  const xPA = db.parcels.find((x) => (x.beteiligte || []).some((b) => b.contactId === PA.id));
+  const bEig = xPA.beteiligte.find((b) => b.contactId === PA.id && b.rolle === 'Eigentümer' && !b.beendetAm);
+  // Bestätigt: alle drei Ansichten zeigen Rolle und Status getrennt, Grundlage mit Zeitpunkt und Person
+  let liste = (await m.text('/portal/kontakte')).body;
+  assert.match(zeile(liste, 'DQ1 Pächter/in (synthetisch)'), /Pächter, Eigentümer \(laut Angabe\)<br><span class="mark mark-ok"[^>]*>Eigentümerstatus: bestätigt/);
+  let akte = (await m.text(`/portal/kontakte/${PA.id}`)).body;
+  assert.match(akte, /Kontaktrollen:<\/span> Pächter, Eigentümer \(laut Angabe\)/);
+  assert.match(akte, /Grundlage: Erbschein und Grundbuchauszug \(synthetisch\) · bestätigt [\d.]+, [\d:]+ durch Markus/);
+  let sakte = (await m.text(`/portal/projekte/${xPA.projectId}`)).body;
+  assert.match(sakte, /<dt>Eigentümer<\/dt><dd>DQ1 Pächter\/in \(synthetisch\) \(bestätigt\)/);
+  // Vergütung: bestätigte Person auswählbar und speicherbar (Projektleitung? nur zugeordnete Projekte → Admin)
+  const ad = await login('admin@demo.invalid');
+  let o = await verg(ad, xPA.projectId);
+  assert.deepEqual(o.map((x) => [x.id, x.gesperrt]), [[PA.id, false]]);
+  assert.equal((await sim(ad, xPA.projectId, PA.id)).status, 303);
+  const angebot = db.verguetungsangebote.filter((a) => a.ownerContactId === PA.id).at(-1);
+  // Rücknahme: Rolle bleibt historisch, Status nicht mehr bestätigt – überall
+  assert.equal((await m.form(`/portal/projekte/${xPA.projectId}/beteiligte/${bEig.id}/beenden`, { _csrf: m.token, parcelId: xPA.id })).status, 303);
+  liste = (await m.text('/portal/kontakte')).body;
+  assert.match(zeile(liste, 'DQ1 Pächter/in (synthetisch)'), /Pächter, Eigentümer \(laut Angabe\)<br><span class="mark mark-warn"[^>]*>Eigentümerstatus: nicht geprüft/);
+  assert.ok(!/Eigentümerstatus: bestätigt/.test(zeile(liste, 'DQ1 Pächter/in (synthetisch)')), 'kein Eindruck eines bestätigten Eigentümers');
+  akte = (await m.text(`/portal/kontakte/${PA.id}`)).body;
+  assert.ok(!/Grundlage: Erbschein/.test(akte));
+  sakte = (await m.text(`/portal/projekte/${xPA.projectId}`)).body;
+  assert.match(sakte, /<dt>Eigentümer<\/dt><dd>–<\/dd>/);
+  // Vergütung nach Rücknahme: Auswahl gesperrt; direkter Aufruf (Simulation, Vorschlag, verbindliche Übernahme) → 409, nichts gespeichert
+  o = await verg(ad, xPA.projectId);
+  assert.deepEqual(o.map((x) => [x.id, x.gesperrt]), [[PA.id, true]]);
+  const n = { a: db.verguetungsangebote.length, v: db.vertragsstaende.length };
+  assert.equal((await sim(ad, xPA.projectId, PA.id)).status, 409);
+  assert.equal((await ad.form(`/portal/verguetung/${xPA.projectId}/simulation`, { _csrf: ad.token, ownerContactId: PA.id, stufe: 'vorschlag', typ: 'festpacht', flaecheHa: '1' })).status, 409);
+  assert.equal((await ad.form(`/portal/verguetung/${xPA.projectId}/verbindlich`, { _csrf: ad.token, angebotId: angebot.id, stufe: 'eckdaten' })).status, 409);
+  assert.deepEqual({ a: db.verguetungsangebote.length, v: db.vertragsstaende.length }, n);
+  assert.ok(db.verguetungsangebote.includes(angebot), 'vorhandenes Angebot nicht geändert oder gelöscht');
+  assert.ok(db.audit.some((e) => e.event === 'verguetung_abgelehnt_eigentum' && e.kontakt === PA.id));
+  // Kontakt ohne Eigentümerangabe (reine Pächterin) – direkter Aufruf ebenfalls abgelehnt
+  const nurPaechter = db.contacts.find((c) => c.name === 'DQ1 Bewirtschafter/in (synthetisch)');
+  assert.equal((await sim(ad, nurPaechter.projectIds[0], nurPaechter.id)).status, 409);
+  // Altfall (wie STK-N-003): erkennbar, gesperrt; nach dokumentierter Bestätigung freigegeben
+  const alt = db.contacts.find((c) => c.id === 'c-dq1-alt');
+  o = await verg(ad, 'p-n02');
+  assert.ok(o.some((x) => x.id === 'c-dq1-alt' && x.gesperrt && /Prüfung erforderlich \(laut Anfrage: Pächter\/in\)/.test(x.text)));
+  assert.ok(o.some((x) => x.id === 'c-own-b' && !x.gesperrt && /bestätigt/.test(x.text)), 'Bestandseigentümerin mit Vertrag bleibt auswählbar');
+  assert.equal((await sim(ad, 'p-n02', 'c-dq1-alt')).status, 409);
+  assert.equal((await m.form('/portal/projekte/p-n02/beteiligte', { _csrf: m.token, parcelId: 'x-dq1-alt', contactId: alt.id, rolle: 'Eigentümer', eigentum: 'bestätigt', grundlage: 'Grundbuchauszug nach Prüfung (synthetisch)' })).status, 303);
+  assert.equal(db.parcels.find((x) => x.id === 'x-dq1-alt').ownerContactId, 'c-dq1-alt', 'Bestandszuordnung unverändert');
+  assert.ok(db.audit.some((e) => e.event === 'beteiligung_verknuepft' && e.kontakt === 'c-dq1-alt' && e.eigentum === 'bestätigt'), 'Wechsel in bestätigt protokolliert');
+  o = await verg(ad, 'p-n02');
+  assert.ok(o.some((x) => x.id === 'c-dq1-alt' && !x.gesperrt && /Eigentümerstatus: bestätigt/.test(x.text)));
+  // Bestätigter Eigentümer mit Vertrag: unverändert auswählbar und speicherbar, Vertrag unverändert
+  const k1 = JSON.stringify(db.contracts.find((k) => k.id === 'k-1'));
+  assert.equal((await sim(ad, 'p-n01', 'c-own-a')).status, 303);
+  assert.equal(JSON.stringify(db.contracts.find((k) => k.id === 'k-1')), k1);
+  // Berechtigungen unverändert: Vertrieb ohne Vergütungsrecht im Projekt 404, externe Rollen 404
+  for (const e of ['investor.a@demo.invalid', 'eigentuemer.a@demo.invalid']) assert.equal((await (await login(e)).req('/portal/verguetung/p-n01')).status, 404, e);
+  assert.equal((await pl.req(`/portal/verguetung/${xPA.projectId}`)).status, 404, 'Projektleitung ohne Zuordnung');
 });
 
 test('Schalter: Abnahmestufe ohne aktive Akquise, Echtdaten nie in Vorschauen', () => {

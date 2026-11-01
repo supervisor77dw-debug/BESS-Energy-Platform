@@ -4,7 +4,7 @@ import { html, raw, fmtDate, fmtDateTime, fmtNum } from '../lib/html.mjs';
 import { brand, isPreview, brandLogo } from '../config.mjs';
 import { ROLES, AUDIENCES, isInternal, isAdmin, hasRole, rolesOf } from '../lib/policy.mjs';
 import { PHASES } from '../public/pages.mjs';
-import { eigentuemerText, eigentumPruefen, rolleLautAnfrage } from './flaechen.mjs';
+import { eigentuemerText, eigentuemerstatus, rollenText, statusMarke } from './flaechen.mjs';
 import { faellig as faelligeAnfrage, kennung as anfrageKennung } from './akquise.mjs';
 import { createRequire } from 'node:module';
 import { getDb } from '../lib/store.mjs';
@@ -421,7 +421,7 @@ export function nachrichten({ u, s, threads, projects, users, active, ungelesen 
 export function kontakte({ contacts, users, projects }) {
   const byId = Object.fromEntries(projects.map((p) => [p.id, p]));
   return html`<section class="panel"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Kontakt</th><th>Art</th><th>Projekte</th><th>Verantwortlich</th><th>Notiz</th></tr></thead><tbody>
-  ${contacts.map((c) => html`<tr><td data-l="Kontakt"><a href="/portal/kontakte/${c.id}"><strong>${c.name}</strong></a>${c.testdaten ? html` <span class="mark mark-demo">Testdatensatz</span>` : ''}${c.datenschutz?.gesperrt ? html` <span class="mark mark-warn">gesperrt</span>` : ''}${eigentumPruefen(getDb(), c) ? html` <span class="mark mark-warn">Eigentümerstatus prüfen (laut Anfrage: ${rolleLautAnfrage(c)})</span>` : ''}<br><span class="muted small">${c.email} ${c.phone}</span></td><td data-l="Art">${c.rollen?.length ? c.rollen.join(', ') : c.kind}</td><td data-l="Projekte">${(c.projectIds || []).length ? (c.projectIds || []).map((id) => byId[id]?.code || '(kein Zugriff)').join(', ') : html`<span class="muted">ohne Standort</span>`}</td><td data-l="Verantwortlich">${users.find((x) => x.id === c.owner)?.name || html`<span class="muted">nicht zugewiesen</span>`}</td><td data-l="Notiz">${c.note}</td></tr>`)}
+  ${contacts.map((c) => html`<tr><td data-l="Kontakt"><a href="/portal/kontakte/${c.id}"><strong>${c.name}</strong></a>${c.testdaten ? html` <span class="mark mark-demo">Testdatensatz</span>` : ''}${c.datenschutz?.gesperrt ? html` <span class="mark mark-warn">gesperrt</span>` : ''}<br><span class="muted small">${c.email} ${c.phone}</span></td><td data-l="Art">${rollenText(c)}${eigentuemerstatus(getDb(), c) ? html`<br>${statusMarke(eigentuemerstatus(getDb(), c))}` : ''}</td><td data-l="Projekte">${(c.projectIds || []).length ? (c.projectIds || []).map((id) => byId[id]?.code || '(kein Zugriff)').join(', ') : html`<span class="muted">ohne Standort</span>`}</td><td data-l="Verantwortlich">${users.find((x) => x.id === c.owner)?.name || html`<span class="muted">nicht zugewiesen</span>`}</td><td data-l="Notiz">${c.note}</td></tr>`)}
   </tbody></table></div></section>`;
 }
 export function freigaben({ u, s, approvals, users, docs, projects }) {

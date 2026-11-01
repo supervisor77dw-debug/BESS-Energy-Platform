@@ -89,27 +89,57 @@ export function altdatenPruefen(db) {
 // ---------- Beteiligte (Kontakt ↔ Flurstück mit Rolle) ----------
 const aktiveBeteiligte = (x) => (x.beteiligte || []).filter((b) => !b.beendetAm);
 // Bestand: ownerContactId (Vertrag, Anfrage) bleibt unverändert maßgeblich für das Eigentümerportal
-// Nur ein Vertrag zum Flurstück gilt als Grundlage; eine Zuordnung aus einer Anfrage beruht auf Selbstauskunft.
-const BESTAND_VERTRAG = 'Bestand (Vertrag)', BESTAND_OFFEN = 'Bestand – nicht geprüft';
-const belegt = (b) => b.eigentum === 'bestätigt' || b.eigentum === BESTAND_VERTRAG;
 function beteiligteVon(db, x) {
   const liste = aktiveBeteiligte(x).map((b) => ({ ...b, kontakt: db.contacts.find((c) => c.id === b.contactId) }));
-  if (x.ownerContactId && !liste.some((b) => b.contactId === x.ownerContactId && b.rolle === 'Eigentümer')) {
-    const vertrag = db.contracts.some((k) => k.parcelId === x.id && k.ownerContactId === x.ownerContactId);
-    liste.unshift({ id: null, contactId: x.ownerContactId, rolle: 'Eigentümer', eigentum: vertrag ? BESTAND_VERTRAG : BESTAND_OFFEN, kontakt: db.contacts.find((c) => c.id === x.ownerContactId) });
-  }
+  if (x.ownerContactId && !liste.some((b) => b.contactId === x.ownerContactId && b.rolle === 'Eigentümer')) liste.unshift({ id: null, contactId: x.ownerContactId, rolle: 'Eigentümer', eigentum: 'Bestand', kontakt: db.contacts.find((c) => c.id === x.ownerContactId) });
   return liste;
 }
 // Übernahme aus Anfrage vor AW-021: Kontakt wurde unabhängig von der angegebenen Rolle als Eigentümer zugeordnet
 const NICHT_EIGENTUEMER = ['Pächter/in', 'Bewirtschafter/in', 'Bevollmächtigt oder Verwaltung', 'Gemeinde oder Verwaltung', 'Hinweis auf eine Fläche (vermittelnd)', 'Sonstiges'];
 export const rolleLautAnfrage = (c) => NICHT_EIGENTUEMER.find((r) => String(c?.note || '').startsWith(`${r} · aus Anfrage`)) || (String(c?.note || '').startsWith('aus Anfrage') ? 'keine Angabe' : null);
-// Historische Fehlzuordnung (DQ-1): Eigentümerkontakt aus einer Anfrage ohne Eigentümerrolle → prüfbedürftig, nie automatisch geändert
-export const eigentumPruefen = (db, c) => !!c && c.kind === 'Grundstückseigentümer' && !!rolleLautAnfrage(c) && !db.parcels.some((x) => aktiveBeteiligte(x).some((b) => b.contactId === c.id && b.rolle === 'Eigentümer' && b.eigentum === 'bestätigt'));
-// Kopfzeile „Eigentümer“ der Standortakte: immer mit Status; Fehlzuordnungen aus Anfragen als prüfbedürftig (DQ-1)
+
+// ---------- Eigentümerstatus (R-DQ-e/f): Kontaktrolle, Status und Grundlage getrennt ----------
+// Die Rolle „Eigentümer“ ist eine Angabe und kann historisch bestehen bleiben. Der Status „bestätigt“ folgt ausschließlich aus
+// einer aktuell gültigen Grundlage: aktive Bestätigung mit Grundlage, Vertrag zum Flurstück oder verbindlicher Vertragsstand.
+export const STATUS_BESTAETIGT = 'bestätigt', STATUS_PRUEFEN = 'Prüfung erforderlich', STATUS_OFFEN = 'nicht geprüft';
+const VERBINDLICH = ['eckdaten', 'unterzeichnet', 'nachtrag'];
+function grundlageVon(db, contactId, x) {
+  const b = aktiveBeteiligte(x).find((y) => y.contactId === contactId && y.rolle === 'Eigentümer' && y.eigentum === 'bestätigt' && y.grundlage);
+  if (b) return { grundlage: b.grundlage, seit: b.geaendertAm || b.at, von: b.geaendertVon || b.by };
+  if (contactId && x.ownerContactId === contactId) {
+    const k = db.contracts.find((y) => y.parcelId === x.id && y.ownerContactId === contactId);
+    if (k) return { grundlage: `Vertrag: ${k.type} (${k.status})` };
+    const v = (db.vertragsstaende || []).find((y) => y.projectId === x.projectId && y.ownerContactId === contactId && VERBINDLICH.includes(y.stufe));
+    if (v) return { grundlage: `verbindlicher Vertragsstand (${v.stufe}, V${v.version})` };
+  }
+  return null;
+}
+// Status einer Person an einem Flurstück
+export function statusAmFlurstueck(db, c, x) {
+  if (grundlageVon(db, c?.id, x)) return STATUS_BESTAETIGT;
+  return c && x.ownerContactId === c.id && rolleLautAnfrage(c) ? STATUS_PRUEFEN : STATUS_OFFEN;
+}
+// Status einer Person (optional je Standort); null = keine Eigentümerangabe
+export function eigentuemerstatus(db, c, projectId) {
+  if (!c) return null;
+  const xs = db.parcels.filter((x) => (!projectId || x.projectId === projectId) && (x.ownerContactId === c.id || aktiveBeteiligte(x).some((b) => b.contactId === c.id && b.rolle === 'Eigentümer')));
+  for (const x of xs) { const g = grundlageVon(db, c.id, x); if (g) return { status: STATUS_BESTAETIGT, ...g }; }
+  // auch eine nur angegebene oder beendete Eigentümerrolle zeigt einen Status (nicht geprüft), nie „bestätigt“
+  if (!xs.length && c.kind !== 'Grundstückseigentümer' && !(c.rollen || []).includes('Eigentümer')) return null;
+  const alt = rolleLautAnfrage(c) && (c.kind === 'Grundstückseigentümer' || xs.some((x) => x.ownerContactId === c.id));
+  return { status: alt ? STATUS_PRUEFEN : STATUS_OFFEN, grundlage: '', rolleLautAnfrage: alt ? rolleLautAnfrage(c) : null };
+}
+const belegt = (db, x, b) => statusAmFlurstueck(db, b.kontakt || db.contacts.find((c) => c.id === b.contactId), x) === STATUS_BESTAETIGT;
+// Historische Fehlzuordnung (DQ-1): prüfbedürftig, nie automatisch geändert
+export const eigentumPruefen = (db, c) => eigentuemerstatus(db, c)?.status === STATUS_PRUEFEN;
+// Einheitliche Darstellung (Kontaktliste, Kontaktakte, Standortakte)
+export const rollenText = (c) => (c.rollen?.length ? c.rollen : [c.kind]).filter(Boolean).map((r) => (r === 'Eigentümer' ? 'Eigentümer (laut Angabe)' : r === 'Grundstückseigentümer' ? 'Eigentümer (laut Bestand)' : r)).join(', ');
+export const statusMarke = (st) => (st ? html`<span class="mark ${st.status === STATUS_BESTAETIGT ? 'mark-ok' : 'mark-warn'}"${st.grundlage ? raw(` title="Grundlage: ${String(st.grundlage).replace(/"/g, '&quot;')}"`) : ''}>Eigentümerstatus: ${st.status}${st.rolleLautAnfrage ? ` (laut Anfrage: ${st.rolleLautAnfrage})` : ''}</span>` : '');
+// Kopfzeile „Eigentümer“ der Standortakte: immer mit Status, bei Altfällen mit Rolle laut Anfrage
 export function eigentuemerText(db, p, contacts) {
-  const eig = db.parcels.filter((x) => x.projectId === p.id).flatMap((x) => beteiligteVon(db, x)).filter((b) => b.rolle === 'Eigentümer');
-  const text = eig.map((b) => `${b.kontakt?.name || '–'} (${b.eigentum}${b.id === null && rolleLautAnfrage(b.kontakt) ? `; Rolle laut Anfrage: ${rolleLautAnfrage(b.kontakt)} – prüfen` : ''})`);
-  const ohne = contacts.filter((c) => c.kind === 'Grundstückseigentümer' && !eig.some((b) => b.contactId === c.id)).map((c) => `${c.name} (${BESTAND_OFFEN})`);
+  const eig = db.parcels.filter((x) => x.projectId === p.id).flatMap((x) => beteiligteVon(db, x).filter((b) => b.rolle === 'Eigentümer').map((b) => ({ b, x })));
+  const text = eig.map(({ b, x }) => { const st = statusAmFlurstueck(db, b.kontakt, x); return `${b.kontakt?.name || '–'} (${st}${st === STATUS_PRUEFEN ? `; Rolle laut Anfrage: ${rolleLautAnfrage(b.kontakt)}` : ''})`; });
+  const ohne = contacts.filter((c) => c.kind === 'Grundstückseigentümer' && !eig.some(({ b }) => b.contactId === c.id)).map((c) => `${c.name} (${eigentuemerstatus(db, c, p.id)?.status || STATUS_OFFEN})`);
   return [...new Set([...text, ...ohne])].join(', ');
 }
 
@@ -154,7 +184,7 @@ export function fehlendeAngaben(db, p, vq) {
   if (!vq.zufahrt) f.push('Zufahrt/Nebenflächen');
   if (vq.planungsrecht === 'ungeprüft') f.push('planungsrechtlicher Status');
   if (['kein Kontakt', 'abgelehnt'].includes(vq.sicherung)) f.push('Kontakt-/Flächensicherungsstatus');
-  const eig = db.parcels.filter((x) => x.projectId === p.id).some((x) => beteiligteVon(db, x).some((b) => b.rolle === 'Eigentümer' && belegt(b)));
+  const eig = db.parcels.filter((x) => x.projectId === p.id).some((x) => beteiligteVon(db, x).some((b) => b.rolle === 'Eigentümer' && belegt(db, x, b)));
   if (!eig) f.push('bestätigter Eigentümer');
   return f;
 }
@@ -227,7 +257,7 @@ function kontaktDetail({ db, u, s, c, msg }) {
   const versuche = [...(c.kontaktversuche || [])].reverse();
   return html`${msg ? html`<div class="notice" role="status">${msg}</div>` : ''}
 ${gesperrt(c) ? html`<div class="alert" role="alert"><strong>Verarbeitung gesperrt</strong> – ${ds.sperrgrund || 'Widerspruch oder Kontakt nicht erwünscht'}. Keine weiteren Kontaktversuche.</div>` : ''}
-${eigentumPruefen(db, c) ? html`<div class="alert" role="alert"><strong>Eigentümerstatus prüfen</strong> – als Grundstückseigentümer geführt, laut Anfrage aber „${rolleLautAnfrage(c)}“. Keine automatische Korrektur; Eigentum nur mit Grundlage bestätigen.</div>` : ''}
+${eigentumPruefen(db, c) ? html`<div class="alert" role="alert"><strong>Eigentümerstatus: Prüfung erforderlich</strong> – als Grundstückseigentümer geführt, laut Anfrage aber „${rolleLautAnfrage(c)}“. Keine automatische Korrektur; für Vergütungsangebote gesperrt, bis das Eigentum mit Grundlage bestätigt ist.</div>` : ''}
 ${art14Faellig(c) ? html`<div class="alert" role="alert"><strong>Art.-14-Information überfällig</strong> – Daten seit ${fmtDate(ds.erhobenAm)} erhoben, Information spätestens nach einem Monat bzw. beim ersten Kontakt.</div>` : ''}
 <section class="grid-2">
   <div class="panel"><h2>Kontakt${testMark(c)}</h2>${kontaktFormular({ db, u, s, c })}</div>
@@ -250,7 +280,10 @@ ${art14Faellig(c) ? html`<div class="alert" role="alert"><strong>Art.-14-Informa
     <label for="ds-sg">Sperrgrund</label><input id="ds-sg" name="sperrgrund" maxlength="200" value="${ds?.sperrgrund || ''}">
     <button class="btn" type="submit">Datenschutzangaben speichern</button></form></details></div>
 </section>
-<section class="panel"><h2>Flurstücke und Standorte</h2>${links.length ? html`<ul class="assume">${links.map(({ x, b }) => html`<li><a href="/portal/projekte/${x.projectId}">${db.projects.find((p) => p.id === x.projectId)?.code}</a> · ${flurLage(x)} · ${b.rolle} <span class="small muted">(${b.eigentum || 'Rolle'})</span></li>`)}</ul>` : projekte.length ? html`<p>${projekte.map((p) => html`<a href="/portal/projekte/${p.id}">${p.code}</a> `)}</p>` : html`<p class="muted">Noch nicht mit einem Standort verknüpft. Verknüpfung in der Standortakte unter „Beteiligte verknüpfen“.</p>`}</section>
+<section class="panel"><h2>Flurstücke und Standorte</h2>
+  <p><span class="small muted">Kontaktrollen:</span> ${rollenText(c) || '–'} ${statusMarke(eigentuemerstatus(db, c))}</p>
+  ${eigentuemerstatus(db, c)?.status === STATUS_BESTAETIGT ? html`<p class="small">Grundlage: ${eigentuemerstatus(db, c).grundlage}${eigentuemerstatus(db, c).seit ? html` · bestätigt ${fmtDateTime(eigentuemerstatus(db, c).seit)} durch ${nameVon(db, eigentuemerstatus(db, c).von)}` : ''}</p>` : ''}
+  ${links.length ? html`<ul class="assume">${links.map(({ x, b }) => html`<li><a href="/portal/projekte/${x.projectId}">${db.projects.find((p) => p.id === x.projectId)?.code}</a> · ${flurLage(x)} · ${b.rolle === 'Eigentümer' ? (b.id === null ? 'Eigentümer (laut Bestand)' : 'Eigentümer (laut Angabe)') : b.rolle}${b.rolle === 'Eigentümer' ? html` ${statusMarke({ status: statusAmFlurstueck(db, c, x), grundlage: grundlageVon(db, c.id, x)?.grundlage })}` : ''}</li>`)}</ul>` : projekte.length ? html`<p>${projekte.map((p) => html`<a href="/portal/projekte/${p.id}">${p.code}</a> `)}</p>` : html`<p class="muted">Noch nicht mit einem Standort verknüpft. Verknüpfung in der Standortakte unter „Beteiligte verknüpfen“.</p>`}</section>
 <section class="panel"><h2>Kontaktversuche</h2>${versuche.length ? html`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Datum</th><th>Kontaktweg</th><th>Status</th><th>Ergebnis / nächste Aktion</th><th>Verantwortlich</th></tr></thead><tbody>${versuche.map((k) => html`<tr><td data-l="Datum">${fmtDate(k.datum)}</td><td data-l="Kontaktweg">${k.weg}</td><td data-l="Status">${k.status}</td><td data-l="Ergebnis">${k.ergebnis || '–'}${k.naechsteAktion ? html`<br><span class="small">Nächste Aktion: ${k.naechsteAktion}</span>` : ''}${k.wiedervorlage ? html`<br><span class="small ${k.wiedervorlage < heute() ? 'bad' : 'muted'}">Wiedervorlage ${fmtDate(k.wiedervorlage)}</span>` : ''}</td><td data-l="Verantwortlich">${nameVon(db, k.verantwortlich)}<br><span class="small muted">erfasst ${nameVon(db, k.by)}</span></td></tr>`)}</tbody></table></div>` : html`<p class="muted">Noch keine Kontaktversuche dokumentiert.</p>`}
   ${gesperrt(c) ? '' : html`<details${versuche.length ? '' : raw(' open')}><summary>Kontaktversuch dokumentieren</summary><form method="post" action="/portal/kontakte/${c.id}/kontaktversuch" class="stack">${csrfFeld(s)}
     <label for="kv-d">Datum</label><input id="kv-d" name="datum" type="date" value="${heute()}">
@@ -277,7 +310,7 @@ export function akquiseAkte({ db, u, s, p, msg }) {
   const kids = new Set([...alleBet.map((b) => b.contactId), ...db.contacts.filter((c) => (c.projectIds || []).includes(p.id)).map((c) => c.id)]);
   const versuche = db.contacts.filter((c) => kids.has(c.id)).flatMap((c) => c.kontaktversuche || []);
   const offeneAufgaben = db.tasks.filter((t) => t.projectId === p.id && t.status !== 'erledigt');
-  const eigStatus = alleBet.some((b) => b.rolle === 'Eigentümer' && belegt(b)) ? 'bestätigt' : alleBet.some((b) => b.rolle === 'Eigentümer') ? 'vermutet, nicht bestätigt' : null;
+  const eigStatus = parcels.some((x) => beteiligteVon(db, x).some((b) => b.rolle === 'Eigentümer' && belegt(db, x, b))) ? STATUS_BESTAETIGT : alleBet.some((b) => b.rolle === 'Eigentümer') ? 'Angabe vorhanden, nicht bestätigt' : null;
   const schritte = [
     ['Fläche identifiziert', true, herkunftVon(p)],
     ['Grundstück angelegt', parcels.length > 0, `${parcels.length} Flurstück(e)`],
@@ -302,7 +335,7 @@ export function akquiseAkte({ db, u, s, p, msg }) {
       <td data-l="Fläche" class="num">${x.areaHa ? `${fmtNum(x.areaHa, 2)} ha` : '–'}</td>
       <td data-l="Karte / Quelle" class="small">${x.karte || '–'}${x.datenquelle ? html`<br>${x.datenquelle}` : ''}${x.erhobenAm ? html`<br>erhoben ${fmtDate(x.erhobenAm)}` : ''}</td>
       <td data-l="Prüfstatus">${x.pruefstatus === 'geprüft' ? markOk('geprüft') : markWarn(x.pruefstatus || 'unbestätigt')}</td>
-      <td data-l="Beteiligte" class="small">${beteiligteVon(db, x).map((b) => html`${b.kontakt ? html`<a href="/portal/kontakte/${b.contactId}">${b.kontakt.name}</a>` : '–'} · ${b.rolle}${b.rolle === 'Eigentümer' ? html` ${belegt(b) ? markOk(b.eigentum) : markWarn(b.eigentum)}${b.id === null && rolleLautAnfrage(b.kontakt) ? html` <span class="mark mark-warn">Rolle laut Anfrage: ${rolleLautAnfrage(b.kontakt)}</span>` : ''}` : ''}${b.id ? html` <form method="post" action="/portal/projekte/${p.id}/beteiligte/${b.id}/beenden" class="inline-form">${csrfFeld(s)}<input type="hidden" name="parcelId" value="${x.id}"><button class="btn btn-small" title="Verknüpfung beenden (bleibt im Verlauf)">beenden</button></form>` : ''}<br>`)}${beteiligteVon(db, x).length ? '' : '–'}</td></tr>
+      <td data-l="Beteiligte" class="small">${beteiligteVon(db, x).map((b) => html`${b.kontakt ? html`<a href="/portal/kontakte/${b.contactId}">${b.kontakt.name}</a>` : '–'} · ${b.rolle === 'Eigentümer' ? (b.id === null ? 'Eigentümer (laut Bestand)' : 'Eigentümer (laut Angabe)') : b.rolle}${b.rolle === 'Eigentümer' ? html` ${statusMarke({ status: statusAmFlurstueck(db, b.kontakt, x), grundlage: grundlageVon(db, b.contactId, x)?.grundlage, rolleLautAnfrage: statusAmFlurstueck(db, b.kontakt, x) === STATUS_PRUEFEN ? rolleLautAnfrage(b.kontakt) : null })}` : ''}${b.id ? html` <form method="post" action="/portal/projekte/${p.id}/beteiligte/${b.id}/beenden" class="inline-form">${csrfFeld(s)}<input type="hidden" name="parcelId" value="${x.id}"><button class="btn btn-small" title="Verknüpfung beenden (bleibt im Verlauf)">beenden</button></form>` : ''}<br>`)}${beteiligteVon(db, x).length ? '' : '–'}</td></tr>
       <tr><td colspan="5"><details><summary>Flurstück bearbeiten</summary><form method="post" action="/portal/projekte/${p.id}/flurstueck/${x.id}" class="stack">${csrfFeld(s)}${flurFormular(x, `e-${x.id}`)}<button class="btn" type="submit">Flurstück speichern</button><p class="small muted">Eine bisherige Freitextangabe bleibt als Altangabe erhalten.</p></form></details></td></tr>`;
   })}</tbody></table></div>` : html`<p class="muted">Noch kein Flurstück erfasst.</p>`}
   <details><summary>Weiteres Flurstück hinzufügen</summary><form method="post" action="/portal/projekte/${p.id}/flurstueck" class="stack">${csrfFeld(s)}${flurFormular({}, 'n')}${testFeld()}<button class="btn" type="submit">Flurstück hinzufügen</button></form></details>
