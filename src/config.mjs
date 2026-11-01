@@ -53,6 +53,11 @@ export const config = {
   idleTtlMs: Number(env.BESS_IDLE_TTL_MS || 1000 * 60 * 30),
   gateTtlMs: Number(env.BESS_GATE_TTL_MS || 1000 * 60 * 60 * 12),
   uploadMaxBytes: 10 * 1024 * 1024,
+  // Aktive Grundstücksakquise (AW-021): in QA und lokal an, im öffentlichen Abnahmekandidaten nur mit ausdrücklichem Schalter
+  aktiveAkquise: env.BESS_AKTIVE_AKQUISE ? env.BESS_AKTIVE_AKQUISE === '1' : STAGE !== 'abnahme',
+  // Datenschutz-Freigabetor (P0): echte Kontaktdaten aus aktiver Akquise erst nach dokumentierter Freigabe des Konzepts;
+  // in Vorschauen nie (PROJECT_RULES §4 Nr. 1) – bis dahin nimmt das Board nur gekennzeichnete synthetische Testdatensätze an
+  akquiseEchtdaten: env.BESS_AKQUISE_ECHTDATEN === '1' && STAGE === 'abnahme',
 };
 
 export const isPreview = () => config.mode !== 'production';

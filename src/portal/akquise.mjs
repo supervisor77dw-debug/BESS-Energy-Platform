@@ -16,7 +16,8 @@ const notFound = () => new HttpError(404, 'Nicht gefunden');
 export const STATUS = ['neu', 'in Prüfung', 'Rückfrage offen', 'Gespräch vereinbart', 'als Standort übernommen', 'nicht geeignet', 'abgeschlossen'];
 const OFFEN = new Set(['neu', 'in Prüfung', 'Rückfrage offen', 'Gespräch vereinbart']);
 const LOESCHBAR = new Set(['nicht geeignet', 'abgeschlossen']);
-export const ROLLEN = ['Eigentümer/in', 'Miteigentümer/in oder Erbengemeinschaft', 'Bevollmächtigt oder Verwaltung', 'Pächter/in', 'Sonstiges'];
+// AW-021: Bewirtschafter, Gemeinden und vermittelnde Personen können Flächen melden (Rolle bleibt freiwillig)
+export const ROLLEN = ['Eigentümer/in', 'Miteigentümer/in oder Erbengemeinschaft', 'Bevollmächtigt oder Verwaltung', 'Pächter/in', 'Bewirtschafter/in', 'Gemeinde oder Verwaltung', 'Hinweis auf eine Fläche (vermittelnd)', 'Sonstiges'];
 // Bestand vor AW-020 kannte nur „in Bearbeitung“
 export const statusVon = (i) => (i.status === 'in Bearbeitung' ? 'in Prüfung' : i.status);
 export const istOffen = (i) => OFFEN.has(statusVon(i));
@@ -36,15 +37,27 @@ export const kennung = (i) => i.ref || i.id;
 const norm = (v) => String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
 const ziffern = (v) => String(v || '').replace(/\D/g, '');
 const flur = (v) => norm(v).replace(/[^a-z0-9äöüß/]/g, '');
+// AW-021: Freitext „Gemarkung X, Flur 2, Flurstück 17/3“ nur bei eindeutigem Muster zerlegen, sonst null (keine Vermutung)
+export function flurstueckParsen(text) {
+  const m = /^\s*(?:Gemarkung\s+)?([^,]+?)\s*,\s*Flur\s+([\w-]+)\s*,\s*(?:Flurst(?:ü|ue)ck|Flst\.?)\s+(\d+(?:\/\d+)?)\s*$/i.exec(String(text || ''));
+  return m ? { gemarkung: m[1].trim(), flur: m[2], flurstueck: m[3] } : null;
+}
+const leer = (v) => !v || v === '–';
+// normierter Flurstücksschlüssel aus Anfrage (Einzelfelder oder Freitext) oder Grundstück (Einzelfelder oder Altangabe)
+export function flurSchluessel(x) {
+  const t = !leer(x.flur) && !leer(x.flurstueck) && !leer(x.gemarkung) ? x : flurstueckParsen(x.altangabe || (x.gemarkung && leer(x.flur) ? x.gemarkung : x.flurstueck));
+  return t ? `${flur(t.gemarkung).replace(/^gemarkung/, '')}|${flur(t.flur)}|${flur(t.flurstueck)}` : null;
+}
+export const flurText = (i) => [i.gemarkung, i.flur && `Flur ${i.flur}`, i.flurstueck && (i.gemarkung || i.flur ? `Flurstück ${i.flurstueck}` : i.flurstueck)].filter(Boolean).join(', ');
 export function dubletten(db, i) {
   const out = [];
-  const mail = norm(i.email), tel = ziffern(i.phone), fl = flur(i.flurstueck), ort = i.plz ? `${ziffern(i.plz)}|${norm(i.lage)}` : '';
+  const mail = norm(i.email), tel = ziffern(i.phone), fl = flur(flurText(i)), fk = flurSchluessel(i), ort = i.plz ? `${ziffern(i.plz)}|${norm(i.lage)}` : '';
   for (const x of db.inquiries) {
     if (x.id === i.id || x.anonymisiert) continue;
     const g = [];
     if (mail && norm(x.email) === mail) g.push('E-Mail');
     if (tel.length >= 6 && ziffern(x.phone) === tel) g.push('Telefon');
-    if (fl.length >= 3 && flur(x.flurstueck) === fl) g.push('Flurstück');
+    if ((fl.length >= 3 && flur(flurText(x)) === fl) || (fk && flurSchluessel(x) === fk)) g.push('Flurstück');
     if (ort && x.plz && `${ziffern(x.plz)}|${norm(x.lage)}` === ort) g.push('PLZ und Ort');
     if (g.length) out.push({ art: 'Anfrage', id: x.id, text: `${kennung(x)} · ${x.name}`, href: `/portal/anfragen/${x.id}`, gruende: g });
   }
@@ -54,7 +67,7 @@ export function dubletten(db, i) {
     if (tel.length >= 6 && ziffern(c.phone) === tel) g.push('Telefon');
     if (g.length) out.push({ art: 'Kontakt', id: c.id, text: c.name, href: '/portal/kontakte', gruende: g });
   }
-  if (fl.length >= 3) for (const x of db.parcels) if (flur(`${x.gemarkung} ${x.flur} ${x.flurstueck}`).includes(fl) || flur(x.flurstueck) === fl) out.push({ art: 'Grundstück', id: x.id, text: `${x.gemarkung}, Flur ${x.flur}, Flurstück ${x.flurstueck}`, href: `/portal/projekte/${x.projectId}`, gruende: ['Flurstück'] });
+  if (fl.length >= 3 || fk) for (const x of db.parcels) if ((fk && flurSchluessel(x) === fk) || (fl.length >= 3 && (flur(`${x.gemarkung} ${x.flur} ${x.flurstueck}`).includes(fl) || flur(x.flurstueck) === fl))) out.push({ art: 'Grundstück', id: x.id, text: `${x.gemarkung}, Flur ${x.flur}, Flurstück ${x.flurstueck}`, href: `/portal/projekte/${x.projectId}`, gruende: ['Flurstück'] });
   return out;
 }
 
@@ -70,11 +83,11 @@ export function regionZuordnen(db, i) {
   (i.log ??= []).push({ at: i.at, by: null, byName: 'System', text: `Automatisch zugeordnet nach Region: ${P.ROLES[rolle].label} (${k[0].name})` });
 }
 const verlauf = (i, u, text) => { (i.log ??= []).push({ at: now(), by: u?.id ?? null, byName: u?.name ?? 'System', text }); };
-const REGIONEN = { nord: 'Nord', sued: 'Süd' };
-const regionenFuer = (u) => (P.isAdmin(u) ? Object.keys(REGIONEN) : P.rolesOf(u).map((r) => P.ROLES[r].region).filter(Boolean));
+export const REGIONEN = { nord: 'Nord', sued: 'Süd' };
+export const regionenFuer = (u) => (P.isAdmin(u) ? Object.keys(REGIONEN) : P.rolesOf(u).map((r) => P.ROLES[r].region).filter(Boolean));
 const darfUebernehmen = (u) => regionenFuer(u).length > 0;
-const intern = (db) => db.users.filter((x) => x.active && P.isInternal(x));
-const nameVon = (db, id) => db.users.find((x) => x.id === id)?.name || '–';
+export const intern = (db) => db.users.filter((x) => x.active && P.isInternal(x));
+export const nameVon = (db, id) => db.users.find((x) => x.id === id)?.name || '–';
 const mark = (st) => html`<span class="mark ${st === 'neu' ? 'mark-info' : st === 'als Standort übernommen' ? 'mark-ok' : st === 'nicht geeignet' ? 'mark-aud' : OFFEN.has(st) ? 'mark-warn' : 'mark-aud'}">${st}</span>`;
 const empty = (t) => html`<div class="empty"><p><strong>${t}</strong></p></div>`;
 
@@ -122,7 +135,7 @@ ${d.length ? html`<section class="panel"><h2>Mögliche Dubletten</h2><p class="s
     <div><dt>Kontakt</dt><dd>${i.email ? html`<a href="mailto:${i.email}">${i.email}</a>` : ''}${i.email && i.phone ? html`<br>` : ''}${i.phone || ''}</dd></div>
     ${i.region ? html`<div><dt>Region</dt><dd>${i.region === 'nord' ? 'Nord' : 'Süd'}</dd></div>` : ''}
     ${i.kind === 'flaeche' ? html`<div><dt>Standort</dt><dd>${[i.plz, i.lage].filter(Boolean).join(' ') || '–'}</dd></div>
-    <div><dt>Gemarkung / Flurstück</dt><dd>${i.flurstueck || '–'}</dd></div>
+    <div><dt>Gemarkung / Flurstück</dt><dd>${flurText(i) || '–'}</dd></div>
     <div><dt>Grundstücksgröße</dt><dd>${i.flaeche ? `${i.flaeche} ha` : '–'}</dd></div>
     <div><dt>Aktuelle Nutzung</dt><dd>${i.nutzung || '–'}</dd></div>
     <div><dt>Nähe Umspannwerk</dt><dd>${i.umspannwerk || '–'}</dd></div>
@@ -216,7 +229,9 @@ export async function handleAkquise({ res, path, method, u, s, view, post, url }
     if (!P.getProject(u, pid)) { db.projects.pop(); throw new HttpError(403, 'Der Standort wäre für Sie nicht sichtbar. Bitte durch die Administration übernehmen lassen.'); }
     db.meta.standortSeq = (db.meta.standortSeq || 0) + 1;
     db.contacts.push({ id: cid, name: i.name, kind: 'Grundstückseigentümer', email: i.email, phone: i.phone, projectIds: [pid], owner: i.assignee || u.id, note: [i.rolle, `aus Anfrage ${kennung(i)}`].filter(Boolean).join(' · ') });
-    db.parcels.push({ id: newId('x'), projectId: pid, ownerContactId: cid, gemarkung: i.flurstueck || '–', flur: '–', flurstueck: '–', areaHa: Number(String(i.flaeche || '').replace(',', '.')) || null, devAreaHa: null, use: i.nutzung || 'unbekannt', status: 'Erstkontakt' });
+    // AW-021: Flurstück strukturiert, wenn eindeutig; sonst Freitext als Altangabe erhalten und zur Prüfung markieren
+    const fs = i.gemarkung || i.flur ? { gemarkung: i.gemarkung || '–', flur: i.flur || '–', flurstueck: i.flurstueck || '–' } : flurstueckParsen(i.flurstueck);
+    db.parcels.push({ id: newId('x'), projectId: pid, ownerContactId: cid, gemarkung: fs?.gemarkung || '–', flur: fs?.flur || '–', flurstueck: fs?.flurstueck || '–', gemeinde: i.lage || '', altangabe: fs ? '' : i.flurstueck || '', datenquelle: `Anfrage ${kennung(i)} (Angabe der anfragenden Person)`, erhobenAm: i.at.slice(0, 10), pruefstatus: !fs && i.flurstueck ? 'Prüfung erforderlich' : 'unbestätigt', areaHa: Number(String(i.flaeche || '').replace(',', '.')) || null, devAreaHa: null, use: i.nutzung || 'unbekannt', status: 'Erstkontakt' });
     db.tasks.push({ id: newId('t'), projectId: pid, title: i.nextAction || 'Erstbewertung Netzentfernung und Standortkriterien', due: i.followUp || new Date(Date.now() + 14 * 864e5).toISOString().slice(0, 10), assignee: i.assignee || u.id, status: 'offen', inquiryId: i.id, log: [{ at: now(), by: u.id, byName: u.name, text: `Aus Anfrage ${kennung(i)} übernommen` }] });
     i.projectId = pid; i.status = 'als Standort übernommen';
     verlauf(i, u, `Als Standort ${code} übernommen (Kontakt, Grundstück, Aufgabe angelegt)`);
@@ -226,7 +241,7 @@ export async function handleAkquise({ res, path, method, u, s, view, post, url }
   if (aktion === 'anonymisieren') {
     if (!P.isAdmin(u) || i.anonymisiert || !LOESCHBAR.has(statusVon(i))) throw new HttpError(403, 'Löschung nicht möglich.');
     if (i.fileId) await deleteFile(i.fileId);
-    for (const k of ['name', 'email', 'phone', 'flurstueck', 'nachricht', 'org', 'rolle']) if (i[k]) i[k] = k === 'name' ? 'gelöscht' : '';
+    for (const k of ['name', 'email', 'phone', 'flurstueck', 'gemarkung', 'flur', 'nachricht', 'org', 'rolle']) if (i[k]) i[k] = k === 'name' ? 'gelöscht' : '';
     for (const x of i.log || []) x.text = x.text.replace(/Notiz: .*/s, 'Notiz: [gelöscht]');
     for (const e of db.audit) if (e.anfrage === i.id) for (const k of ['lage', 'email', 'name']) delete e[k]; // Protokoll ohne Personenbezug (R-4)
     i.fileId = null; i.anonymisiert = now();

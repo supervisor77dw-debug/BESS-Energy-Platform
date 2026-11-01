@@ -4,6 +4,7 @@ import { html, raw, fmtDate, fmtDateTime, fmtNum } from '../lib/html.mjs';
 import { brand, isPreview, brandLogo } from '../config.mjs';
 import { ROLES, AUDIENCES, isInternal, isAdmin, hasRole, rolesOf } from '../lib/policy.mjs';
 import { PHASES } from '../public/pages.mjs';
+import { eigentuemerText } from './flaechen.mjs';
 import { faellig as faelligeAnfrage, kennung as anfrageKennung } from './akquise.mjs';
 import { createRequire } from 'node:module';
 import { getDb } from '../lib/store.mjs';
@@ -278,9 +279,9 @@ export function dashboard(ctx) {
 <section class="panel"><h2>Pipeline nach Phase</h2>${pipelineBoard(projects)}</section>`;
 }
 
-export function pipelineBoard(projects) {
+export function pipelineBoard(projects, kandidaten = 0) {
   const groups = [[1, 2, 'Akquise und Sicherung'], [3, 5, 'Netz, Genehmigung, Wirtschaftlichkeit'], [6, 8, 'Finanzierung und Bau'], [9, 10, 'Betrieb']];
-  return html`<div class="board">${groups.map(([a, b, t]) => {
+  return html`${kandidaten ? html`<p class="small muted">${kandidaten} Flächenkandidat(en) in der Vorqualifizierung – <a href="/portal/grundstuecke#akquise">unter Grundstücke</a>.</p>` : ''}<div class="board">${groups.map(([a, b, t]) => {
     const ps = projects.filter((p) => p.phase >= a && p.phase <= b);
     return html`<div class="lane"><h3>${t} <span class="muted">(${ps.length})</span></h3>${ps.map((p) => html`<a class="card" href="/portal/projekte/${p.id}"><strong>${p.name}</strong><span class="muted small">${p.code} · Region ${p.region === 'nord' ? 'Nord' : 'Süd'}</span>${phaseBar(p.phase)}<span class="small">${p.contractStatus}</span></a>`)}${ps.length ? '' : html`<p class="muted small">–</p>`}</div>`;
   })}</div>`;
@@ -290,7 +291,7 @@ export function pipelineBoard(projects) {
 export function projectList({ u, projects, spvs }) {
   if (!projects.length) return empty('Keine Projekte in Ihrem Zugriff.');
   return html`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Projekt</th><th>Projektgesellschaft</th><th>Phase</th><th>Vertrag</th><th>Netz</th><th><span class="sr">Aktion</span></th></tr></thead><tbody>
-  ${projects.map((p) => { const spv = spvs.find((x) => x.id === p.spvId); return html`<tr><td data-l="Projekt"><strong>${p.name}</strong><br><span class="muted small">${p.code} · ${p.location}</span></td><td data-l="Gesellschaft">${u.role === 'eigentuemer' ? '–' : spv ? html`${spv.name}<br>${statusMark(spv.legalStatus)}` : html`<span class="muted small">noch keine – Gründung bei Projektreife</span>`}</td><td data-l="Phase">${phaseLabel(p.phase)}</td><td data-l="Vertrag">${p.contractStatus}</td><td data-l="Netz">${u.role === 'eigentuemer' ? '–' : p.gridStatus}</td><td><a class="btn btn-small" href="/portal/projekte/${p.id}">Öffnen</a></td></tr>`; })}
+  ${projects.map((p) => { const spv = spvs.find((x) => x.id === p.spvId); return html`<tr><td data-l="Projekt"><strong>${p.name}</strong>${p.kandidat && isInternal(u) ? html` <span class="mark mark-info">Flächenkandidat</span>` : ''}<br><span class="muted small">${p.code} · ${p.location}</span></td><td data-l="Gesellschaft">${u.role === 'eigentuemer' ? '–' : spv ? html`${spv.name}<br>${statusMark(spv.legalStatus)}` : html`<span class="muted small">noch keine – Gründung bei Projektreife</span>`}</td><td data-l="Phase">${phaseLabel(p.phase)}</td><td data-l="Vertrag">${p.contractStatus}</td><td data-l="Netz">${u.role === 'eigentuemer' ? '–' : p.gridStatus}</td><td><a class="btn btn-small" href="/portal/projekte/${p.id}">Öffnen</a></td></tr>`; })}
   </tbody></table></div>`;
 }
 
@@ -334,12 +335,13 @@ ${isInternal(u) ? html`<section class="panel"><h2>Öffentliche Darstellung</h2>
 }
 
 export function parcelTable(parcels) {
-  return html`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Gemarkung / Flur / Flurstück</th><th>Größe</th><th>Entwicklungsfläche</th><th>Nutzung</th><th>Status</th></tr></thead><tbody>${parcels.map((x) => html`<tr><td data-l="Lage">${[x.gemarkung, x.flur && x.flur !== '–' ? `Flur ${x.flur}` : '', x.flurstueck && x.flurstueck !== '–' ? `Flurstück ${x.flurstueck}` : ''].filter(Boolean).join(', ')}</td><td data-l="Größe" class="num">${x.areaHa ? `${fmtNum(x.areaHa, 1)} ha` : '–'}</td><td data-l="Entwicklungsfläche" class="num">${x.devAreaHa ? `ca. ${fmtNum(x.devAreaHa, 1)} ha` : '–'}</td><td data-l="Nutzung">${x.use}</td><td data-l="Status">${statusMark(x.status)}</td></tr>`)}</tbody></table></div>`;
+  return html`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Gemarkung / Flur / Flurstück</th><th>Größe</th><th>Entwicklungsfläche</th><th>Nutzung</th><th>Status</th></tr></thead><tbody>${parcels.map((x) => html`<tr><td data-l="Lage">${[x.gemeinde, x.gemarkung && x.gemarkung !== '–' ? x.gemarkung : '', x.flur && x.flur !== '–' ? `Flur ${x.flur}` : '', x.flurstueck && x.flurstueck !== '–' ? `Flurstück ${x.flurstueck}` : ''].filter(Boolean).join(', ')}</td><td data-l="Größe" class="num">${x.areaHa ? `${fmtNum(x.areaHa, 1)} ha` : '–'}</td><td data-l="Entwicklungsfläche" class="num">${x.devAreaHa ? `ca. ${fmtNum(x.devAreaHa, 1)} ha` : '–'}</td><td data-l="Nutzung">${x.use}</td><td data-l="Status">${statusMark(x.status)}</td></tr>`)}</tbody></table></div>`;
 }
 
 // Standortakte (AW-020): verdichtet die vorhandenen Daten eines Standorts für interne Rollen – keine eigene Datenhaltung.
 // Quellen: Projekt, Kontakte, Verträge, Aufgaben, Freigaben, Protokoll und Herkunftsanfrage.
-const AKTE_EREIGNISSE = { anfrage_als_standort: 'Aus Anfrage übernommen', anlagenplanung_freigegeben: 'Anlagenplanung freigegeben', anlagenplanung_wm_uebergabe: 'Anlagenplanung an STROMKAI-WM übergeben', finanzkennzahlen_freigegeben: 'Finanzkennzahlen für Investoren freigegeben', wm_referenzbasis_angelegt: 'WM-Referenzbasis angelegt', wm_versionshinweis: 'WM-Versionshinweis', vertragsstand_angelegt: 'Vertragsstand angelegt', angebot_erfasst: 'Angebot erfasst' };
+const AKTE_EREIGNISSE = { anfrage_als_standort: 'Aus Anfrage übernommen', anlagenplanung_freigegeben: 'Anlagenplanung freigegeben', anlagenplanung_wm_uebergabe: 'Anlagenplanung an STROMKAI-WM übergeben', finanzkennzahlen_freigegeben: 'Finanzkennzahlen für Investoren freigegeben', wm_referenzbasis_angelegt: 'WM-Referenzbasis angelegt', wm_versionshinweis: 'WM-Versionshinweis', vertragsstand_angelegt: 'Vertragsstand angelegt', angebot_erfasst: 'Angebot erfasst',
+  flaeche_erfasst: 'Fläche aktiv erfasst (ohne Anfrage)', vorqualifizierung_gespeichert: 'Vorqualifizierung gespeichert', kandidat_in_pipeline: 'In die Pipeline übernommen', beteiligung_verknuepft: 'Beteiligte verknüpft', flurstueck_strukturiert: 'Flurstück aus Altangabe strukturiert' };
 export function standortakte({ u, p, db, tasks, contacts, contracts }) {
   const name = (id) => db.users.find((x) => x.id === id)?.name || '–';
   const offen = tasks.filter((t) => t.status !== 'erledigt').sort((a, b) => a.due.localeCompare(b.due));
@@ -356,7 +358,7 @@ export function standortakte({ u, p, db, tasks, contacts, contracts }) {
   return html`<section class="panel akte"><div class="panel-head"><h2>Standortakte</h2><span class="small muted">Verdichtung aus Pipeline, Kontakten, Verträgen, Aufgaben und Freigaben</span></div>
   <dl class="kv">
     <div><dt>Akquise</dt><dd>${p.contractStatus}${anfrage ? html`<br><a class="small" href="/portal/anfragen/${anfrage.id}">Herkunft: ${anfrageKennung(anfrage)}</a>` : ''}</dd></div>
-    <div><dt>Eigentümer</dt><dd>${contacts.filter((c) => c.kind === 'Grundstückseigentümer').map((c) => c.name).join(', ') || '–'}</dd></div>
+    <div><dt>Eigentümer</dt><dd>${eigentuemerText(db, p, contacts) || '–'}</dd></div>
     <div><dt>Technische Vorprüfung</dt><dd>${p.tech?.variant || '–'}</dd></div>
     <div><dt>Netzanschluss</dt><dd>${p.gridStatus}</dd></div>
     <div><dt>Genehmigung</dt><dd>${p.permitStatus}</dd></div>
@@ -419,7 +421,7 @@ export function nachrichten({ u, s, threads, projects, users, active, ungelesen 
 export function kontakte({ contacts, users, projects }) {
   const byId = Object.fromEntries(projects.map((p) => [p.id, p]));
   return html`<section class="panel"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Kontakt</th><th>Art</th><th>Projekte</th><th>Verantwortlich</th><th>Notiz</th></tr></thead><tbody>
-  ${contacts.map((c) => html`<tr><td data-l="Kontakt"><strong>${c.name}</strong><br><span class="muted small">${c.email} ${c.phone}</span></td><td data-l="Art">${c.kind}</td><td data-l="Projekte">${(c.projectIds || []).map((id) => byId[id]?.code || '(kein Zugriff)').join(', ')}</td><td data-l="Verantwortlich">${users.find((x) => x.id === c.owner)?.name || html`<span class="muted">nicht zugewiesen</span>`}</td><td data-l="Notiz">${c.note}</td></tr>`)}
+  ${contacts.map((c) => html`<tr><td data-l="Kontakt"><a href="/portal/kontakte/${c.id}"><strong>${c.name}</strong></a>${c.testdaten ? html` <span class="mark mark-demo">Testdatensatz</span>` : ''}${c.datenschutz?.gesperrt ? html` <span class="mark mark-warn">gesperrt</span>` : ''}<br><span class="muted small">${c.email} ${c.phone}</span></td><td data-l="Art">${c.rollen?.length ? c.rollen.join(', ') : c.kind}</td><td data-l="Projekte">${(c.projectIds || []).length ? (c.projectIds || []).map((id) => byId[id]?.code || '(kein Zugriff)').join(', ') : html`<span class="muted">ohne Standort</span>`}</td><td data-l="Verantwortlich">${users.find((x) => x.id === c.owner)?.name || html`<span class="muted">nicht zugewiesen</span>`}</td><td data-l="Notiz">${c.note}</td></tr>`)}
   </tbody></table></div></section>`;
 }
 export function freigaben({ u, s, approvals, users, docs, projects }) {

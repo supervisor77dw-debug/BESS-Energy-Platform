@@ -371,7 +371,12 @@ export function standortAnbieten({ errors = {}, values = {}, region } = {}) {
         <div class="field"><label for="nutzung">Aktuelle Nutzung</label><select id="nutzung" name="nutzung">${opts('nutzung', ['Acker', 'Grünland', 'Brache', 'Gewerbefläche', 'Sonstiges'])}</select></div>
       </div>
       <div class="field"><label for="umspannwerk">Entfernung zu Umspannwerk oder Hochspannungsleitung</label><select id="umspannwerk" name="umspannwerk">${opts('umspannwerk', ['Weiß ich nicht', 'unter 1 km', '1 bis 3 km', '3 bis 5 km', 'über 5 km'])}</select></div>
-      <div class="field"><label for="flurstueck">Gemarkung, Flur, Flurstück <span class="opt">freiwillig</span></label><input id="flurstueck" name="flurstueck" value="${v('flurstueck')}"></div>
+      <div class="field-row">
+        <div class="field"><label for="gemarkung">Gemarkung <span class="opt">freiwillig</span></label><input id="gemarkung" name="gemarkung" maxlength="80" value="${v('gemarkung')}"></div>
+        <div class="field"><label for="flur">Flur <span class="opt">freiwillig</span></label><input id="flur" name="flur" maxlength="20" value="${v('flur')}"></div>
+        <div class="field"><label for="flurstueck">Flurstück <span class="opt">freiwillig</span></label><input id="flurstueck" name="flurstueck" maxlength="200" value="${v('flurstueck')}"></div>
+      </div>
+      <p class="hint">Sie sind Pächter, Bewirtschafter oder Gemeinde? Auch ein Hinweis auf eine Fläche hilft. Bitte geben Sie nur Ihre eigenen Kontaktdaten an, keine Daten Dritter.</p>
       <div class="field"><label for="nachricht">Besondere Hinweise <span class="opt">freiwillig</span></label><textarea id="nachricht" name="nachricht" rows="3">${v('nachricht')}</textarea></div>
       <div class="field"><label for="datei">Lageplan oder Unterlage <span class="opt">freiwillig, PDF/JPG/PNG bis 10 MB</span></label><input id="datei" name="datei" type="file" accept=".pdf,.jpg,.jpeg,.png">${err('datei')}</div>
     </fieldset>

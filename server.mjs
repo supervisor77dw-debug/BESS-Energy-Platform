@@ -38,7 +38,7 @@ async function handleSiteOffer(req, res) {
   const { fields, files } = await parseForm(req);
   if (fields.firma || !checkFormToken(fields._t)) return redirect(res, '/danke?k=flaeche'); // stilles Verwerfen von Bot-Einsendungen
   if (!rateLimit(`form:${clientIp(req)}`, 8, 60 * 60000)) return send(res, 429, 'Zu viele Anfragen. Bitte später erneut versuchen.', 'text/plain; charset=utf-8');
-  const v = { name: clip(fields.name, 120), rolle: ROLLEN.includes(fields.rolle) ? fields.rolle : '', region: REGIONEN_OEFFENTLICH.includes(fields.region) ? fields.region : '', email: clip(fields.email, 160), phone: clip(fields.phone, 60), plz: clip(fields.plz, 10), lage: clip(fields.lage, 200), flurstueck: clip(fields.flurstueck, 200), flaeche: clip(fields.flaeche, 20), nutzung: clip(fields.nutzung, 40), umspannwerk: clip(fields.umspannwerk, 40), nachricht: clip(fields.nachricht, 3000), dsgvo: fields.dsgvo === 'ja' };
+  const v = { name: clip(fields.name, 120), rolle: ROLLEN.includes(fields.rolle) ? fields.rolle : '', region: REGIONEN_OEFFENTLICH.includes(fields.region) ? fields.region : '', email: clip(fields.email, 160), phone: clip(fields.phone, 60), plz: clip(fields.plz, 10), lage: clip(fields.lage, 200), flurstueck: clip(fields.flurstueck, 200), gemarkung: clip(fields.gemarkung, 80), flur: clip(fields.flur, 20), flaeche: clip(fields.flaeche, 20), nutzung: clip(fields.nutzung, 40), umspannwerk: clip(fields.umspannwerk, 40), nachricht: clip(fields.nachricht, 3000), dsgvo: fields.dsgvo === 'ja' };
   const errors = {};
   if (!v.name) errors.name = 'Bitte geben Sie Ihren Namen an.';
   if (!v.email && !v.phone) errors.email = 'Bitte geben Sie eine E-Mail-Adresse oder Telefonnummer an.';

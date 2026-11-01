@@ -14,6 +14,7 @@ import { handleStrommarkt } from './strommarkt.mjs';
 import { handleZentrale } from './zentrale.mjs';
 import { handleAnlagenplanung } from './anlagenplanung.mjs';
 import { handleAkquise } from './akquise.mjs';
+import { handleFlaechen, kandidatenListe, akquiseAkte, kontakteKopf, AKQUISE_MELDUNGEN } from './flaechen.mjs';
 import { spiegelAnmeldung } from '../lib/spiegel.mjs';
 import { handleArbeit, arbeitsbereich, nachrichtMelden, alsGelesen, ungelesenIn, freigabeMelden } from './arbeit.mjs';
 import { html } from '../lib/html.mjs';
@@ -199,19 +200,20 @@ export async function handlePortal(req, res, url) {
     const greeting = { eigentuemer: 'Ihr persönlicher Bereich', investor: 'Investoren-Datenraum', kommune: 'Kommunales Partnerportal', technik: 'Partnerbereich Technik' }[u.role] || 'Projektsteuerung';
     return view('Übersicht', html`${arbeitsbereich(db, u)}${V.dashboard(ctxFor(u))}`, greeting);
   }
-  if (path === '/portal/pipeline' && method === 'GET') { internalOnly(); return view('Pipeline', V.pipelineBoard(P.listProjects(u)), 'Standorte nach Entwicklungsphase'); }
+  // Flächenkandidaten der aktiven Akquise erscheinen erst nach der Vorqualifizierung in der Pipeline (AW-021)
+  if (path === '/portal/pipeline' && method === 'GET') { internalOnly(); const ps = P.listProjects(u); return view('Pipeline', V.pipelineBoard(ps.filter((p) => !p.kandidat), ps.filter((p) => p.kandidat).length), 'Standorte nach Entwicklungsphase'); }
   if (path === '/portal/projekte' && method === 'GET') return view('Projekte', V.projectList({ u, projects: P.listProjects(u), spvs: db.spvs }));
   let m = /^\/portal\/projekte\/([\w-]+)$/.exec(path);
   if (m && method === 'GET') {
     const p = P.getProject(u, m[1]);
     if (!p) throw notFound();
     audit('projekt_angesehen', u, { projekt: p.id });
-    const akte = P.isInternal(u) ? V.standortakte({ u, p, db, tasks: P.listTasks(u).filter((t) => t.projectId === p.id), contacts: P.listContacts(u).filter((c) => (c.projectIds || []).includes(p.id)), contracts: P.listContracts(u).filter((c) => c.projectId === p.id) }) : '';
+    const akte = P.isInternal(u) ? html`${V.standortakte({ u, p, db, tasks: P.listTasks(u).filter((t) => t.projectId === p.id), contacts: P.listContacts(u).filter((c) => (c.projectIds || []).includes(p.id)), contracts: P.listContracts(u).filter((c) => c.projectId === p.id) })}${akquiseAkte({ db, u, s, p, msg: AKQUISE_MELDUNGEN[url.searchParams.get('m')] })}` : '';
     return view(p.name, html`${V.projectDetail({ u, s, p, spv: db.spvs.find((x) => x.id === p.spvId), docs: P.listDocuments(u, p.id), showFin: P.canSeeFinancials(u, p), showTech: P.canSeeTechnical(u, p), parcels: P.listParcels(u, p.id), approvals: db.approvals, akte })}${investorKennzahlen(db, u, p)}`, p.code);
   }
   if (path === '/portal/grundstuecke' && method === 'GET') {
     if (!(P.hasRole(u, 'eigentuemer') || P.isInternal(u))) throw notFound();
-    return view('Grundstücke und Verträge', V.grundstuecke({ u, parcels: P.listParcels(u), contracts: P.listContracts(u), projects: P.listProjects(u) }));
+    return view('Grundstücke und Verträge', html`${kandidatenListe({ db, u, s })}${V.grundstuecke({ u, parcels: P.listParcels(u), contracts: P.listContracts(u), projects: P.listProjects(u) })}`);
   }
   if (path === '/portal/dokumente' && method === 'GET') {
     const msg = { ok: 'Das Dokument wurde hochgeladen.', typ: 'Dateityp nicht erlaubt. Erlaubt sind PDF, JPG und PNG.' }[url.searchParams.get('m')];
@@ -269,13 +271,16 @@ export async function handlePortal(req, res, url) {
   }
 
   // ---------- intern ----------
-  if (path === '/portal/kontakte' && method === 'GET') { internalOnly(); return view('Kontakte', V.kontakte({ contacts: P.listContacts(u), users: db.users, projects: P.listProjects(u) })); }
+  if (path === '/portal/kontakte' && method === 'GET') { internalOnly(); return view('Kontakte', html`${kontakteKopf(u)}${V.kontakte({ contacts: P.listContacts(u), users: db.users, projects: P.listProjects(u) })}`); }
   // Benachrichtigungen, Aufgaben mit Pflichtzuständigkeit und Zuordnungswarteschlange (AW-020)
   const ar = await handleArbeit({ res, path, method, u, s, view, post, url });
   if (ar !== null) return ar;
   // Flächen- und Kontaktanfragen mit Bearbeitung, Wiedervorlage, Dublettenprüfung und Übernahme als Standort (AW-020)
   const ak = await handleAkquise({ res, path, method, u, s, view, post, url });
   if (ak !== null) return ak;
+  // Aktive Grundstücksakquise: Fläche und Kontakt ohne Anfrage, Flurstücke, Beteiligte, Vorqualifizierung (AW-021)
+  const fl = await handleFlaechen({ res, path, method, u, s, view, post, url });
+  if (fl !== null) return fl;
 
   if (path === '/portal/freigaben' && method === 'GET') {
     internalOnly();

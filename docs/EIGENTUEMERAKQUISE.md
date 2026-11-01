@@ -2,6 +2,8 @@
 
 Stand 2026-10-31, Auftrag `AW-STROMKAI-20261031-CONSOLIDATION-ACQUISITION-020`. Isolierter Feature-Branch, nicht produktiv.
 
+Ergänzung 2026-11-01 (AW-021): Die aktive Akquise ohne Anfrage, strukturierte Flurstücke, Kontaktrollen, das Datenschutz-Freigabetor und die Vorqualifizierung sind in [AKTIVE_AKQUISE.md](AKTIVE_AKQUISE.md) beschrieben. Im Formular sind Gemarkung, Flur und Flurstück jetzt getrennte freiwillige Felder. Die Übernahme legt das Flurstück strukturiert an; Freitext wird nur bei eindeutigem Muster zerlegt.
+
 ## Grundsatz
 
 Keine zweite Datenhaltung. Anfragen bleiben in `db.inquiries`. Eine Übernahme legt Kontakt (`db.contacts`), Standort (`db.projects`, Phase 1), Grundstück (`db.parcels`) und eine erste Aufgabe (`db.tasks`) im bestehenden Projektprozess an. Die Standortakte ist eine Ansicht dieser Sammlungen und speichert nichts selbst.

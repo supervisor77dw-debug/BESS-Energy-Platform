@@ -127,8 +127,12 @@ export function listAppointments(u) {
 export function listContacts(u) {
   if (!isInternal(u)) return [];
   const ids = internalProjectIds(u);
-  return getDb().contacts.filter((c) => isAdmin(u) || (c.projectIds || []).some((p) => ids.has(p)));
+  // AW-021: Kontakte ohne Standort (aktive Akquise) sieht die verantwortliche Person und der Vertrieb der Kontaktregion
+  const regionen = rolesOf(u).map((r) => ROLES[r].region).filter(Boolean);
+  return getDb().contacts.filter((c) => isAdmin(u) || (c.projectIds || []).some((p) => ids.has(p))
+    || (!(c.projectIds || []).length && (c.owner === u.id || (c.region && regionen.includes(c.region)))));
 }
+export const getContact = (u, id) => listContacts(u).find((c) => c.id === id) || null;
 export function listTasks(u) {
   if (!isInternal(u)) return [];
   const ids = internalProjectIds(u);
