@@ -136,6 +136,7 @@ export function goLiveSperren(b = brand, e = process.env, stage = config.stage, 
   if (f.datenschutz !== true) s.push('Datenschutzerklärung nicht rechtlich freigegeben');
   if (f.marke !== true) s.push('Markenprüfung nicht abgeschlossen');
   if (f.traegerschaft !== true) s.push('Projektträgerschaft nicht freigegeben (Unternehmensgegenstand, Zustimmung Geschäftsführung/Gesellschafter)');
+  if (e.BESS_MIGRATION_QUELLE) s.push('S-2: Migrationszugang zum bisherigen Store (BESS_MIGRATION_QUELLE) noch gesetzt – nach der Erstübernahme entfernen und neu bereitstellen');
   if (e.VERCEL && !speicherGetrennt(e, stage)) s.push('S-2: Produktion nicht auf eigenem Blob-Store (BESS_PRODUKTIONSSPEICHER = Store des Produktions-Tokens, nicht der gemeinsame Store)');
   if (!['privilegiert', 'konto'].includes(mfa)) s.push(`Portal-MFA ist „${mfa || 'aus'}“ – vor öffentlicher Domain BESS_MFA=privilegiert oder konto setzen`);
   return s;

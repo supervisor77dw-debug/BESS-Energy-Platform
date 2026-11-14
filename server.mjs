@@ -149,6 +149,11 @@ export async function vercelHandler(req, res) {
   ready ??= (async () => {
     const { bootstrapFromEnv, syncAccounts } = await import('./src/lib/bootstrap.mjs');
     sync = syncAccounts;
+    // S-2: einmalige Erstübernahme in den eigenen Produktions-Store (nur mit BESS_MIGRATION_QUELLE, sonst ohne Wirkung)
+    if (process.env.BESS_MIGRATION_QUELLE) {
+      const { erstuebernahme } = await import('./src/lib/erstuebernahme.mjs');
+      await erstuebernahme({ sdk: globalThis.__bessBlobSdk || await import('@vercel/blob'), stage: config.stage });
+    }
     await openStore({ kind: 'blob', bootstrap: bootstrapFromEnv, prefix: config.blobPrefix });
   })().catch((e) => { ready = null; throw e; }); // nächster Aufruf versucht es erneut
   let release; const turn = chain; chain = new Promise((r) => (release = r));

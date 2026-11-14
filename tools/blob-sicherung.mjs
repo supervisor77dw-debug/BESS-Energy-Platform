@@ -127,6 +127,12 @@ if (istCli) {
   const stopp = (msg, rc) => { console.error(`STOPP: ${msg} (rc ${rc})`); process.exit(rc); };
   const zeitlimit = setTimeout(() => stopp('Zeitlimit 10 Minuten überschritten', 21), 10 * 60e3); zeitlimit.unref();
   try {
+    if (befehl === 'manifest-env') { // Wert für BESS_MIGRATION_MANIFEST: nur Pfade, Größe, Typ, SHA-256 – keine Inhalte, kein Token
+      const { manifest: m, fehler } = pruefen({ quelle: resolve(arg('--quelle') || '') });
+      if (fehler.length) stopp('Sicherung beschädigt', 25);
+      process.stdout.write(JSON.stringify({ prefix: m.prefix, eintraege: m.eintraege.map(({ pfad, sha256, bytes, contentType }) => ({ pfad, sha256, bytes, contentType })) }));
+      process.exit(0);
+    }
     if (befehl === 'manifestvergleich') {
       const r = manifestvergleich({ a: resolve(arg('--a') || ''), b: resolve(arg('--b') || '') });
       console.log(`manifestvergleich: A ${r.storeA} ${r.anzahlA} Dateien, B ${r.storeB} ${r.anzahlB} Dateien, Abweichungen ${r.fehler.length}`);
