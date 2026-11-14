@@ -91,27 +91,39 @@ const PFLICHT = [
   ['address', 'Anschrift'],
   ['representatives', 'Vertretungsberechtigte Person(en)'],
   ['register', 'Registergericht und Registernummer (oder ausdrücklich „entfällt“ mit Begründung)'],
-  ['responsible', 'Verantwortlich nach § 18 Abs. 2 MStV'],
 ];
-export function goLiveSperren(b = brand, e = process.env, stage = config.stage) {
+const istGesetzt = (v) => { const t = [].concat(v ?? '').join(' '); return !!t.trim() && !PLATZHALTER.test(t); };
+// mfa: MFA-Betriebsart des Portals in der Zielumgebung (Standard: aktuelle Konfiguration). Mit eigener Domain ist das
+// Portal-Login öffentlich auffindbar; ohne zweiten Faktor wird nicht freigeschaltet.
+export function goLiveSperren(b = brand, e = process.env, stage = config.stage, mfa = config.mfa) {
   const s = [];
   if (e.BESS_OEFFENTLICH !== '1') s.push('Freigabeschalter BESS_OEFFENTLICH=1 nicht gesetzt (nur nach Produktivfreigabe durch Dirk)');
   if (stage !== 'abnahme') s.push('nur in der Produktionsstufe „abnahme“ zulässig');
   if (/\.invalid$|example\./i.test(b.domain || '')) s.push('Hauptdomain in brand.json nicht festgelegt');
   const L = b.legal || {};
-  for (const [k, label] of PFLICHT) {
-    const v = [].concat(L[k] ?? '').join(' ');
-    if (!v.trim() || PLATZHALTER.test(v)) s.push(`Pflichtangabe fehlt: ${label}`);
-  }
+  for (const [k, label] of PFLICHT) if (!istGesetzt(L[k])) s.push(`Pflichtangabe fehlt: ${label}`);
+  if (L.stand?.status !== 'BESTAETIGT') s.push(`Betreiberangaben nicht bestätigt (legal.stand.status = ${L.stand?.status || 'fehlt'}; offen: ${L.stand?.offen || 'aktueller Registerauszug'})`);
+  if (L.mstv?.einschlaegig !== true && L.mstv?.einschlaegig !== false) s.push('§ 18 Abs. 2 MStV: Einschlägigkeit nicht entschieden (legal.mstv.einschlaegig)');
+  else if (L.mstv.einschlaegig === true && !istGesetzt(L.mstv.verantwortlich)) s.push('Pflichtangabe fehlt: Verantwortlich nach § 18 Abs. 2 MStV');
+  if (L.vatId && !/^DE\d{9}$/.test(String(L.vatId).replace(/\s/g, ''))) s.push('USt-IdNr. ungültig (leer lassen oder DE + 9 Ziffern)');
   const mail = String(b.contact?.email || '');
   if (PLATZHALTER.test(mail) || !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(mail)) s.push('Kontakt-E-Mail fehlt (Impressumspflicht)');
   else if (!kontaktAdressen(b).some((a) => a.email.toLowerCase() === mail.toLowerCase())) s.push('Kontakt-E-Mail nicht als empfangsbereit bestätigt (brand.contact.adressen)');
+  if (!istGesetzt(b.contact?.phone) && !(stage === 'abnahme' && e.BESS_FORMULARE === '1' && e.BESS_EIGENER_PRODUKTIONSSPEICHER === '1')) s.push('Zweiter direkter Kontaktweg neben E-Mail fehlt (Telefon; Formulare sind aus) – § 5 DDG, Kanzlei prüfen');
   const f = b.freigaben || {};
   if (f.impressum !== true) s.push('Impressum nicht rechtlich freigegeben');
   if (f.datenschutz !== true) s.push('Datenschutzerklärung nicht rechtlich freigegeben');
   if (f.marke !== true) s.push('Markenprüfung nicht abgeschlossen');
+  if (f.traegerschaft !== true) s.push('Projektträgerschaft nicht freigegeben (Unternehmensgegenstand, Zustimmung Geschäftsführung/Gesellschafter)');
+  if (!['privilegiert', 'konto'].includes(mfa)) s.push(`Portal-MFA ist „${mfa || 'aus'}“ – vor öffentlicher Domain BESS_MFA=privilegiert oder konto setzen`);
   return s;
 }
+
+// Betreiberzeile für Website und strukturierte Daten – nur aus brand.legal, keine juristische Person im Code (AW-022).
+export function traegerZeile(b = brand) {
+  return istGesetzt(b.legal?.operator) ? `${b.name} – ein Projekt der ${b.legal.operator}` : '';
+}
+export const betreiberBestaetigt = (b = brand) => b.legal?.stand?.status === 'BESTAETIGT';
 export const isPublicLive = () => goLiveSperren().length === 0;
 
 // Betriebsbereite E-Mail-Kontaktwege (AW-022): nur Einträge aus brand.contact.adressen mit bestaetigt === true und gültiger

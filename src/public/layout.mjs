@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { html, raw } from '../lib/html.mjs';
-import { brand, config, brandLogo, realDomain, isPublicLive } from '../config.mjs';
+import { brand, config, brandLogo, realDomain, isPublicLive, traegerZeile } from '../config.mjs';
 
 const previewNote = () => config.stage === 'abnahme'
   ? `Vorläufiger Abnahmekandidat · Arbeitsname „${brand.name}“ · Inhalte und Rechtstexte in Prüfung · Bilder sind Visualisierungen von Beispielanlagen`
@@ -64,7 +64,8 @@ ${body}
     <div>
       <a class="brand brand-foot" href="/">${logo}<span>${brand.wordmark}</span></a>
       <p class="foot-claim">${brand.claim}.</p>
-      <p class="muted small">Die einzelnen Speicherprojekte werden von eigenständigen Projektgesellschaften getragen.</p>
+      ${traegerZeile() ? html`<p class="small foot-traeger">${traegerZeile()}</p>` : ''}
+      ${brand.legal?.projektgesellschaften ? html`<p class="muted small">${brand.legal.projektgesellschaften}</p>` : ''}
     </div>
     <nav aria-label="Seiten">
       <h2 class="foot-h">Plattform</h2>

@@ -38,15 +38,16 @@ const get = (path, host = `127.0.0.1:${port}`) => new Promise((resolve, reject) 
 
 const VOLLSTAENDIG = {
   domain: 'https://stromkai.de',
-  legal: { operator: 'Muster Speicher GmbH', address: ['Musterweg 1', '24103 Kiel'], representatives: 'Max Muster', register: 'Amtsgericht Kiel, HRB 0000', responsible: 'Max Muster, Musterweg 1, 24103 Kiel' },
+  legal: { stand: { status: 'BESTAETIGT' }, operator: 'Muster Speicher GmbH', address: ['Musterweg 1', '24103 Kiel'], representatives: 'Max Muster', register: 'Amtsgericht Kiel, HRB 0000', vatId: '', mstv: { einschlaegig: false } },
   contact: { email: 'info@stromkai.de', phone: '+49 431 000000', adressen: [{ email: 'info@stromkai.de', zweck: 'Allgemein', bestaetigt: true }] },
-  freigaben: { impressum: true, datenschutz: true, marke: true },
+  freigaben: { impressum: true, datenschutz: true, marke: true, traegerschaft: true },
 };
+const MFA = 'privilegiert';
 
 test('Sperre aktiv: mit dem heutigen brand.json bleibt die Website gesperrt, auch wenn BESS_OEFFENTLICH=1 gesetzt ist', async () => {
   const s = cfg.goLiveSperren();
   assert.equal(cfg.isPublicLive(), false);
-  for (const erwartet of [/Produktionsstufe/, /Rechtsträger/, /Anschrift/, /Vertretungsberechtigte/, /Registergericht/, /§ 18 Abs\. 2 MStV/, /Kontakt-E-Mail/, /Impressum nicht/, /Datenschutzerklärung nicht/, /Markenprüfung/]) {
+  for (const erwartet of [/Produktionsstufe/, /Vertretungsberechtigte/, /Betreiberangaben nicht bestätigt/, /§ 18 Abs\. 2 MStV/, /Kontakt-E-Mail/, /Zweiter direkter Kontaktweg/, /Impressum nicht/, /Datenschutzerklärung nicht/, /Markenprüfung/, /Projektträgerschaft/, /Portal-MFA/]) {
     assert.ok(s.some((x) => erwartet.test(x)), `Sperrgrund fehlt: ${erwartet}`);
   }
   assert.ok(!s.some((x) => /BESS_OEFFENTLICH/.test(x)), 'Schalter ist gesetzt und darf nicht als Grund erscheinen');
@@ -54,16 +55,19 @@ test('Sperre aktiv: mit dem heutigen brand.json bleibt die Website gesperrt, auc
 
 test('Sperrlogik: nur wenn alle Bedingungen erfüllt sind, ist die Freischaltung möglich', () => {
   const env = { BESS_OEFFENTLICH: '1' };
-  assert.deepEqual(cfg.goLiveSperren(VOLLSTAENDIG, env, 'abnahme'), []);
-  assert.ok(cfg.goLiveSperren(VOLLSTAENDIG, {}, 'abnahme').some((x) => /BESS_OEFFENTLICH/.test(x)), 'ohne Schalter gesperrt');
-  assert.ok(cfg.goLiveSperren(VOLLSTAENDIG, env, 'qa').length === 1, 'QA-Stufe nie öffentlich');
-  for (const [pfad, wert] of [['legal.operator', '[Rechtsträger – noch festzulegen]'], ['legal.register', ''], ['contact.email', '[kontakt@domain – noch festzulegen]'], ['domain', 'https://www.example.invalid'], ['freigaben.marke', false], ['freigaben.impressum', undefined]]) {
+  assert.deepEqual(cfg.goLiveSperren(VOLLSTAENDIG, env, 'abnahme', MFA), []);
+  assert.ok(cfg.goLiveSperren(VOLLSTAENDIG, {}, 'abnahme', MFA).some((x) => /BESS_OEFFENTLICH/.test(x)), 'ohne Schalter gesperrt');
+  assert.ok(cfg.goLiveSperren(VOLLSTAENDIG, env, 'qa', MFA).length === 1, 'QA-Stufe nie öffentlich');
+  assert.ok(cfg.goLiveSperren(VOLLSTAENDIG, env, 'abnahme', 'aus').some((x) => /Portal-MFA/.test(x)), 'ohne MFA gesperrt');
+  for (const [pfad, wert] of [['legal.operator', '[Rechtsträger – noch festzulegen]'], ['legal.register', ''], ['legal.representatives', '[Geschäftsführung – prüfen]'], ['legal.stand', { status: 'VORLAEUFIG' }], ['legal.mstv', { einschlaegig: null }], ['legal.mstv', { einschlaegig: true, verantwortlich: '' }], ['legal.vatId', '12345'], ['contact.email', '[kontakt@domain – noch festzulegen]'], ['contact.phone', ''], ['domain', 'https://www.example.invalid'], ['freigaben.marke', false], ['freigaben.impressum', undefined], ['freigaben.traegerschaft', false]]) {
     const b = structuredClone(VOLLSTAENDIG); const [a, k] = pfad.split('.');
     if (k) b[a][k] = wert; else b[a] = wert;
-    assert.ok(cfg.goLiveSperren(b, env, 'abnahme').length >= 1, `${pfad} = ${JSON.stringify(wert)} muss sperren`);
+    assert.ok(cfg.goLiveSperren(b, env, 'abnahme', MFA).length >= 1, `${pfad} = ${JSON.stringify(wert)} muss sperren`);
   }
   const ohneRegister = structuredClone(VOLLSTAENDIG); ohneRegister.legal.register = 'entfällt (keine Eintragungspflicht, Rechtsform laut Kanzlei)';
-  assert.deepEqual(cfg.goLiveSperren(ohneRegister, env, 'abnahme'), [], 'ausdrücklich „entfällt“ ist zulässig');
+  assert.deepEqual(cfg.goLiveSperren(ohneRegister, env, 'abnahme', MFA), [], 'ausdrücklich „entfällt“ ist zulässig');
+  const mitUst = structuredClone(VOLLSTAENDIG); mitUst.legal.vatId = 'DE123456789';
+  assert.deepEqual(cfg.goLiveSperren(mitUst, env, 'abnahme', MFA), [], 'gültige USt-IdNr. zulässig');
 });
 
 test('Gesperrte Website: noindex, Vorschauleiste, robots sperrt alles, keine Sitemap, kein kanonischer Link, kein Cookie', async () => {
@@ -80,15 +84,29 @@ test('Gesperrte Website: noindex, Vorschauleiste, robots sperrt alles, keine Sit
   assert.equal((await get('/sitemap.xml')).status, 404);
 });
 
-test('Rechtsseiten: Entwurfshinweis und sichtbare Platzhalter, keine erfundenen Angaben', async () => {
+test('Rechtsseiten: Betreiber aus brand.legal, vorläufig gekennzeichnet; offene Angaben sichtbar, nichts erfunden', async () => {
   const imp = (await get('/impressum')).body;
-  assert.match(imp, /Entwurf – Angaben werden nach Festlegung des Rechtsträgers/);
-  assert.match(imp, /\[Rechtsträger der Plattform – noch festzulegen\]/);
-  assert.match(imp, /\[Registergericht und Registernummer – nach Eintragung\]/);
-  assert.ok(!/GmbH|HRB \d/.test(imp), 'keine Firmierung oder Registernummer erfunden');
+  const L = cfg.brand.legal;
+  assert.match(imp, /Entwurf – Angaben werden nach Festlegung/);
+  assert.match(imp, /Betreiberangaben vorläufig/, 'vorläufig bis aktueller Registerauszug');
+  assert.ok(!/DOC-[A-Z]+-\d{4}|Entscheidung Dirk|AW-\d{8}/.test(imp + (await get('/datenschutz')).body), 'keine internen Kennungen öffentlich');
+  assert.ok(imp.includes(`${cfg.brand.name} – ein Projekt der ${L.operator}`), 'Trägerzeile aus brand.legal');
+  assert.match(imp, /Projektbezeichnung und keine eigene Gesellschaft/);
+  assert.ok(imp.includes(L.register) && imp.includes(L.address[0]), 'Register und Anschrift aus brand.legal');
+  assert.ok(imp.includes(L.representatives), 'Vertretung nur als Prüfplatzhalter');
+  assert.match(L.representatives, /^\[/, 'Vertretung ist noch Platzhalter');
+  assert.ok(!/STROMKAI (GmbH|UG|AG|GbR|Infrastruktur)|Speicher 01 GmbH/.test(imp), 'keine eigene STROMKAI-Gesellschaft behauptet');
+  assert.ok(!/Umsatzsteuer-Identifikationsnummer/.test(imp), 'ohne Nachweis keine USt-IdNr.');
+  assert.ok(!/mailto:/.test(imp), 'keine unbestätigte E-Mail');
   const ds = (await get('/datenschutz')).body;
   assert.match(ds, /Entwurf – vor Veröffentlichung/);
-  for (const t of [/Server-Protokolle/, /Cookies und Tracking/, /Art\. 28 DSGVO/, /Art\. 21/, /Art\. 77 DSGVO/, /noch festzulegen/]) assert.match(ds, t);
+  assert.ok(ds.includes(L.operator), 'Verantwortlicher aus brand.legal');
+  for (const t of [/Server-Protokolle/, /Cookies und Tracking/, /Art\. 28 DSGVO/, /Vercel Inc\./, /Microsoft Ireland Operations Limited/, /vorgesehen/, /Art\. 21/, /Art\. 77 DSGVO/, /noch festzulegen/]) assert.match(ds, t);
+  const home = (await get('/')).body;
+  assert.ok(home.includes(`${cfg.brand.name} – ein Projekt der ${L.operator}`), 'Trägerzeile in der Fußzeile');
+  assert.ok(!/werden von eigenständigen Projektgesellschaften getragen/.test(home), 'keine Behauptung bestehender Projektgesellschaften in der Fußzeile');
+  assert.match(home, /"@type":"WebSite"/, 'ohne bestätigte Betreiberangaben keine Organisation in strukturierten Daten');
+  assert.match((await get('/investoren')).body, /kein Angebot und keine Aufforderung zum Erwerb/);
 });
 
 test('Weiterleitung: www und .com per 308 auf https://stromkai.de, Pfad bleibt erhalten; andere Hosts unberührt', async () => {
@@ -105,10 +123,11 @@ test('Weiterleitung: www und .com per 308 auf https://stromkai.de, Pfad bleibt e
 });
 
 test('Gegenprobe (nur im Speicher, Musterwerte): sind alle Bedingungen erfüllt, wird die Website indexierbar', async () => {
-  const sicherung = { brand: structuredClone(cfg.brand), stage: cfg.config.stage };
+  const sicherung = { brand: structuredClone(cfg.brand), stage: cfg.config.stage, mfa: cfg.config.mfa };
   try {
     Object.assign(cfg.brand, structuredClone(VOLLSTAENDIG));
     cfg.config.stage = 'abnahme';
+    cfg.config.mfa = MFA;
     assert.equal(cfg.isPublicLive(), true);
     const home = await get('/', 'stromkai.de');
     assert.equal(home.status, 200);
@@ -126,7 +145,7 @@ test('Gegenprobe (nur im Speicher, Musterwerte): sind alle Bedingungen erfüllt,
     assert.equal(cfg.isPreview(), true, 'Portal-Modus bleibt unverändert');
   } finally {
     for (const k of Object.keys(cfg.brand)) delete cfg.brand[k];
-    Object.assign(cfg.brand, sicherung.brand); cfg.config.stage = sicherung.stage;
+    Object.assign(cfg.brand, sicherung.brand); cfg.config.stage = sicherung.stage; cfg.config.mfa = sicherung.mfa;
   }
   assert.equal(cfg.isPublicLive(), false, 'nach der Gegenprobe wieder gesperrt');
 });

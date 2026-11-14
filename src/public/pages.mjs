@@ -1,5 +1,5 @@
 import { html, raw } from '../lib/html.mjs';
-import { brand, realDomain, config, kontaktAdressen } from '../config.mjs';
+import { brand, realDomain, config, kontaktAdressen, traegerZeile, betreiberBestaetigt } from '../config.mjs';
 import { page, illus, photo, band, picture } from './layout.mjs';
 import { heroSvg } from '../../tools/illustrations.mjs';
 import { publicProjects } from '../lib/policy.mjs';
@@ -58,7 +58,11 @@ export const PHASES = [
   ['Rückbau oder Repowering', 'Am Ende der Laufzeit wird die Anlage nach den gesetzlichen und genehmigungsrechtlichen Vorgaben zurückgebaut oder – nach neuer Vereinbarung – modernisiert.'],
 ];
 
-const ORG_LD = { '@context': 'https://schema.org', '@type': 'Organization', name: brand.name, ...(realDomain() ? { url: realDomain() } : {}), description: `${brand.claim}.` };
+// AW-022: STROMKAI ist eine Projektbezeichnung, keine Organisation. Strukturierte Daten nennen deshalb die Betreiberin
+// (aus brand.legal, sobald bestätigt) und STROMKAI als Marke/Projekt; vorher nur die Projektbezeichnung ohne Rechtsform.
+const ORG_LD = betreiberBestaetigt()
+  ? { '@context': 'https://schema.org', '@type': 'Organization', name: brand.legal.operator, address: { '@type': 'PostalAddress', streetAddress: brand.legal.address[0], postalCode: String(brand.legal.address[1] || '').split(' ')[0], addressLocality: String(brand.legal.address[1] || '').split(' ').slice(1).join(' '), addressCountry: 'DE' }, brand: { '@type': 'Brand', name: brand.name }, ...(realDomain() ? { url: realDomain() } : {}), description: `${brand.claim}.` }
+  : { '@context': 'https://schema.org', '@type': 'WebSite', name: brand.name, ...(realDomain() ? { url: realDomain() } : {}), description: `${brand.claim}.` };
 
 // ---------------- Startseite ----------------
 // AW-020: Wer, was, für wen und nächster Schritt im ersten Bildschirm; Zielgruppen direkt unter dem Kopf;
@@ -425,6 +429,7 @@ export function investoren() {
 <section class="page-head"><div class="wrap">
   <h1>Für Investoren und Finanzierungspartner</h1>
   <p class="lead">Wir entwickeln Batteriespeicher in eigenständigen Projektgesellschaften – mit dokumentierten Entwicklungsschritten, offen benannten Projektrisiken und kontrolliertem Zugang zu Projektunterlagen.</p>
+  <p class="small muted">Diese Seite beschreibt unsere Projektentwicklung. Sie ist kein Angebot und keine Aufforderung zum Erwerb von Vermögensanlagen, Finanzinstrumenten oder Gesellschaftsbeteiligungen und keine Anlage- oder Finanzierungsberatung.</p>
 </div></section>
 ${band('investor', 'Visualisierung: großflächige Speicheranlage mit Containerreihen in der Abenddämmerung neben einem Umspannwerk mit Freileitung', 'Großspeicher als Infrastruktur-Asset. Beispielanlage, kein realer Standort.')}
 <section class="section"><div class="wrap inv-grid">
@@ -559,17 +564,26 @@ const freigegeben = (k) => brand.freigaben?.[k] === true;
 const L = () => brand.legal || {};
 const angabe = (v) => [].concat(v ?? '[fehlt]');
 
+// Kontaktangaben im Impressum/Datenschutz: E-Mail nur, wenn als empfangsbereit bestätigt; sonst sichtbarer Platzhalter.
+const impressumMail = () => (kontaktAdressen().some((a) => a.email === brand.contact.email) ? html`<a href="mailto:${brand.contact.email}">${brand.contact.email}</a>` : '[E-Mail-Adresse in Einrichtung – erscheint nach bestätigtem Empfangstest]');
+// Öffentlich nur ein neutraler Hinweis; Quelle und interne Kennungen bleiben in brand.legal.stand (nicht auf der Website).
+const vorlaeufig = () => (betreiberBestaetigt() ? '' : html`<p class="draft">Betreiberangaben vorläufig – Bestätigung durch einen aktuellen amtlichen Registerauszug steht aus.</p>`);
+
 export function impressum() {
-  const body = html`<section class="page-head"><div class="wrap narrow"><h1>Impressum</h1>${freigegeben('impressum') ? '' : html`<p class="draft">Entwurf – Angaben werden nach Festlegung des Rechtsträgers ergänzt und rechtlich geprüft.</p>`}</div></section>
+  const mstv = L().mstv || {};
+  const body = html`<section class="page-head"><div class="wrap narrow"><h1>Impressum</h1>${freigegeben('impressum') ? '' : html`<p class="draft">Entwurf – Angaben werden nach Festlegung und Bestätigung der Betreiberangaben ergänzt und rechtlich geprüft.</p>`}</div></section>
 <section class="section"><div class="wrap narrow prose">
+${vorlaeufig()}
+${traegerZeile() ? html`<p>${traegerZeile()}. ${brand.name} ist eine Projektbezeichnung und keine eigene Gesellschaft.</p>` : ''}
 <h2>Angaben gemäß § 5 DDG</h2><p>${L().operator}<br>${angabe(L().address).map((l) => html`${l}<br>`)}</p>
 <h2>Vertreten durch</h2><p>${L().representatives}</p>
-<h2>Kontakt</h2><p>Telefon: ${brand.contact.phone}<br>E-Mail: ${brand.contact.email}</p>
+<h2>Kontakt</h2><p>E-Mail: ${impressumMail()}${brand.contact.phone ? html`<br>Telefon: ${brand.contact.phone}` : html`<br>[Zweiter direkter Kontaktweg (z. B. Telefon) – Klärung ausstehend]`}</p>
 <h2>Registereintrag</h2><p>${L().register}</p>
-${L().vatId && !/nicht vorhanden|entfällt/i.test(L().vatId) ? html`<h2>Umsatzsteuer-Identifikationsnummer gemäß § 27a UStG</h2><p>${L().vatId}</p>` : ''}
-<h2>Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV</h2><p>${L().responsible}</p>
-${freigegeben('impressum') ? '' : html`<h2>Verbraucherstreitbeilegung</h2><p>[PRÜFUNGSBEDÜRFTIG – Erklärung nach § 36 VSBG je nach Rechtsform, Mitarbeiterzahl und Zielgruppe durch die Kanzlei festlegen.]</p>`}
-<h2>Projektgesellschaften</h2><p>Die einzelnen Speicherprojekte werden von rechtlich eigenständigen Projektgesellschaften getragen. Deren Angaben werden genannt, sobald die Gesellschaften gegründet sind.</p>
+${/^DE\d{9}$/.test(String(L().vatId || '').replace(/\s/g, '')) ? html`<h2>Umsatzsteuer-Identifikationsnummer gemäß § 27a UStG</h2><p>${L().vatId}</p>` : ''}
+${mstv.einschlaegig === true ? html`<h2>Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV</h2><p>${mstv.verantwortlich || '[fehlt]'}</p>` : mstv.einschlaegig === false ? '' : html`<h2>Verantwortlich nach § 18 Abs. 2 MStV</h2><p>[PRÜFUNGSBEDÜRFTIG – nur bei journalistisch-redaktionellem Angebot erforderlich; Entscheidung Kanzlei.]</p>`}
+${freigegeben('impressum') ? '' : html`<h2>Erlaubnisse und Aufsicht</h2><p>[PRÜFUNGSBEDÜRFTIG – ob Angaben zu gewerberechtlichen Erlaubnissen der Gesellschaft (§ 5 Abs. 1 Nr. 3 und 5 DDG, z. B. § 34c GewO laut Unternehmensgegenstand) auf dieser Projektseite erforderlich sind; Entscheidung Kanzlei.]</p>
+<h2>Verbraucherstreitbeilegung</h2><p>[PRÜFUNGSBEDÜRFTIG – Erklärung nach § 36 VSBG je nach Mitarbeiterzahl und Zielgruppe durch die Kanzlei festlegen.]</p>`}
+${L().projektgesellschaften ? html`<h2>Projektgesellschaften</h2><p>${L().projektgesellschaften}</p>` : ''}
 <h2>Bildnachweis</h2><p>Alle Bilder sind eigene Darstellungen: Illustrationen und 3D-Visualisierungen von Beispielanlagen, erstellt für diese Website. Sie zeigen keine gebauten Anlagen und keine realen Standorte. Bildschirminhalte enthalten synthetische Werte.</p>
 </div></section>`;
   return page({ path: '/impressum', title: 'Impressum', description: 'Impressum', body });
@@ -578,17 +592,21 @@ ${freigegeben('impressum') ? '' : html`<h2>Verbraucherstreitbeilegung</h2><p>[PR
 export function datenschutz() {
   const body = html`<section class="page-head"><div class="wrap narrow"><h1>Datenschutzerklärung</h1>${freigegeben('datenschutz') ? '' : html`<p class="draft">Entwurf – vor Veröffentlichung durch eine fachkundige Stelle zu prüfen und zu ergänzen.</p>`}</div></section>
 <section class="section"><div class="wrap narrow prose">
-<h2>1. Verantwortlicher</h2><p>${L().operator}, ${angabe(L().address).join(', ')}, E-Mail: ${brand.contact.email}</p>
-<p>[Datenschutzbeauftragter: Benennungspflicht nach Art. 37 DSGVO / § 38 BDSG prüfen – ggf. Kontaktdaten ergänzen.]</p>
-<h2>2. Aufruf der Website und Server-Protokolle</h2><p>Beim Besuch der Website verarbeitet der Server technisch notwendige Verbindungsdaten (IP-Adresse, Zeitpunkt, aufgerufene Seite, Browserkennung), um die Seite auszuliefern und die Sicherheit des Angebots zu gewährleisten. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO. [Speicherdauer der Protokolle beim Hostinganbieter – noch festzulegen.] Die Verbindung ist per TLS verschlüsselt.</p>
-<h2>3. Cookies und Tracking</h2><p>Auf den öffentlichen Seiten setzen wir keine Cookies, keine Analyse- oder Werbedienste und binden keine externen Schriften, Karten oder Tracking-Dienste ein. Formulare enthalten einen technisch notwendigen Schutz gegen automatisierte Einsendungen, der ohne Cookie auskommt.</p>
+${vorlaeufig()}
+<h2>1. Verantwortlicher</h2><p>${L().operator}, ${angabe(L().address).join(', ')}, E-Mail: ${impressumMail()}</p>
+${traegerZeile() ? html`<p>Diese Website stellt das Projekt ${brand.name} vor (${traegerZeile()}).</p>` : ''}
+<p>[Datenschutzbeauftragter: Benennungspflicht nach Art. 37 DSGVO / § 38 BDSG für die Gesellschaft prüfen – ggf. Kontaktdaten ergänzen.]</p>
+<h2>2. Aufruf der Website und Server-Protokolle</h2><p>Beim Besuch der Website verarbeitet der Server technisch notwendige Verbindungsdaten (IP-Adresse, Zeitpunkt, aufgerufene Seite, Browserkennung), um die Seite auszuliefern und die Sicherheit des Angebots zu gewährleisten. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO. Die Seiten werden über das Auslieferungsnetz des Hostinganbieters bereitgestellt (Abschnitt 7). [Speicherdauer der Protokolle beim Hostinganbieter – noch festzulegen.] Die Verbindung ist per TLS verschlüsselt.</p>
+<h2>3. Cookies und Tracking</h2><p>Auf den öffentlichen Seiten setzen wir keine Cookies, keine Analyse- oder Werbedienste und binden keine externen Schriften, Karten oder Tracking-Dienste ein.${config.formulare ? ' Formulare enthalten einen technisch notwendigen Schutz gegen automatisierte Einsendungen, der ohne Cookie auskommt.' : ''}</p>
 <h2>4. Kontakt- und Flächenanfragen</h2>${!config.formulare ? html`<p>Die Onlineformulare dieser Website sind derzeit nicht aktiv. Über die Website werden keine Anfragen angenommen oder gespeichert; bitte nutzen Sie die angegebenen E-Mail-Adressen (Abschnitt 5).</p>` : html`<p>Angaben aus den Formularen (Name, Kontaktdaten, Angaben zur Fläche, freiwillige Unterlagen) verwenden wir ausschließlich zur Bearbeitung Ihrer Anfrage. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (vorvertragliche Maßnahmen) bzw. lit. a (Einwilligung). Wir erheben nur die Angaben, die für eine erste Einschätzung nötig sind; Flurstücksdaten und Unterlagen sind freiwillig. Eine erteilte Einwilligung können Sie jederzeit mit Wirkung für die Zukunft widerrufen.</p>
 <p>Die Anfragen werden in einem geschützten internen System gespeichert, auf das nur die für die Bearbeitung zuständigen Personen Zugriff haben. Eine automatische E-Mail-Weiterleitung oder Antwort findet nicht statt.</p>`}
-<h2>5. Kontakt per E-Mail</h2><p>Wenn Sie uns per E-Mail schreiben, verarbeiten wir Ihre Angaben zur Bearbeitung Ihres Anliegens (Art. 6 Abs. 1 lit. b bzw. f DSGVO). [E-Mail-Anbieter und Auftragsverarbeitung – nach Entscheidung C-2 ergänzen.]</p>
+<h2>5. Kontakt per E-Mail</h2><p>Wenn Sie uns per E-Mail schreiben, verarbeiten wir Ihre Angaben zur Bearbeitung Ihres Anliegens (Art. 6 Abs. 1 lit. b bzw. f DSGVO). Die E-Mails werden beim unten genannten E-Mail-Anbieter gespeichert (Abschnitt 7).</p>
 <h2>6. Speicherdauer</h2><p>[Löschfristen – noch festzulegen; Vorschlag: Anfragen ohne Folgekontakt nach 12 Monaten löschen. Gesetzliche Aufbewahrungspflichten bleiben unberührt.]</p>
-<h2>7. Hosting und Empfänger</h2><p>[Entwurf, PRÜFUNGSBEDÜRFTIG] Die Website und die Speicherung der Anfragen erfolgen bei Vercel Inc. (USA); Rechenregion Frankfurt am Main. Dabei verarbeitet der Anbieter Daten in unserem Auftrag (Art. 28 DSGVO). Angaben zum Auftragsverarbeitungsvertrag und zur Grundlage einer möglichen Übermittlung in die USA (z. B. EU-US Data Privacy Framework oder Standardvertragsklauseln) sind vor der Veröffentlichung zu ergänzen und zu belegen.</p>
-<h2>8. Portal</h2><p>Für das geschützte Portal verwenden wir ein technisch notwendiges Sitzungs-Cookie. Zugriffe auf Dokumente werden zur Nachvollziehbarkeit protokolliert.</p>
-<h2>9. Ihre Rechte</h2><p>Sie haben das Recht auf Auskunft (Art. 15), Berichtigung (Art. 16), Löschung (Art. 17), Einschränkung der Verarbeitung (Art. 18), Datenübertragbarkeit (Art. 20) und Widerspruch (Art. 21 DSGVO) sowie das Recht auf Beschwerde bei einer Aufsichtsbehörde (Art. 77 DSGVO). [Zuständige Aufsichtsbehörde nach Sitz des Verantwortlichen – noch festzulegen.]</p>
+<h2>7. Hosting, Dienstleister und Empfänger</h2><p>Wir setzen folgende Dienstleister ein, die Daten in unserem Auftrag verarbeiten (Art. 28 DSGVO):</p>
+<ul>${(brand.dienstleister || []).filter((d) => d.status === 'aktiv' || !freigegeben('datenschutz')).map((d) => html`<li><strong>${d.name}</strong> (${d.land}) – ${d.zweck}${d.status !== 'aktiv' ? html` <em>[${d.status}]</em>` : ''}${d.grundlage ? html`. ${d.grundlage}` : ''}</li>`)}</ul>
+<p>Eine Weitergabe an sonstige Dritte findet nicht statt, es sei denn, wir sind gesetzlich dazu verpflichtet.</p>
+<h2>8. Portal</h2><p>Für das geschützte Portal (nur für eingeladene Partner) verwenden wir ein technisch notwendiges Sitzungs-Cookie. Zugriffe auf Dokumente werden zur Nachvollziehbarkeit protokolliert.</p>
+<h2>9. Ihre Rechte</h2><p>Sie haben das Recht auf Auskunft (Art. 15), Berichtigung (Art. 16), Löschung (Art. 17), Einschränkung der Verarbeitung (Art. 18), Datenübertragbarkeit (Art. 20) und Widerspruch (Art. 21 DSGVO) sowie das Recht auf Beschwerde bei einer Aufsichtsbehörde (Art. 77 DSGVO). ${brand.datenschutzAufsicht ? `Zuständig für den Verantwortlichen ist: ${brand.datenschutzAufsicht}.` : '[Zuständige Aufsichtsbehörde – noch festzulegen.]'}</p>
 <p>Eine automatisierte Entscheidungsfindung einschließlich Profiling findet nicht statt.</p>
 </div></section>`;
   return page({ path: '/datenschutz', title: 'Datenschutz', description: 'Datenschutzerklärung', body });
