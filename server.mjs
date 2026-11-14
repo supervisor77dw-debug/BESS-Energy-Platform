@@ -4,13 +4,15 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { join, normalize, extname, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { config, ROOT, brand, isPreview } from './src/config.mjs';
+import { config, ROOT, brand, isPreview, isPublicLive, kanonischeWeiterleitung } from './src/config.mjs';
 import { openStore, getDb, persist, newId, now, audit, putFile, refresh, flush, storeKind } from './src/lib/store.mjs';
 import { send, redirect, securityHeaders, parseForm, checkFormToken, rateLimit, clientIp, sniffType } from './src/lib/http.mjs';
 import * as Pub from './src/public/pages.mjs';
 import { handlePortal, HttpError } from './src/portal/routes.mjs';
 import { esc } from './src/lib/html.mjs';
 import { handleGate, loadGate } from './src/lib/gate.mjs';
+import { ROLLEN, naechsteKennung, regionZuordnen, REGIONEN_OEFFENTLICH } from './src/portal/akquise.mjs';
+import { anfrageEingang } from './src/portal/arbeit.mjs';
 
 const STATIC = join(ROOT, 'static');
 const TYPES = { '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.avif': 'image/avif', '.ico': 'image/x-icon', '.woff2': 'font/woff2' };
@@ -24,7 +26,7 @@ async function serveStatic(res, pathname) {
     // Bildwelt-Dateien sind über ?v= versioniert und dürfen lange zwischengespeichert werden
     res.setHeader('Cache-Control', rel.startsWith('img' + sep + 'v2' + sep) && !rel.endsWith('.json') ? 'public, max-age=31536000, immutable' : isPreview() ? 'no-cache' : 'public, max-age=86400');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    if (isPreview()) res.setHeader('X-Robots-Tag', 'noindex');
+    if (!isPublicLive()) res.setHeader('X-Robots-Tag', 'noindex');
     return send(res, 200, data, TYPES[extname(file)] || 'application/octet-stream');
   } catch { return send(res, 404, 'Nicht gefunden', 'text/plain; charset=utf-8'); }
 }
@@ -36,12 +38,13 @@ async function handleSiteOffer(req, res) {
   const { fields, files } = await parseForm(req);
   if (fields.firma || !checkFormToken(fields._t)) return redirect(res, '/danke?k=flaeche'); // stilles Verwerfen von Bot-Einsendungen
   if (!rateLimit(`form:${clientIp(req)}`, 8, 60 * 60000)) return send(res, 429, 'Zu viele Anfragen. Bitte später erneut versuchen.', 'text/plain; charset=utf-8');
-  const v = { name: clip(fields.name, 120), email: clip(fields.email, 160), phone: clip(fields.phone, 60), lage: clip(fields.lage, 200), flurstueck: clip(fields.flurstueck, 200), flaeche: clip(fields.flaeche, 20), nutzung: clip(fields.nutzung, 40), umspannwerk: clip(fields.umspannwerk, 40), nachricht: clip(fields.nachricht, 3000), dsgvo: fields.dsgvo === 'ja' };
+  const v = { name: clip(fields.name, 120), rolle: ROLLEN.includes(fields.rolle) ? fields.rolle : '', region: REGIONEN_OEFFENTLICH.includes(fields.region) ? fields.region : '', email: clip(fields.email, 160), phone: clip(fields.phone, 60), plz: clip(fields.plz, 10), lage: clip(fields.lage, 200), flurstueck: clip(fields.flurstueck, 200), gemarkung: clip(fields.gemarkung, 80), flur: clip(fields.flur, 20), flaeche: clip(fields.flaeche, 20), nutzung: clip(fields.nutzung, 40), umspannwerk: clip(fields.umspannwerk, 40), nachricht: clip(fields.nachricht, 3000), dsgvo: fields.dsgvo === 'ja' };
   const errors = {};
   if (!v.name) errors.name = 'Bitte geben Sie Ihren Namen an.';
   if (!v.email && !v.phone) errors.email = 'Bitte geben Sie eine E-Mail-Adresse oder Telefonnummer an.';
   else if (v.email && !isEmail(v.email)) errors.email = 'Bitte prüfen Sie die E-Mail-Adresse.';
-  if (!v.lage) errors.lage = 'Bitte beschreiben Sie kurz die Lage der Fläche.';
+  if (!v.lage) errors.lage = 'Bitte nennen Sie Gemeinde oder Ort der Fläche.';
+  if (v.plz && !/^\d{5}$/.test(v.plz)) errors.plz = 'Bitte prüfen Sie die Postleitzahl (fünf Ziffern).';
   if (!v.dsgvo) errors.dsgvo = 'Ohne Ihr Einverständnis können wir die Anfrage nicht bearbeiten.';
   const f = files.find((x) => x.field === 'datei');
   let type = null;
@@ -50,8 +53,11 @@ async function handleSiteOffer(req, res) {
   let fileId = null;
   if (f) { fileId = newId('in') + '.' + type.ext; await putFile(fileId, f.data, type.mime); }
   const db = getDb();
-  db.inquiries.push({ id: newId('inq'), kind: 'flaeche', at: now(), status: 'neu', ...v, dsgvo: true, fileId });
-  persist(); audit('anfrage_flaeche', null, { lage: v.lage });
+  const at = now();
+  db.inquiries.push({ id: newId('inq'), ref: naechsteKennung(db, at), kind: 'flaeche', at, status: 'neu', ...v, dsgvo: true, fileId });
+  regionZuordnen(db, db.inquiries.at(-1));
+  anfrageEingang(db, db.inquiries.at(-1)); // nächste Aktion, Historie, Benachrichtigung (AW-020)
+  persist(); audit('anfrage_flaeche', null, { anfrage: db.inquiries.at(-1).id }); // ohne Ort/Personenbezug (AW-020 R-4)
   return redirect(res, '/danke?k=flaeche');
 }
 
@@ -59,20 +65,23 @@ async function handleContact(req, res) {
   const { fields } = await parseForm(req);
   if (fields.firma || !checkFormToken(fields._t)) return redirect(res, '/danke?k=kontakt');
   if (!rateLimit(`form:${clientIp(req)}`, 8, 60 * 60000)) return send(res, 429, 'Zu viele Anfragen. Bitte später erneut versuchen.', 'text/plain; charset=utf-8');
-  const v = { anliegen: clip(fields.anliegen, 30), name: clip(fields.name, 120), org: clip(fields.org, 160), email: clip(fields.email, 160), phone: clip(fields.phone, 60), nachricht: clip(fields.nachricht, 4000), dsgvo: fields.dsgvo === 'ja' };
+  const v = { anliegen: clip(fields.anliegen, 30), region: REGIONEN_OEFFENTLICH.includes(fields.region) ? fields.region : '', name: clip(fields.name, 120), org: clip(fields.org, 160), email: clip(fields.email, 160), phone: clip(fields.phone, 60), nachricht: clip(fields.nachricht, 4000), dsgvo: fields.dsgvo === 'ja' };
   const errors = {};
   if (!v.name) errors.name = 'Bitte geben Sie Ihren Namen an.';
   if (!isEmail(v.email)) errors.email = 'Bitte geben Sie eine gültige E-Mail-Adresse an.';
   if (!v.nachricht) errors.nachricht = 'Bitte schreiben Sie uns kurz Ihr Anliegen.';
   if (!v.dsgvo) errors.dsgvo = 'Ohne Ihr Einverständnis können wir die Nachricht nicht bearbeiten.';
   if (Object.keys(errors).length) return send(res, 422, String(Pub.kontakt({ errors, values: { ...fields, dsgvo: v.dsgvo ? 'ja' : '' } })));
-  getDb().inquiries.push({ id: newId('inq'), kind: 'kontakt', at: now(), status: 'neu', ...v, dsgvo: true });
+  const db = getDb(), at = now();
+  db.inquiries.push({ id: newId('inq'), ref: naechsteKennung(db, at), kind: 'kontakt', at, status: 'neu', ...v, dsgvo: true });
+  regionZuordnen(db, db.inquiries.at(-1));
+  anfrageEingang(db, db.inquiries.at(-1)); // nächste Aktion, Historie, Benachrichtigung (AW-020)
   persist(); audit('anfrage_kontakt', null, { anliegen: v.anliegen });
   return redirect(res, '/danke?k=kontakt');
 }
 
 function robots() {
-  return isPreview() ? 'User-agent: *\nDisallow: /\n' : `User-agent: *\nDisallow: /portal/\nSitemap: ${brand.domain}/sitemap.xml\n`;
+  return !isPublicLive() ? 'User-agent: *\nDisallow: /\n' : `User-agent: *\nDisallow: /portal/\nSitemap: ${brand.domain}/sitemap.xml\n`;
 }
 function sitemap() {
   const paths = [...Object.keys(Pub.PUBLIC_ROUTES), '/standort-anbieten', '/kontakt'];
@@ -93,6 +102,9 @@ export async function handleRequest(req, res) {
     const url = new URL(req.url, 'http://localhost');
     const p = url.pathname;
     const portal = p === '/portal' || p.startsWith('/portal/');
+    // Nebendomains (www, .com) per 308 auf die Hauptdomain (AW-022); vercel.app und localhost bleiben unberührt.
+    const ziel = kanonischeWeiterleitung(config.trustProxy ? (req.headers['x-forwarded-host'] || req.headers.host) : req.headers.host, req.url);
+    if (ziel) { res.statusCode = 308; res.setHeader('Location', ziel); res.setHeader('Cache-Control', 'public, max-age=3600'); return res.end(); }
     try {
       if (config.gate) { if (!p.startsWith('/static/')) securityHeaders(res, { portal: true }); if (await handleGate(req, res, url)) return; }
       if (p.startsWith('/static/')) return await serveStatic(res, p);
@@ -100,17 +112,20 @@ export async function handleRequest(req, res) {
       if (portal) return await handlePortal(req, res, url);
       if (req.method === 'GET' || req.method === 'HEAD') {
         if (p === '/robots.txt') return send(res, 200, robots(), 'text/plain; charset=utf-8');
-        if (p === '/sitemap.xml') return send(res, 200, sitemap(), 'application/xml; charset=utf-8');
+        if (p === '/sitemap.xml') { if (!isPublicLive()) throw new HttpError(404); return send(res, 200, sitemap(), 'application/xml; charset=utf-8'); }
         if (p === '/healthz') return send(res, 200, 'ok', 'text/plain; charset=utf-8');
-        if (p === '/standort-anbieten') return send(res, 200, String(Pub.standortAnbieten()));
-        if (p === '/kontakt') return send(res, 200, String(Pub.kontakt({ anliegen: url.searchParams.get('anliegen') })));
-        if (p === '/danke') return send(res, 200, String(Pub.danke(url.searchParams.get('k'))));
+        if (p === '/standort-anbieten') return send(res, 200, String(Pub.standortAnbieten({ region: url.searchParams.get('region') })));
+        if (p === '/kontakt') return send(res, 200, String(Pub.kontakt({ anliegen: url.searchParams.get('anliegen'), region: url.searchParams.get('region') })));
+        if (p === '/danke') { if (!config.formulare) throw new HttpError(404); return send(res, 200, String(Pub.danke(url.searchParams.get('k')))); }
         const key = p.length > 1 ? p.replace(/\/+$/, '') : p;
         if (Pub.PUBLIC_ROUTES[key]) return send(res, 200, String(Pub.PUBLIC_ROUTES[key]()));
         throw new HttpError(404);
       }
-      if (req.method === 'POST' && p === '/standort-anbieten') return await handleSiteOffer(req, res);
-      if (req.method === 'POST' && p === '/kontakt') return await handleContact(req, res);
+      if (req.method === 'POST' && (p === '/standort-anbieten' || p === '/kontakt')) {
+        // AW-022 (G-11): Formulare gesperrt → Abbruch vor dem Lesen des Bodys; keine Speicherung, kein Upload, kein Protokoll mit Inhalt
+        if (!config.formulare) { res.setHeader('Connection', 'close'); return send(res, 403, String(Pub.formularGesperrt(p === '/standort-anbieten' ? 'flaeche' : 'kontakt'))); }
+        return p === '/standort-anbieten' ? await handleSiteOffer(req, res) : await handleContact(req, res);
+      }
       throw new HttpError(405, 'Methode nicht erlaubt');
     } catch (err) {
       if (res.headersSent) return res.end();
@@ -134,7 +149,12 @@ export async function vercelHandler(req, res) {
   ready ??= (async () => {
     const { bootstrapFromEnv, syncAccounts } = await import('./src/lib/bootstrap.mjs');
     sync = syncAccounts;
-    await openStore({ kind: 'blob', bootstrap: bootstrapFromEnv, prefix: config.stage === 'abnahme' ? 'abnahme/' : '' });
+    // S-2: einmalige Erstübernahme in den eigenen Produktions-Store (nur mit BESS_MIGRATION_QUELLE, sonst ohne Wirkung)
+    if (process.env.BESS_MIGRATION_QUELLE) {
+      const { erstuebernahme } = await import('./src/lib/erstuebernahme.mjs');
+      await erstuebernahme({ sdk: globalThis.__bessBlobSdk || await import('@vercel/blob'), stage: config.stage });
+    }
+    await openStore({ kind: 'blob', bootstrap: bootstrapFromEnv, prefix: config.blobPrefix });
   })().catch((e) => { ready = null; throw e; }); // nächster Aufruf versucht es erneut
   let release; const turn = chain; chain = new Promise((r) => (release = r));
   await turn;

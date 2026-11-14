@@ -5,9 +5,11 @@
 // Zugriff ausschließlich über die Repository-Funktionen in policy.mjs, die jede Abfrage an den Nutzer binden.
 // Ablauf je Anfrage: refresh() → Handler (ändert db, ruft persist()) → flush() vor dem Senden der Antwort.
 import { ensureFinanceDemo } from './finance/demo.mjs';
-import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync } from 'node:fs';
+import { KATALOG_START } from './planer/planer.mjs';
+import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import { config, speicherVerstoesse } from '../config.mjs';
 
 let db = null;
 let base = null;      // Stand beim letzten Laden (für die Zusammenführung bei Konflikten)
@@ -18,7 +20,9 @@ let driver = null;    // { kind, ... }
 let STATE = 'state/db.json';
 let FILES = 'files/';
 // Finanzmodul: Sammlungen anlegen und synthetische Demo-Daten einmalig ergänzen (Entwicklungs- und Abnahmephase)
-const ensureCollections = (d) => { for (const k of ['audit', 'downloads', 'inquiries', 'messages', 'approvals', 'uploads', 'revoked', 'gateUsers', 'invitations', 'grants']) d[k] ??= []; d.meta ??= {}; ensureFinanceDemo(d); return d; };
+const ensureCollections = (d) => { for (const k of ['audit', 'downloads', 'inquiries', 'messages', 'approvals', 'uploads', 'revoked', 'gateUsers', 'invitations', 'grants', 'benachrichtigungen', 'outbox', 'gelesen']) d[k] ??= []; d.meta ??= {}; ensureFinanceDemo(d); ensurePlaner(d); return d; };
+// Investitionsplaner (AW-016): Sammlungen anlegen, Platzhalter-Katalog einmalig ergänzen (ohne Herstellerbezug und ohne Preise)
+const ensurePlaner = (d) => { for (const k of ['planerStaende', 'planerKatalog', 'planerAngebote', 'wmVersionshinweise']) d[k] ??= []; if (!d.meta.planerKatalog) { for (const x of KATALOG_START) if (!d.planerKatalog.some((y) => y.id === x.id)) d.planerKatalog.push(structuredClone(x)); d.meta.planerKatalog = 1; } };
 
 export async function openStore(opts) {
   if (typeof opts === 'string') opts = { kind: 'file', dataDir: opts };
@@ -35,9 +39,14 @@ export async function openStore(opts) {
     return db;
   }
   if (opts.kind === 'blob') {
+    // S-2 (AW-022): Speichertrennung vor jedem Zugriff prüfen – bei Verstoß kein Lesen und kein Schreiben (fail closed)
+    const verstoss = opts.sdk ? [] : speicherVerstoesse(process.env, config.stage);
+    if (verstoss.length) throw new Error(`Speichertrennung verletzt: ${verstoss.join('; ')}`);
     driver = { kind: 'blob', sdk: opts.sdk || globalThis.__bessBlobSdk || await import('@vercel/blob'), bootstrap: opts.bootstrap }; // __bessBlobSdk: nur Tests
     // Getrennte Speicherbereiche je Betriebsstufe (z. B. 'abnahme/'), damit QA- und Abnahmedaten nie vermischt werden
     const prefix = opts.prefix || '';
+    // Datenisolierung (AW-020, R-1): nur die Produktionsstufe arbeitet im Bereich 'abnahme/'
+    if (prefix.startsWith('abnahme') !== (config.stage === 'abnahme')) throw new Error(`Speicherbereich ${prefix || '(Wurzel)'} passt nicht zur Stufe ${config.stage}.`);
     STATE = `${prefix}state/db.json`; FILES = `${prefix}files/`;
     await refresh();
     return db;
@@ -135,14 +144,37 @@ export async function flush() {
 }
 
 // ---- Dateien ----
+// Dateinamen entstehen nur serverseitig (newId + geprüfte Endung); jeder andere Name wird abgewiesen (kein Pfadausbruch,
+// kein Zugriff auf Zustand oder andere Stufen). Der Pfad liegt immer im Dateibereich der eigenen Stufe.
+const pfad = (name) => {
+  if (!/^[\w-]+(\.[a-z0-9]{2,4})?$/i.test(String(name))) throw new Error(`Ungültiger Dateiname: ${name}`);
+  return `${FILES}${name}`;
+};
+const nichtGefunden = (e) => /not.?found|404|does not exist/i.test(String(e?.name) + String(e?.message));
 export async function putFile(name, data, mime) {
-  if (driver.kind === 'file') return writeFileSync(join(driver.dataDir, 'files', name), data);
-  await driver.sdk.put(`${FILES}${name}`, data, { access: 'private', addRandomSuffix: false, allowOverwrite: false, contentType: mime || 'application/octet-stream' });
+  if (driver.kind === 'file') return writeFileSync(join(driver.dataDir, 'files', pfad(name).slice(FILES.length)), data);
+  await driver.sdk.put(pfad(name), data, { access: 'private', addRandomSuffix: false, allowOverwrite: false, contentType: mime || 'application/octet-stream' });
 }
+// Fehlende Datei: null (Aufrufer antworten mit 404 statt Serverfehler, AW-020 R-2)
 export async function getFile(name) {
-  if (driver.kind === 'file') return readFileSync(join(driver.dataDir, 'files', name));
-  const r = await driver.sdk.get(`${FILES}${name}`, { access: 'private' });
-  return readStream(r.stream);
+  if (driver.kind === 'file') { try { return readFileSync(join(driver.dataDir, 'files', pfad(name).slice(FILES.length))); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } }
+  let r;
+  try { r = await driver.sdk.get(pfad(name), { access: 'private' }); } catch (e) { if (nichtGefunden(e)) return null; throw e; }
+  return r?.stream ? readStream(r.stream) : null;
+}
+// Löschung einer einzelnen Datei (Löschkonzept Anfragen, AW-020); bereits fehlende Dateien gelten als gelöscht (R-3)
+export async function deleteFile(name) {
+  if (driver.kind === 'file') { try { unlinkSync(join(driver.dataDir, 'files', pfad(name).slice(FILES.length))); } catch (e) { if (e.code !== 'ENOENT') throw e; } return; }
+  try { await driver.sdk.del(pfad(name)); } catch (e) { if (!nichtGefunden(e)) throw e; }
+}
+
+// QA-Identitätsspiegel (AW-020): einziger stufenübergreifender Zugriff – ausschließlich lesend (get), nur der Zustand der
+// Produktionsstufe, nur wenn der Spiegel in der QA ausdrücklich eingeschaltet ist. Kein put/del auf 'abnahme/'.
+export async function leseProduktionszustand() {
+  if (!config.qaSpiegel || config.stage === 'abnahme' || driver?.kind !== 'blob') return null;
+  let r;
+  try { r = await driver.sdk.get('abnahme/state/db.json', { access: 'private', useCache: false }); } catch (e) { if (nichtGefunden(e)) return null; throw e; }
+  return r?.stream ? JSON.parse((await readStream(r.stream)).toString('utf8')) : null;
 }
 
 export const newId = (prefix) => `${prefix}-${randomBytes(6).toString('hex')}`;

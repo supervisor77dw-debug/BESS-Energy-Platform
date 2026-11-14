@@ -1,0 +1,136 @@
+{
+ "hinweis": "Synthetische QA-Demo-Daten: Parameter der WM-Version V4 (DEMO-N01, QA-Vorschau, Prüfsumme efde375623819213), Basis des Kapitalwert-Abgleichs der Rechenabstimmung vom 30.10.2026",
+ "params": {
+  "standort": {
+   "grundstueck": "QA-Demo-Grundstück R1 (synthetisch)",
+   "flaecheHa": 1.2,
+   "optionsflaecheHa": 0,
+   "betriebsflaecheHa": 0.033417840000000004,
+   "netzanschluss": "Demo-Umspannwerk",
+   "grundstuecksmodell": "pacht"
+  },
+  "technik": {
+   "leistungMW": 10,
+   "kapazitaetMWh": 24,
+   "nutzbarAnteil": 0.9499999999999998,
+   "wirkungsgrad": 0.86,
+   "verfuegbarkeit": 0.97,
+   "degradationJahr": 0.015,
+   "zyklenJahr": 510.30618881457025,
+   "betriebsjahre": 20,
+   "einspeiseMW": 10,
+   "bezugMW": 10
+  },
+  "capex": {
+   "batterie": 2880000,
+   "pcs": 300000,
+   "trafo": 200000,
+   "netzanschluss": 600000,
+   "bau": 569999.9999999999,
+   "erschliessung": 182399.99999999997,
+   "brandschutz": 136799.99999999997,
+   "planung": 341999.99999999994,
+   "genehmigung": 0,
+   "nebenkosten": 159599.99999999997,
+   "leittechnik": 0,
+   "bauzeitzinsen": 114100.47254006081,
+   "sonstige": 0,
+   "reserveAnteil": 0.05
+  },
+  "opex": {
+   "wartung": 101333.33333333333,
+   "versicherung": 50666.666666666664,
+   "grundstueck": 26400,
+   "netzMess": 20000,
+   "it": 15000,
+   "monitoring": 37999.99999999999,
+   "ersatzteile": 20266.666666666664,
+   "rueckbau": 15199.999999999998,
+   "vermarktungAnteil": 0.08,
+   "steigerung": 0.02
+  },
+  "finanzierung": {
+   "fkAnteil": 0.7,
+   "zins": 0.055,
+   "laufzeitJahre": 15,
+   "finanzierungskostenAnteil": 0.02,
+   "dsraMonate": 6,
+   "schuldendienstplan": [
+    {
+     "zinsen": 0.055,
+     "tilgung": 0
+    },
+    {
+     "zinsen": 0.055,
+     "tilgung": 0.04927911544944379
+    },
+    {
+     "zinsen": 0.052289648650280594,
+     "tilgung": 0.0519894667991632
+    },
+    {
+     "zinsen": 0.04943022797632662,
+     "tilgung": 0.054848887473117176
+    },
+    {
+     "zinsen": 0.046413539165305176,
+     "tilgung": 0.05786557628413862
+    },
+    {
+     "zinsen": 0.043230932469677553,
+     "tilgung": 0.06104818297976624
+    },
+    {
+     "zinsen": 0.03987328240579041,
+     "tilgung": 0.06440583304365338
+    },
+    {
+     "zinsen": 0.03633096158838947,
+     "tilgung": 0.06794815386105432
+    },
+    {
+     "zinsen": 0.03259381312603148,
+     "tilgung": 0.0716853023234123
+    },
+    {
+     "zinsen": 0.028651121498243805,
+     "tilgung": 0.07562799395119998
+    },
+    {
+     "zinsen": 0.024491581830927804,
+     "tilgung": 0.07978753361851598
+    },
+    {
+     "zinsen": 0.020103267481909423,
+     "tilgung": 0.08417584796753437
+    },
+    {
+     "zinsen": 0.015473595843695035,
+     "tilgung": 0.08880551960574876
+    },
+    {
+     "zinsen": 0.010589292265378853,
+     "tilgung": 0.09368982318406494
+    },
+    {
+     "zinsen": 0.005436351990255281,
+     "tilgung": 0.09884276345918694
+    }
+   ]
+  },
+  "einnahmen": [
+   {
+    "key": "b2_befreit",
+    "name": "Day-Ahead-Arbitrage B2 (Backtest R24M, Szenario A befreit)",
+    "art": "energie",
+    "anteil": 1,
+    "verkaufEURMWh": 159.74183487305783,
+    "einkaufEURMWh": 62.42084043626798,
+    "variableKostenEURMWh": 3.582661004301393
+   }
+  ],
+  "bewertung": {
+   "diskontsatz": 0.07
+  }
+ }
+}

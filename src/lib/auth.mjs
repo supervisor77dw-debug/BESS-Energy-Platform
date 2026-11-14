@@ -80,8 +80,9 @@ export function revoke(id, ttlMs) {
   persist();
 }
 
-export function createSession(userId, { mfaPending }) {
-  return { id: randomBytes(18).toString('base64url'), userId, mfaPending, csrf: randomBytes(24).toString('base64url'), created: Date.now(), seen: Date.now() };
+// mfaOk: zweiter Faktor in DIESER Sitzung bestätigt (Go-live S-1: Sitzungen ohne MFA werden nach dem Einschalten beendet)
+export function createSession(userId, { mfaPending, mfaOk = false }) {
+  return { id: randomBytes(18).toString('base64url'), userId, mfaPending, mfaOk, csrf: randomBytes(24).toString('base64url'), created: Date.now(), seen: Date.now() };
 }
 // Liefert die Sitzung oder null; "refresh" = Cookie mit neuem Leerlaufzeitpunkt nötig.
 export function getSession(token) {

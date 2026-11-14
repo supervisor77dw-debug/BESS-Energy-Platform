@@ -11,11 +11,14 @@ import { html, raw, fmtDate } from '../lib/html.mjs';
 import * as P from '../lib/policy.mjs';
 import { eur, num, pct, parseZahl, cent } from '../lib/finance/geld.mjs';
 import * as WM from '../lib/finance/wirtschaftlichkeit.mjs';
+import * as REF from '../lib/finance/referenz.mjs';
 import * as VG from '../lib/finance/verguetung.mjs';
 import * as VT from '../lib/finance/vertraege.mjs';
 import * as HD from '../lib/finance/handelsdaten.mjs';
 import { berechnungCsv, verguetungPdf } from '../lib/finance/export.mjs';
 import { PHASES } from '../public/pages.mjs';
+import { eigentuemerstatus, STATUS_BESTAETIGT } from './flaechen.mjs';
+const NICHT_BESTAETIGT = 'Für diesen Kontakt ist kein Eigentümerstatus bestätigt. Vergütungsangebote nur für Eigentümer mit dokumentierter Grundlage (Standortakte → Beteiligte verknüpfen).';
 
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 const nf = () => new HttpError(404, 'Nicht gefunden');
@@ -47,7 +50,7 @@ export const FELDER = [
   F('bewertung', 'diskontsatz', 'Diskontsatz Kapitalwert', '%', 'prozent'),
 ];
 const GRUPPEN = { standort: 'Standort', technik: 'Batterietechnik', capex: 'Investition (CAPEX)', opex: 'Betrieb (OPEX)', finanzierung: 'Finanzierung', einnahmen: 'Einnahmen', bewertung: 'Bewertung' };
-const ERLOES_FELDER = [['anteil', 'Anteil der Leistung', '%', 'prozent'], ['verkaufEURMWh', 'Verkaufspreis', 'EUR/MWh'], ['einkaufEURMWh', 'Einkaufspreis', 'EUR/MWh'], ['eurJeMWJahr', 'Leistungspreis', 'EUR/MW/Jahr'], ['eurJahr', 'Jahreserlös', 'EUR/Jahr']];
+const ERLOES_FELDER = [['anteil', 'Anteil der Leistung', '%', 'prozent'], ['verkaufEURMWh', 'Verkaufspreis', 'EUR/MWh'], ['einkaufEURMWh', 'Einkaufspreis', 'EUR/MWh'], ['eurJeMWJahr', 'Leistungspreis', 'EUR/MW/Jahr'], ['eurJahr', 'Jahreserlös', 'EUR/Jahr'], ['variableKostenEURMWh', 'Variable Handelskosten', 'EUR je ausgespeicherter MWh']];
 
 function paramsAusFormular(fields, alt) {
   const p = structuredClone(alt);
@@ -87,14 +90,14 @@ export async function handleFinanzen({ req, res, url, path, method, u, s, view, 
     if (!projekte.length) throw nf();
     return view('Wirtschaftlichkeit', uebersichtView(db, u, projekte), 'Projektgesellschaften, Kalkulation und Eigentümervergütung');
   }
-  if ((m = /^\/portal\/wirtschaftlichkeit\/([\w-]+)(?:\/(berechnen|export\.csv|freigeben))?$/.exec(path))) {
+  if ((m = /^\/portal\/wirtschaftlichkeit\/([\w-]+)(?:\/(berechnen|export\.csv|freigeben|referenzbasis|versionshinweis))?$/.exec(path))) {
     const p = projekt(db, m[1]);
     if (!p || !darfWirtschaftlichkeit(u, p.id)) throw nf();
     const versionen = versionenVon(db, p.id);
     const gewaehlt = versionen.find((v) => v.id === url.searchParams.get('v')) || versionen[0];
     if (!m[2] && method === 'GET') {
       const sz = WM.SZENARIEN[url.searchParams.get('s')] ? url.searchParams.get('s') : 'basis';
-      const msg = { ok: 'Berechnung gespeichert (neue Version).', frei: 'Kennzahlen für Investoren freigegeben.' }[url.searchParams.get('m')];
+      const msg = { ok: 'Berechnung gespeichert (neue Version).', frei: 'Kennzahlen für Investoren freigegeben.', ref: 'Referenzbasis angelegt (neue Version).', hinweis: 'Versionshinweis gespeichert (die Version selbst bleibt unverändert).' }[url.searchParams.get('m')];
       return view(`Wirtschaftlichkeit ${p.code}`, akteView({ db, u, s, p, versionen, gewaehlt, sz, msg }), db.spvs.find((x) => x.id === p.spvId)?.name);
     }
     if (m[2] === 'export.csv' && method === 'GET') {
@@ -118,6 +121,27 @@ export async function handleFinanzen({ req, res, url, path, method, u, s, view, 
       db.finanzmodelle.push(neu); persist();
       audit('wirtschaftlichkeit_berechnet', u, { projekt: p.id, version: neu.version });
       return redirect(res, `/portal/wirtschaftlichkeit/${p.id}?v=${neu.id}&m=ok`);
+    }
+    // Referenzbasis (Plattformadministration): neue WM-Version aus dem aktuellen Demo-Ausgangsmodell; bestehende Versionen bleiben unverändert
+    if (m[2] === 'referenzbasis' && method === 'POST') {
+      if (!P.isAdmin(u)) throw nf();
+      await post();
+      const r = REF.neueReferenzbasis(db, p, { von: u, at: now(), codeStand: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || null });
+      if (r.fehler) return send(res, 422, String(page(`Wirtschaftlichkeit ${p.code}`, akteView({ db, u, s, p, versionen, gewaehlt, sz: 'basis', fehler: r.fehler }), 'Referenzbasis nicht angelegt')));
+      db.finanzmodelle.push(r.fm); persist();
+      audit('wm_referenzbasis_angelegt', u, { projekt: p.id, version: r.fm.version, kennung: r.fm.referenzbasis.kennung, pruefsumme: r.fm.referenzbasis.pruefsumme });
+      return redirect(res, `/portal/wirtschaftlichkeit/${p.id}?v=${r.fm.id}&m=ref`);
+    }
+    // Dokumentarischer Versionshinweis (Plattformadministration): nur anhängend, verändert die WM-Version nicht
+    if (m[2] === 'versionshinweis' && method === 'POST') {
+      if (!P.isAdmin(u)) throw nf();
+      const { fields } = await post();
+      const v = versionen.find((x) => x.id === fields.v);
+      const text = String(fields.text || '').trim().slice(0, 300);
+      if (!v || !REF.VERSIONSHINWEISE[fields.status] || !text) return send(res, 422, String(page(`Wirtschaftlichkeit ${p.code}`, akteView({ db, u, s, p, versionen, gewaehlt: v || gewaehlt, sz: 'basis', fehler: ['Versionshinweis braucht Version, Status und Text.'] }), 'Eingaben prüfen')));
+      db.wmVersionshinweise.push({ id: newId('vh'), projectId: p.id, fmId: v.id, version: v.version, status: fields.status, text, quelle: String(fields.quelle || '').trim().slice(0, 200) || null, von: u.name, vonId: u.id, am: now() });
+      persist(); audit('wm_versionshinweis', u, { projekt: p.id, version: v.version, status: fields.status });
+      return redirect(res, `/portal/wirtschaftlichkeit/${p.id}?v=${v.id}&m=hinweis`);
     }
     if (m[2] === 'freigeben' && method === 'POST') {
       if (!P.isAdmin(u)) throw nf();
@@ -150,6 +174,8 @@ export async function handleFinanzen({ req, res, url, path, method, u, s, view, 
       const e = rechnerEingabe(fields);
       const kontakt = db.contacts.find((c) => c.id === fields.ownerContactId && (c.projectIds || []).includes(p.id));
       if (!kontakt) throw new HttpError(400, 'Bitte einen Eigentümer-Kontakt dieses Projekts wählen.');
+      // AW-021 R-DQ-f: Vergütungsangebote nur für Eigentümer mit aktuell gültiger Grundlage (serverseitig, nicht nur in der Auswahl)
+      if (eigentuemerstatus(db, kontakt, p.id)?.status !== STATUS_BESTAETIGT) { audit('verguetung_abgelehnt_eigentum', u, { projekt: p.id, kontakt: kontakt.id }); throw new HttpError(409, NICHT_BESTAETIGT); }
       const vertragId = db.vertragsstaende.concat(db.verguetungsangebote).find((x) => x.projectId === p.id && x.ownerContactId === kontakt.id && x.typ !== 'variabel')?.vertragId || `k-${p.id}-${kontakt.id}`;
       VT.neuerStand(db, { vertragId, projectId: p.id, ownerContactId: kontakt.id, stufe, typ: e.typ, bedingungen: bedingungenAus(e), von: u.id, notiz: String(fields.notiz || '').slice(0, 300) });
       persist(); audit(stufe === 'vorschlag' ? 'verguetung_vorschlag' : 'verguetung_simulation', u, { projekt: p.id, vertrag: vertragId });
@@ -159,6 +185,7 @@ export async function handleFinanzen({ req, res, url, path, method, u, s, view, 
       if (!darfWirtschaftlichkeit(u, p.id)) throw nf();
       const angebot = db.verguetungsangebote.find((a) => a.id === fields.angebotId && a.projectId === p.id);
       if (!angebot) throw new HttpError(400, 'Bitte das zu übernehmende Angebot wählen.');
+      if (eigentuemerstatus(db, db.contacts.find((c) => c.id === angebot.ownerContactId), p.id)?.status !== STATUS_BESTAETIGT) { audit('verguetung_abgelehnt_eigentum', u, { projekt: p.id, kontakt: angebot.ownerContactId }); throw new HttpError(409, NICHT_BESTAETIGT); }
       const stufe = ['eckdaten', 'unterzeichnet', 'nachtrag'].includes(fields.stufe) ? fields.stufe : null;
       if (!stufe) throw new HttpError(400, 'Bitte die Vertragsstufe wählen.');
       const dok = String(fields.dokumentRef || '').trim();
@@ -262,10 +289,10 @@ ${projekte.map((p) => { const v = versionenVon(db, p.id)[0]; const k = v?.ergebn
 }
 
 function kennzahlTabelle(versionErgebnis) {
-  const z = [['Gesamtinvestition', (k) => eur(k.gesamtinvestition, true)], ['Investition je kWh', (k) => eur(k.investitionJeKWh)], ['Bruttoerlöse (Jahr 1)', (k) => eur(k.bruttoerloeseJahr1, true)],
+  const z = [['Gesamtinvestition', (k) => eur(k.gesamtinvestition, true)], ['Investition je nominaler kWh', (k) => eur(k.investitionJeKWh)], ['Bruttoerlöse (Jahr 1)', (k) => eur(k.bruttoerloeseJahr1, true)],
     ['Vermarktungskosten (Jahr 1)', (k) => eur(k.vermarktungskostenJahr1, true)], ['Betriebskosten (Jahr 1)', (k) => eur(k.betriebskostenJahr1, true)], ['EBITDA (Jahr 1)', (k) => eur(k.ebitdaJahr1, true)],
     ['Operativer Cashflow (Jahr 1)', (k) => eur(k.operativerCFJahr1, true)], ['Schuldendienst p. a.', (k) => eur(k.schuldendienstJahr, true)], ['Eigenkapitalbedarf', (k) => eur(k.eigenkapitalbedarf, true)],
-    ['DSCR minimal', (k) => (k.dscrMin == null ? '–' : `${num(k.dscrMin, 2)}×`)], ['Amortisation', (k) => (k.amortisationJahre == null ? 'nicht erreicht' : `${num(k.amortisationJahre, 1)} Jahre`)],
+    ['Modell-DSCR minimal (vor Steuern)', (k) => (k.dscrMin == null ? '–' : `${num(k.dscrMin, 2)}×`)], ['Amortisation', (k) => (k.amortisationJahre == null ? 'nicht erreicht' : `${num(k.amortisationJahre, 1)} Jahre`)],
     ['Kapitalwert', (k) => eur(k.kapitalwert, true)], ['Projekt-IRR', (k) => pct(k.projektIRR)], ['Eigenkapital-IRR', (k) => pct(k.eigenkapitalIRR)]];
   const sz = Object.keys(WM.SZENARIEN);
   return html`<div class="tbl-wrap"><table class="tbl tbl-num"><caption class="sr">Kennzahlen je Szenario</caption><thead><tr><th>Kennzahl</th>${sz.map((k) => html`<th class="num">${WM.SZENARIEN[k].name}</th>`)}</tr></thead><tbody>
@@ -287,7 +314,7 @@ function cashflowChart(r) {
   const ticks = [0, 0.5, 1].map((t) => `<line x1="${pad}" x2="${W - pad}" y1="${y(max * t)}" y2="${y(max * t)}" class="c-grid"/><text x="${pad - 6}" y="${y(max * t) + 4}" text-anchor="end">${num(max * t / 1e6, 1)}</text>`).join('');
   return html`<figure class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-labelledby="cf-t"><title id="cf-t">EBITDA und Schuldendienst je Betriebsjahr in Mio. EUR</title>${raw(ticks + bars)}</svg>
   <figcaption><span class="lg lg-ebitda">EBITDA</span> <span class="lg lg-ds">Schuldendienst</span> <span class="muted small">Mio. EUR je Betriebsjahr · Szenario ${r.meta.szenarioName}</span></figcaption>
-  <details class="small"><summary>Werte als Tabelle</summary><div class="tbl-wrap"><table class="tbl tbl-compact tbl-num"><thead><tr><th>Jahr</th><th class="num">Bruttoerlöse</th><th class="num">EBITDA</th><th class="num">Schuldendienst</th><th class="num">DSCR</th><th class="num">EK-Cashflow</th></tr></thead><tbody>
+  <details class="small"><summary>Werte als Tabelle</summary><div class="tbl-wrap"><table class="tbl tbl-compact tbl-num"><thead><tr><th>Jahr</th><th class="num">Bruttoerlöse</th><th class="num">EBITDA</th><th class="num">Schuldendienst</th><th class="num">Modell-DSCR (vor Steuern)</th><th class="num">EK-Cashflow</th></tr></thead><tbody>
   ${J.map((j) => html`<tr><td>${j.jahr}</td><td class="num">${eur(j.brutto, true)}</td><td class="num">${eur(j.ebitda, true)}</td><td class="num">${eur(j.schuldendienst, true)}</td><td class="num">${j.dscr == null ? '–' : num(j.dscr, 2)}</td><td class="num">${eur(j.ekCF, true)}</td></tr>`)}</tbody></table></div></details></figure>`;
 }
 
@@ -307,29 +334,51 @@ ${gruppe('bewertung')}
 <div class="form-actions"><button class="btn btn-primary" type="submit">Neu berechnen und als neue Version speichern</button><span class="small muted">Frühere Versionen bleiben unverändert erhalten. Eine Berechnung verändert keine Verträge.</span></div></form>`;
 }
 
+function statusLeiste(db, fm) {
+  const st = REF.versionStatus(db, fm);
+  return st.length ? html`<div class="ed-status">${st.map((x) => html`<span class="mark ${x.mark}">${x.name}</span>`)}</div><ul class="assume small">${st.filter((x) => x.text).map((x) => html`<li><strong>${x.name}:</strong> ${x.text}</li>`)}</ul>` : '';
+}
+function referenzPanel(fm) {
+  const rb = fm.referenzbasis;
+  return html`<div class="notice-info small"><strong>Referenzbasis ${rb.kennung}</strong> · ${rb.status === 'freigegeben' ? 'freigegeben' : rb.status} von ${rb.freigegebenVon} am ${fmtDate(rb.freigegebenAm)} · Modell ${rb.modellVersion} · Prüfsumme <code>${rb.pruefsumme}</code> · Datensatz ${fm.id}${rb.codeStand ? ` · Code ${rb.codeStand}` : ''}<br>${rb.grundlage}. Erlöse: ${rb.erloes.quelle} – ${rb.erloes.strategie}. ${rb.hinweis}</div>
+<details class="small"><summary>Kostenbasis und Herkunft der Eingangsparameter (${rb.herkunft.length})</summary>
+<ul class="assume">${rb.kostenbasis.map((x) => html`<li class="${x.art === 'ok' ? '' : x.art}">${x.text}</li>`)}</ul>
+<table class="tbl tbl-compact"><thead><tr><th>Betriebskosten</th><th>Skalierung im Planer</th><th>Kostenursache</th></tr></thead><tbody>${Object.entries(rb.kostenregeln).map(([k, x]) => html`<tr><td>${WM.OPEX_POSTEN.find(([kk]) => kk === k)?.[1] || k}</td><td>${REF.SKALIERUNG[x.skalierung]}</td><td>${x.ursache}</td></tr>`)}</tbody></table>
+<table class="tbl tbl-compact"><thead><tr><th>Parameter</th><th class="num">Wert</th><th>Herkunft</th><th>Status</th></tr></thead><tbody>${rb.herkunft.map((x) => html`<tr><td><code>${x.feld}</code></td><td class="num">${typeof x.wert === 'number' ? num(x.wert, 4) : x.wert}</td><td>${x.herkunft}</td><td>${x.status}</td></tr>`)}</tbody></table></details>`;
+}
+
 function akteView({ db, u, s, p, versionen, gewaehlt, sz, msg, fehler }) {
   if (!gewaehlt) return html`<section class="panel"><p>Für dieses Projekt gibt es noch keine Kalkulation.</p></section>`;
   // Bei fehlerhaftem Entwurf zeigen Kennzahlen und Verlauf die zuletzt gültige Version; das Formular behält die Eingaben.
   const gueltig = gewaehlt.entwurf ? versionen.find((v) => v.id === gewaehlt.id) || versionen[0] : gewaehlt;
   const r = WM.berechne(gueltig.params, sz, { quelle: gueltig.quelle || (gueltig.synthetisch ? 'Synthetische Demo-Annahmen' : 'Eingabe Portal'), berechnetAm: gueltig.erstelltAm });
   const ergebnis = gueltig.ergebnis;
+  // Versionskennung des gespeicherten Rechenstands (die Kennzahltabelle zeigt die gespeicherten Werte)
+  const gespeichertMit = ergebnis?.basis?.meta?.modellVersion || r.meta.modellVersion;
   const freigaben = db.finanzFreigaben.filter((f) => f.projectId === p.id);
   return html`${msg ? html`<div class="notice" role="status">${msg}</div>` : ''}
 <nav class="tabs" aria-label="Projektbereiche"><a href="/portal/wirtschaftlichkeit/${p.id}" aria-current="page">Wirtschaftlichkeit</a><a href="/portal/verguetung/${p.id}">Eigentümervergütung</a><a href="/portal/projekte/${p.id}">Projekt</a></nav>
 <section class="panel"><div class="panel-head"><h2>Kennzahlen</h2><div class="row-actions"><a class="btn btn-small" href="/portal/wirtschaftlichkeit/${p.id}/export.csv?v=${gewaehlt.id}&amp;s=${sz}">CSV exportieren</a></div></div>
-<p class="meta-line">Version ${gewaehlt.version} · berechnet ${fmtDate(gewaehlt.erstelltAm)} · Modell ${r.meta.modellVersion} · Quelle: ${r.meta.quelle} · Prüfsumme <code>${r.meta.parameterPruefsumme}</code> ${gewaehlt.synthetisch ? synth() : ''}</p>
+<p class="meta-line">Version ${gewaehlt.version} · berechnet ${fmtDate(gewaehlt.erstelltAm)} · Modell ${gespeichertMit}${gespeichertMit !== r.meta.modellVersion ? ` (Jahresverlauf mit ${r.meta.modellVersion} neu berechnet)` : ''} · Quelle: ${r.meta.quelle} · Prüfsumme <code>${r.meta.parameterPruefsumme}</code> ${gewaehlt.synthetisch ? synth() : ''}</p>
+${fehler?.length && !gewaehlt.entwurf ? html`<div class="alert" role="alert">${fehler.join(' ')}</div>` : ''}
+${statusLeiste(db, gueltig)}
 ${ergebnis ? kennzahlTabelle(ergebnis) : ''}
+${gueltig.referenzbasis ? referenzPanel(gueltig) : ''}
 <p class="small muted">${r.meta.hinweis} Szenarien: Konservativ (Erlöse −20 %, CAPEX und OPEX +10 %, Zins +1 Pkt., Degradation +0,5 Pkt.), Optimistisch (Erlöse +15 %, Kosten −5 %, Zins −0,5 Pkt.).</p></section>
 <section class="panel"><div class="panel-head"><h2>Verlauf</h2><nav class="seg" aria-label="Szenario">${Object.entries(WM.SZENARIEN).map(([k, v]) => html`<a href="/portal/wirtschaftlichkeit/${p.id}?v=${gewaehlt.id}&amp;s=${k}"${k === sz ? raw(' aria-current="true"') : ''}>${v.name}</a>`)}</nav></div>${cashflowChart(r)}</section>
 <section class="panel"><h2>Eingaben</h2>${eingabeFormular(s, p, gewaehlt.params, fehler)}</section>
-<section class="grid-2"><div class="panel"><h2>Versionen</h2><ol class="versions">${versionen.map((v) => html`<li${v.id === gewaehlt.id ? raw(' aria-current="true"') : ''}><a href="/portal/wirtschaftlichkeit/${p.id}?v=${v.id}">Version ${v.version}</a> <span class="muted small">${fmtDate(v.erstelltAm)} · ${db.users.find((x) => x.id === v.erstelltVon)?.name || 'Demo'}${v.notiz ? ` · ${v.notiz}` : ''}</span></li>`)}</ol></div>
+<section class="grid-2"><div class="panel"><h2>Versionen</h2><ol class="versions">${versionen.map((v) => html`<li${v.id === gewaehlt.id ? raw(' aria-current="true"') : ''}><a href="/portal/wirtschaftlichkeit/${p.id}?v=${v.id}">Version ${v.version}</a>${REF.versionStatus(db, v).map((x) => html` <span class="mark ${x.mark}" title="${x.text}">${x.name}</span>`)} <span class="muted small">${fmtDate(v.erstelltAm)} · ${db.users.find((x) => x.id === v.erstelltVon)?.name || 'Demo'}${v.notiz ? ` · ${v.notiz}` : ''}</span></li>`)}</ol>
+${P.isAdmin(u) && !gewaehlt.entwurf ? html`<details class="small"><summary>Versionshinweis zu Version ${gewaehlt.version} erfassen</summary><form method="post" action="/portal/wirtschaftlichkeit/${p.id}/versionshinweis" class="stack">${csrf(s)}<input type="hidden" name="v" value="${gewaehlt.id}"><label for="vh-s">Status</label><select id="vh-s" name="status">${Object.entries(REF.VERSIONSHINWEISE).map(([k, x]) => html`<option value="${k}">${x.name} – nicht entscheidungsrelevant</option>`)}</select><label for="vh-t">Text</label><input id="vh-t" name="text" maxlength="300" required><label for="vh-q">Quelle (Bericht, Entscheidung)</label><input id="vh-q" name="quelle" maxlength="200"><button class="btn" type="submit">Hinweis speichern</button><p class="muted">Nur anhängend: Die Version und ihre Berechnungsdaten bleiben unverändert.</p></form></details>` : ''}
+${P.isAdmin(u) && REF.referenzParameter(p.id) ? html`<form method="post" action="/portal/wirtschaftlichkeit/${p.id}/referenzbasis" class="stack">${csrf(s)}<button class="btn" type="submit">Referenzbasis aus aktuellem Demo-Ausgangsmodell anlegen</button><p class="small muted">Legt eine neue Version mit Herkunft je Parameter, Prüfsumme und Modellversion ${WM.MODELL_VERSION} an. Nur diese Referenzbasen kann der Investitionsplaner als Rechenbasis wählen. Keine Investorenfreigabe.</p></form>` : ''}</div>
 <div class="panel"><h2>Für Investoren freigegeben</h2>${freigaben.length ? html`<ul class="assume">${freigaben.map((f) => html`<li>Version ${versionen.find((v) => v.id === f.modellId)?.version ?? '?'} · ${WM.SZENARIEN[f.szenario].name} · ${fmtDate(f.freigegebenAm)}</li>`)}</ul>` : html`<p class="muted">Noch keine Kennzahlen freigegeben.</p>`}
-${P.isAdmin(u) && !gewaehlt.entwurf ? html`<form method="post" action="/portal/wirtschaftlichkeit/${p.id}/freigeben" class="stack">${csrf(s)}<input type="hidden" name="v" value="${gewaehlt.id}"><label for="fs">Szenario</label><select id="fs" name="s">${Object.entries(WM.SZENARIEN).map(([k, v]) => html`<option value="${k}"${k === 'basis' ? raw(' selected') : ''}>${v.name}</option>`)}</select><button class="btn" type="submit">Kennzahlen dieser Version freigeben</button><p class="small muted">Investoren mit Zugriff auf dieses Projekt sehen nur Gesamtinvestition, Investition je kWh, Eigenkapitalbedarf, Projekt-IRR und DSCR – keine Kostenpositionen, Margen oder Handelsstrategien.</p></form>` : ''}</div></section>`;
+${P.isAdmin(u) && !gewaehlt.entwurf ? html`<form method="post" action="/portal/wirtschaftlichkeit/${p.id}/freigeben" class="stack">${csrf(s)}<input type="hidden" name="v" value="${gewaehlt.id}"><label for="fs">Szenario</label><select id="fs" name="s">${Object.entries(WM.SZENARIEN).map(([k, v]) => html`<option value="${k}"${k === 'basis' ? raw(' selected') : ''}>${v.name}</option>`)}</select><button class="btn" type="submit">Kennzahlen dieser Version freigeben</button><p class="small muted">Investoren mit Zugriff auf dieses Projekt sehen nur Gesamtinvestition, Investition je nominaler kWh, Eigenkapitalbedarf, Projekt-IRR und Modell-DSCR vor Steuern – keine Kostenpositionen, Margen oder Handelsstrategien.</p></form>` : ''}</div></section>`;
 }
 
 function verguetungIntern({ db, u, s, p, eingabe, msg }) {
   const econ = darfWirtschaftlichkeit(u, p.id);
-  const kontakte = db.contacts.filter((c) => (c.projectIds || []).includes(p.id) && /eigentümer/i.test(c.kind || ''));
+  // AW-021 R-DQ-f: alle Eigentümerangaben mit Status; auswählbar nur bestätigte (Server prüft zusätzlich)
+  const kontakte = db.contacts.filter((c) => (c.projectIds || []).includes(p.id)).map((c) => ({ c, st: eigentuemerstatus(db, c, p.id) })).filter((k) => k.st);
+  const waehlbar = kontakte.filter((k) => k.st.status === STATUS_BESTAETIGT);
   const vertragIds = [...new Set(db.vertragsstaende.concat(db.verguetungsangebote).filter((x) => x.projectId === p.id).map((x) => x.vertragId))];
   const e = eingabe;
   let rechnung = null, rfehler = null;
@@ -357,8 +406,9 @@ ${rfehler ? html`<div class="alert" role="alert">${rfehler}</div>` : html`<div c
 <div><dt>Kaufpreis / Anfangspacht</dt><dd class="num">${num(rechnung.kp.betrag / rechnung.jp, 1)}×</dd></div></dl>
 <div class="tbl-wrap"><table class="tbl tbl-num"><caption class="sr">Variantenvergleich</caption><thead><tr><th>Variante</th><th class="num">Zahlungen nominal</th><th class="num">Barwert</th><th>Eigentum am Ende</th></tr></thead><tbody>${rechnung.vgl.varianten.map((v) => html`<tr><th scope="row">${v.name}</th><td class="num">${eur(v.nominal, true)}</td><td class="num">${eur(v.barwert, true)}</td><td>${v.eigentumAmEnde ? 'Projekt' : 'Eigentümer'}</td></tr>`)}</tbody></table></div></div>
 ${kontakte.length ? html`<form method="post" action="/portal/verguetung/${p.id}/simulation" class="stack stack-inline save-form">${csrf(s)}${Object.entries(e).map(([k, v]) => html`<input type="hidden" name="${k}" value="${typeof v === 'number' ? num(['vpiRate', 'vpiAnteil', 'indexierung', 'diskont'].includes(k) ? v * 100 : v, 6) : v}">`)}
-<label for="okc">Eigentümer</label><select id="okc" name="ownerContactId">${kontakte.map((c) => html`<option value="${c.id}">${c.name}</option>`)}</select>
-<label for="notiz">Notiz</label><input id="notiz" name="notiz" maxlength="300"><button class="btn" name="stufe" value="simulation" type="submit">Als Simulation speichern</button><button class="btn" name="stufe" value="vorschlag" type="submit">Als Verhandlungsvorschlag speichern</button></form>` : ''}`}</section>
+<label for="okc">Eigentümer</label><select id="okc" name="ownerContactId">${waehlbar.length ? '' : html`<option value="" selected disabled>kein bestätigter Eigentümer – Bestätigung erforderlich</option>`}${kontakte.map(({ c, st }) => html`<option value="${c.id}"${st.status === STATUS_BESTAETIGT ? '' : raw(' disabled')}>${c.name} – Eigentümerstatus: ${st.status}${st.rolleLautAnfrage ? ` (laut Anfrage: ${st.rolleLautAnfrage})` : ''}</option>`)}</select>
+${waehlbar.length < kontakte.length ? html`<p class="small muted">Nicht bestätigte Eigentümerangaben sind gesperrt. Freigabe erst nach dokumentierter Bestätigung in der <a href="/portal/projekte/${p.id}#flaechenakquise">Standortakte</a>.</p>` : ''}
+<label for="notiz">Notiz</label><input id="notiz" name="notiz" maxlength="300"><button class="btn" name="stufe" value="simulation" type="submit"${waehlbar.length ? '' : raw(' disabled')}>Als Simulation speichern</button><button class="btn" name="stufe" value="vorschlag" type="submit"${waehlbar.length ? '' : raw(' disabled')}>Als Verhandlungsvorschlag speichern</button></form>` : ''}`}</section>
 <section class="panel"><h2>Angebote und Vertragsstände</h2><p class="small muted">Stufen: 1 Simulation · 2 Verhandlungsvorschlag (unverbindlich) · 3 vereinbarte Eckdaten · 4 unterzeichneter Vertrag · 5 Nachtrag (verbindlich, versioniert, unveränderlich) · 6 abgerechnete Zahlungen.</p>
 ${vertragIds.length ? vertragIds.map((vid) => vertragBlock(db, u, s, p, vid)) : html`<p class="muted">Noch keine Angebote oder Verträge.</p>`}</section>`;
 }
@@ -441,6 +491,6 @@ export function investorKennzahlen(db, u, p) {
   if (!f) return '';
   const k = f.kennzahlen;
   return html`<section class="panel"><h2>Freigegebene Finanzkennzahlen</h2><p class="meta-line">Szenario ${WM.SZENARIEN[f.szenario].name} · freigegeben ${fmtDate(f.freigegebenAm)} · Modell ${f.modellVersion} ${f.synthetisch ? synth() : ''}</p>
-<dl class="kv"><div><dt>Gesamtinvestition</dt><dd class="num">${eur(k.gesamtinvestition, true)}</dd></div><div><dt>Investition je kWh</dt><dd class="num">${eur(k.investitionJeKWh)}</dd></div><div><dt>Eigenkapitalbedarf</dt><dd class="num">${eur(k.eigenkapitalbedarf, true)}</dd></div><div><dt>Projekt-IRR</dt><dd class="num">${pct(k.projektIRR)}</dd></div><div><dt>DSCR minimal</dt><dd class="num">${k.dscrMin == null ? '–' : `${num(k.dscrMin, 2)}×`}</dd></div></dl>
+<dl class="kv"><div><dt>Gesamtinvestition</dt><dd class="num">${eur(k.gesamtinvestition, true)}</dd></div><div><dt>Investition je nominaler kWh</dt><dd class="num">${eur(k.investitionJeKWh)}</dd></div><div><dt>Eigenkapitalbedarf</dt><dd class="num">${eur(k.eigenkapitalbedarf, true)}</dd></div><div><dt>Projekt-IRR</dt><dd class="num">${pct(k.projektIRR)}</dd></div><div><dt>Modell-DSCR minimal (vor Steuern)</dt><dd class="num">${k.dscrMin == null ? '–' : `${num(k.dscrMin, 2)}×`}</dd></div></dl>
 <p class="small muted">${f.hinweis}</p></section>`;
 }

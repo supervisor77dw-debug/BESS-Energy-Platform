@@ -12,6 +12,8 @@ import * as P from '../lib/policy.mjs';
 import { eur, pct } from '../lib/finance/geld.mjs';
 import * as D from '../lib/strommarkt/daten.mjs';
 import { darfStrommarkt } from './strommarkt.mjs';
+import { MODELL_VERSION as WM_VERSION } from '../lib/finance/wirtschaftlichkeit.mjs';
+import { arbeitsbereich, gesamtueberblick } from './arbeit.mjs';
 
 class HttpError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 const DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'strommarkt-daten');
@@ -20,6 +22,7 @@ const DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'strommarkt-date
 export const MODULE = [
   { key: 'projekte', titel: 'Projekte & Projektgesellschaften', text: 'Projektgesellschaften, technische Auslegung, Bearbeitungsstand', href: '/portal/projekte', status: 'live', daten: 'demo', auftrag: '-005/-009', recht: (u) => P.isInternal(u) },
   { key: 'wirtschaftlichkeit', titel: 'Wirtschaftlichkeitsrechner', text: 'STROMKAI-WM: CAPEX, OPEX, Cashflow, Kapitalwert, IRR, DSCR, Amortisation je Projektgesellschaft', href: '/portal/wirtschaftlichkeit', status: 'live', daten: 'demo', auftrag: '-010/-011', recht: (u) => P.rolesOf(u).some((r) => ['admin', 'projektleitung', 'vertrieb_nord', 'vertrieb_sued'].includes(r)) },
+  { key: 'anlagenplanung', titel: 'Anlagenplanung & Investition', text: 'Grundstück, Speichersystem, Dimensionierung, Investitionskosten und Finanzierung als Eingangsgrößen für STROMKAI-WM', href: '/portal/anlagenplanung', status: 'qa', daten: 'demo', auftrag: '-016', recht: (u) => P.rolesOf(u).some((r) => r === 'admin' || r === 'projektleitung') },
   { key: 'strommarkt', titel: 'Strommarkt', text: 'Historische Day-Ahead-Preise 2024–2026 (SMARD), Kennzahlen, Diagramme, Handelstage', href: '/portal/strommarkt?b=preise', status: 'qa', daten: 'markt', auftrag: '-012/-013', recht: darfStrommarkt },
   { key: 'backtesting', titel: 'Backtesting', text: 'Theoretisches Optimum (A) gegen realistische Strategien (B2 Rolling Horizon), Monate, Jahre, Kosten, Anlagengrößen', href: '/portal/strommarkt?b=vergleich', status: 'qa', daten: 'markt', auftrag: '-012/-013', recht: darfStrommarkt },
   { key: 'ki', titel: 'KI-Handelsanalyse', text: 'B2-Referenz gegen KI-Strategien, Prognosegüte, Modellstände (Out-of-Sample)', href: '/portal/strommarkt?b=modelle', status: 'qa', daten: 'markt', auftrag: '-012/-013', recht: darfStrommarkt },
@@ -61,13 +64,21 @@ function zentrale(u) {
     ['Projekte', P.listProjects(u).length, '/portal/projekte', 'synthetisch'],
     ['Projektgesellschaften', db.spvs.length, '/portal/projekte', 'synthetisch'],
     ['Aktive Benutzer', db.users.filter((x) => x.active).length, '/portal/admin/benutzer', ''],
-    ['B2 Netto-DB 15/30 (24 M.)', ref ? `${fmtNum(ref.summen.netto_db_eur_je_mw_jahr / 1000, 0)} T€/MW/a` : '–', '/portal/strommarkt?b=vergleich', 'Simulation'],
   ];
-  return html`<section class="kpis" aria-label="Kennzahlen">${kpis.map(([l, v, h, hinweis]) => html`<a class="kpi" href="${h}"><span class="kpi-v num">${v}</span><span class="kpi-l">${l}${hinweis ? html` · ${hinweis}` : ''}</span></a>`)}</section>
+  // Handelskennzahl verständlich benannt (AW-020); Definition und Werte unverändert aus dem Strommarkt-Modul (Export des Trading-Systems)
+  const handel = ref ? { wert: `${fmtNum(ref.summen.netto_db_eur_je_mw_jahr / 1000, 0)} T€`, einheit: 'je MW Leistung und Jahr' } : null;
+  return html`${arbeitsbereich(db, u)}${gesamtueberblick(db, u)}<section class="panel"><h2>Kennzahlen</h2><section class="kpis" aria-label="Kennzahlen">${kpis.map(([l, v, h, hinweis]) => html`<a class="kpi" href="${h}"><span class="kpi-v num">${v}</span><span class="kpi-l">${l}${hinweis ? html` · ${hinweis}` : ''}</span></a>`)}
+${handel ? html`<a class="kpi" href="/portal/strommarkt?b=vergleich" title="Netto-Arbitrage-Deckungsbeitrag = Brutto-Handelssaldo minus variable Kosten. Strategie B2 (Rolling Horizon, Referenzmodell), Simulationsanlage 15 MW / 30 MWh, Netzentgelt-Variante „befreit“, rollierend 24 Monate, reale SMARD-Preise. Simulation – kein Projekt- oder Ertragswert."><span class="kpi-v num">${handel.wert}</span><span class="kpi-l">Simulierter Handels-Deckungsbeitrag ${handel.einheit} · Simulation</span></a>` : ''}</section>
+${handel ? html`<details class="kpi-erklaerung"><summary>Was bedeutet der simulierte Handels-Deckungsbeitrag?</summary><dl class="kv">
+<div><dt>Kennzahl</dt><dd>Netto-Arbitrage-Deckungsbeitrag = Brutto-Handelssaldo minus variable Kosten, umgerechnet je MW Leistung und Jahr (bisherige Kurzbezeichnung: „B2 Netto-DB 15/30 (24 M.)“).</dd></div>
+<div><dt>Strategie</dt><dd>B2 – Rolling Horizon, Referenzmodell des Strommarkt-Moduls (realistisch handelbar, ohne Zukunftswissen).</dd></div>
+<div><dt>Anlage und Variante</dt><dd>Simulationsanlage 15 MW Leistung / 30 MWh Speicher, Netzentgelt-Variante „befreit“ (Befreiung nicht gesichert).</dd></div>
+<div><dt>Zeitraum und Daten</dt><dd>Rollierend 24 Monate, reale Day-Ahead-Preise (SMARD); Simulation, kein Projekt- und kein Ertragswert.</dd></div>
+</dl><p class="small"><a href="/portal/strommarkt?b=vergleich">Details und Vergleich der Strategien</a> · <a href="/portal/netzentgelt">Variante ohne Befreiung</a></p></details>` : ''}</section>
 <section class="panel"><div class="panel-head"><h2>Bereiche</h2><a class="btn btn-small" href="/portal/entwicklungsstand">Entwicklungsstand</a></div>
 <div class="modul-grid">${sichtbar.map((m) => html`<a class="modul" href="${m.href}"><span class="modul-kopf"><strong>${m.titel}</strong>${status(m.status)}</span><span class="modul-text">${m.text}</span><span class="modul-fuss">${DATEN[m.daten]}</span></a>`)}</div></section>
 <section class="panel"><h2>Datenstand</h2><div class="kv">
-<div><span>Wirtschaftlichkeit</span><strong>Modell STROMKAI-WM 1.0 · ${db.finanzmodelle?.length || 0} Berechnungsversionen (synthetisch)</strong></div>
+<div><span>Wirtschaftlichkeit</span><strong>Modell ${WM_VERSION} · ${db.finanzmodelle?.length || 0} Berechnungsversionen (synthetisch)</strong></div>
 <div><span>Strommarkt & Backtesting</span><strong>${meta ? html`Lauf ${fmtDateTime(meta.lauf.berechnet_utc)} · Datenversion ${meta.datenversion} · ${meta.lauf.qualitaetsstatus}` : 'kein Export'}</strong></div>
 <div><span>Shadow-Trading</span><strong>${plan ? html`Plan für ${datum(plan.liefertag)} (${plan.status}) · ${sh.bewertungen.length} Bewertung(en)` : 'noch kein Lauf'}</strong></div>
 <div><span>Handel</span><strong>Keine realen Handelsaufträge, kein Börsenzugang</strong></div></div></section>`;

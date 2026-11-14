@@ -354,3 +354,11 @@ p { margin: 0 0 var(--s4); max-width: 68ch; }
   .risk-table [role="cell"]:nth-child(3)::before { content: "Eigentümer: "; font-weight: 650; color: #fff; }
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .chain li::before { background: var(--bg); border-color: var(--text); color: var(--text); } :root:not([data-theme="light"]) .chain li { border-top-color: var(--text); } }
+
+/* AW-020: Eigentümerseite – fünf Schritte, PLZ-Feld schmal */
+.owner-steps-5 { grid-template-columns: repeat(5, 1fr); }
+.owner-steps-5 h3 { font-size: 1.05rem; }
+.owner-pay + .compare { margin-top: var(--s6); }
+.field-row-plz { grid-template-columns: 8rem 1fr; }
+@media (max-width: 1439px) { .owner-steps-5 { grid-template-columns: repeat(3, 1fr); } .owner-steps-5 li:nth-child(4) { padding-left: 0; border-left: 0; } .owner-steps-5 li:nth-child(3) { padding-left: var(--s5); border-left: 1px solid var(--line); } }
+@media (max-width: 760px) { .owner-steps-5, .field-row-plz { grid-template-columns: 1fr; } .owner-steps-5 li:nth-child(3) { padding-left: 0; border-left: 0; } }

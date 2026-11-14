@@ -31,7 +31,7 @@ writeFileSync(datei, [
   `E-Mail-Adresse: ${email}`,
   `Passwort: ${pw}`,
   '',
-  'Kein Passwortwechsel beim ersten Login, keine MFA. Ändern jederzeit selbst über „Passwort ändern“ im Kopfbereich.',
+  'Kein Passwortwechsel beim ersten Login, keine MFA. Ändern jederzeit selbst unter Benutzer & Berechtigungen → Eigenes Konto.',
   'Diese Datei nach der ersten erfolgreichen Anmeldung löschen.',
   '',
 ].join('\r\n'), { flag: 'wx' });

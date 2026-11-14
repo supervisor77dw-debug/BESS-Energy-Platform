@@ -25,6 +25,9 @@ export function demoParameter(mw, mwh, grundstueckJahr) {
   };
 }
 
+// Demo-Projekte: [Projekt, Gesellschaft, MW, MWh, Grundstückskosten EUR/Jahr] (auch Grundlage der Referenzbasis, referenz.mjs)
+export const DEMO_MODELLE = [['p-n01', 'spv-n01', 20, 40, 26400], ['p-n02', 'spv-n02', 10, 20, 0], ['p-s01', 'spv-s01', 50, 100, 52000]];
+
 export function ensureFinanceDemo(db) {
   for (const k of ['finanzmodelle', 'verguetungsangebote', 'vertragsstaende', 'zahlungen', 'handelsdaten', 'finanzFreigaben']) db[k] ??= [];
   // Stand 1 (AW-010): Demo-Vertragsstände ohne eigenes Kennzeichen → nur Kennzeichnung nachziehen, Werte und Versionen bleiben unverändert
@@ -36,8 +39,7 @@ export function ensureFinanceDemo(db) {
   if (db.meta?.finanzDemo || !db.projects?.some((p) => p.id === 'p-n01')) return false;
   const von = 'system-demo';
   const at = '2026-10-29T08:00:00.000Z';
-  const modelle = [['p-n01', 'spv-n01', 20, 40, 26400], ['p-n02', 'spv-n02', 10, 20, 0], ['p-s01', 'spv-s01', 50, 100, 52000]];
-  for (const [pid, spv, mw, mwh, gs] of modelle) {
+  for (const [pid, spv, mw, mwh, gs] of DEMO_MODELLE) {
     const params = demoParameter(mw, mwh, gs);
     const s = berechneSzenarien(params, { quelle: DEMO_QUELLE, berechnetAm: at });
     db.finanzmodelle.push({ id: `fm-${pid}-1`, projectId: pid, spvId: spv, version: 1, status: 'simulation', synthetisch: true, params, ergebnis: Object.fromEntries(Object.entries(s).map(([k, r]) => [k, { meta: r.meta, kennzahlen: r.kennzahlen }])), erstelltVon: von, erstelltAm: at, notiz: 'Demo-Ausgangsmodell' });

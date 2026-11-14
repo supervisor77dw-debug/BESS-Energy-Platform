@@ -4,7 +4,10 @@ import { html, raw, fmtDate, fmtDateTime, fmtNum } from '../lib/html.mjs';
 import { brand, isPreview, brandLogo } from '../config.mjs';
 import { ROLES, AUDIENCES, isInternal, isAdmin, hasRole, rolesOf } from '../lib/policy.mjs';
 import { PHASES } from '../public/pages.mjs';
+import { eigentuemerText, eigentuemerstatus, rollenText, statusMarke } from './flaechen.mjs';
+import { faellig as faelligeAnfrage, kennung as anfrageKennung } from './akquise.mjs';
 import { createRequire } from 'node:module';
+import { getDb } from '../lib/store.mjs';
 
 const qrcode = createRequire(import.meta.url)('../vendor/qrcode-generator.cjs');
 
@@ -27,42 +30,73 @@ const ICON = {
 };
 const icon = (k) => raw(`<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="${ICON[k]}" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" stroke-linecap="round"/></svg>`);
 
+// Gruppen der Seitenleiste; Rollen und Ziele bestimmt allein navFor.
+// AW-020: Gruppierung nach Arbeitsbereichen. Jede Bedingung ist unverändert aus der bisherigen Navigation übernommen –
+// es werden nur Reihenfolge und Gruppen geändert, keine Rechte. Externe Rollen behalten eine einzige Gruppe.
+const NAV_GRUPPEN = { arbeit: 'Arbeitsbereich', vertrieb: 'Vertrieb & Akquise', projekte: 'Projektentwicklung', wirtschaft: 'Wirtschaftlichkeit', energie: 'Energiehandel & Analyse', admin: 'Administration', konto: 'Konto' };
+
 export function navFor(u) {
-  const n = isAdmin(u) ? [['/portal/zentrale', 'Zentrale', 'home'], ['/portal', 'Übersicht', 'chart']] : [['/portal', 'Übersicht', 'home']];
-  if (isInternal(u)) n.push(['/portal/pipeline', 'Pipeline', 'pipe']);
-  n.push(['/portal/projekte', u.role === 'eigentuemer' ? 'Projekt' : 'Projekte', 'proj']);
-  if (hasRole(u, 'eigentuemer') || isInternal(u)) n.push(['/portal/grundstuecke', 'Grundstücke', 'land']);
-  n.push(['/portal/dokumente', u.role === 'investor' ? 'Datenraum' : 'Dokumente', 'doc']);
-  if (hasRole(u, 'eigentuemer')) n.push(['/portal/verguetung', 'Meine Vergütung', 'euro']);
-  n.push(['/portal/nachrichten', 'Nachrichten', 'msg']);
-  if (rolesOf(u).some((r) => ['admin', 'projektleitung', 'vertrieb_nord', 'vertrieb_sued'].includes(r))) n.push(['/portal/wirtschaftlichkeit', 'Wirtschaftlichkeit', 'chart']);
-  if (rolesOf(u).some((r) => r === 'admin' || r === 'projektleitung')) n.push(['/portal/strommarkt', 'Strommarkt & Backtesting', 'chart'], ['/portal/netzentgelt', 'Netzentgelt-Szenarien', 'chart'], ['/portal/shadow-trading', 'Shadow-Trading', 'pipe']);
-  if (isInternal(u)) n.push(['/portal/kontakte', 'Kontakte', 'people'], ['/portal/aufgaben', 'Aufgaben', 'task'], ['/portal/anfragen', 'Anfragen', 'inbox'], ['/portal/freigaben', 'Freigaben', 'check']);
-  if (isAdmin(u)) n.push(['/portal/admin/handelsdaten', 'Handelsdaten', 'pipe'], ['/portal/admin/benutzer', 'Benutzer & Berechtigungen', 'people'], ['/portal/protokoll', 'Protokoll', 'log'], ['/portal/admin', 'Verwaltung', 'admin'], ['/portal/entwicklungsstand', 'Entwicklungsstand', 'log'], ['/portal/ki', 'KI-Assistenz', 'ai']);
-  return n;
+  const intern = isInternal(u);
+  if (!intern) {
+    // externe Rollen: Reihenfolge und Einträge unverändert wie vor AW-020
+    const e = [['/portal', 'Übersicht', 'home', 'arbeit'], ['/portal/projekte', u.role === 'eigentuemer' ? 'Projekt' : 'Projekte', 'proj', 'arbeit']];
+    if (hasRole(u, 'eigentuemer')) e.push(['/portal/grundstuecke', 'Grundstücke', 'land', 'arbeit']);
+    e.push(['/portal/dokumente', u.role === 'investor' ? 'Datenraum' : 'Dokumente', 'doc', 'arbeit']);
+    if (hasRole(u, 'eigentuemer')) e.push(['/portal/verguetung', 'Meine Vergütung', 'euro', 'arbeit']);
+    e.push(['/portal/nachrichten', 'Nachrichten', 'msg', 'arbeit'], ['/portal/konto', 'Eigenes Konto', 'people', 'konto']);
+    return e;
+  }
+  const g = (gruppe) => gruppe;
+  const n = isAdmin(u) ? [['/portal/zentrale', 'Zentrale', 'home', 'arbeit'], ['/portal', 'Übersicht', 'chart', 'arbeit']] : [['/portal', 'Übersicht', 'home', 'arbeit']];
+  if (intern) n.push(['/portal/benachrichtigungen', 'Benachrichtigungen', 'msg', 'arbeit']);
+  if (intern) n.push(['/portal/anfragen', 'Anfragen', 'inbox', 'vertrieb'], ['/portal/pipeline', 'Pipeline', 'pipe', 'vertrieb'], ['/portal/kontakte', 'Kontakte', 'people', 'vertrieb']);
+  if (hasRole(u, 'eigentuemer') || intern) n.push(['/portal/grundstuecke', 'Grundstücke', 'land', g('vertrieb')]);
+  if (intern) n.push(['/portal/aufgaben', 'Aufgaben', 'task', 'vertrieb']);
+  n.push(['/portal/nachrichten', 'Nachrichten', 'msg', g('vertrieb')]);
+  n.push(['/portal/projekte', u.role === 'eigentuemer' ? 'Projekt' : 'Projekte', 'proj', g('projekte')]);
+  n.push(['/portal/dokumente', u.role === 'investor' ? 'Datenraum' : 'Dokumente', 'doc', g('projekte')]);
+  if (intern) n.push(['/portal/freigaben', 'Freigaben', 'check', 'projekte']);
+  if (hasRole(u, 'eigentuemer')) n.push(['/portal/verguetung', 'Meine Vergütung', 'euro', 'arbeit']);
+  if (rolesOf(u).some((r) => ['admin', 'projektleitung', 'vertrieb_nord', 'vertrieb_sued'].includes(r))) n.push(['/portal/wirtschaftlichkeit', 'Wirtschaftlichkeit', 'chart', 'wirtschaft']);
+  if (rolesOf(u).some((r) => r === 'admin' || r === 'projektleitung')) n.push(['/portal/anlagenplanung', 'Anlagenplanung & Investition', 'land', 'wirtschaft'], ['/portal/strommarkt', 'Strommarkt & Backtesting', 'chart', 'energie'], ['/portal/netzentgelt', 'Netzentgelt-Szenarien', 'chart', 'energie'], ['/portal/shadow-trading', 'Shadow-Trading', 'pipe', 'energie']);
+  if (isAdmin(u)) n.push(['/portal/admin/handelsdaten', 'Handelsdaten', 'pipe', 'energie'], ['/portal/admin/benutzer', 'Benutzer & Berechtigungen', 'people', 'admin'], ['/portal/protokoll', 'Protokoll', 'log', 'admin'], ['/portal/admin', 'Verwaltung', 'admin', 'admin'], ['/portal/entwicklungsstand', 'Entwicklungsstand', 'log', 'admin'], ['/portal/ki', 'KI-Assistenz', 'ai', 'admin']);
+  // Eigenes Konto: Administration über Benutzer & Berechtigungen, alle anderen Rollen über diesen Menüpunkt
+  else n.push(['/portal/konto', 'Eigenes Konto', 'people', 'konto']);
+  const ordnung = Object.keys(NAV_GRUPPEN);
+  return n.sort((x, y) => ordnung.indexOf(x[3]) - ordnung.indexOf(y[3]));
 }
 
 export function shell({ u, s, path, title, context, body, actions }) {
   const nav = navFor(u);
-  const active = (href) => href === '/portal' ? path === '/portal' : path.startsWith(href);
-  const items = nav.map(([href, label, ic]) => html`<li><a href="${href}"${active(href) ? raw(' aria-current="page"') : ''}>${icon(ic)}<span>${label}</span></a></li>`);
+  // Längster passender Pfad ist aktiv (/portal/admin/benutzer markiert nicht zusätzlich /portal/admin);
+  // das eigene Konto der Administration gehört zu Benutzer & Berechtigungen
+  const navPfad = path === '/portal/konto' && isAdmin(u) ? '/portal/admin/benutzer/konto' : path;
+  const aktiv = nav.map(([href]) => href).filter((href) => href === '/portal' ? navPfad === '/portal' : navPfad === href || navPfad.startsWith(href + '/')).sort((a, b) => b.length - a.length)[0];
+  const gruppen = [...new Set(nav.map((x) => x[3]))];
+  const mehrere = gruppen.length > 1;
+  const listen = gruppen.map((g) => html`<div class="rail-group">${mehrere ? html`<p class="rail-group-title" id="nav-${g}">${NAV_GRUPPEN[g]}</p>` : ''}<ul${mehrere ? raw(` aria-labelledby="nav-${g}"`) : ''}>${nav.filter((x) => x[3] === g).map(([href, label, ic]) => html`<li><a href="${href}"${href === aktiv ? raw(' aria-current="page"') : ''}>${icon(ic)}<span>${label}</span></a></li>`)}</ul></div>`);
   return html`<!doctype html>
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow, noarchive"><title>${title} · Portal · ${brand.name}</title>
-<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/static/css/portal.css"></head>
+<link rel="icon" href="/static/img/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/static/css/portal.css"><script src="/static/js/portal.js"></script></head>
 <body>
 <a class="skip" href="#main">Zum Inhalt springen</a>
 <div class="app">
   <nav class="rail" aria-label="Portalbereiche">
-    <a class="rail-brand" href="/portal" aria-label="Portal ${brand.name}">${raw(brandLogo('rail-logo'))}</a>
-    <ul>${items}</ul>
+    <div class="rail-head">
+      <a class="rail-brand" href="/portal" aria-label="Portal ${brand.name}">${raw(brandLogo('rail-logo'))}<span>${brand.wordmark}</span></a>
+      <button class="rail-menu" type="button" aria-expanded="false" aria-controls="portalnavigation">Menü</button>
+    </div>
+    <div class="rail-nav" id="portalnavigation">${listen}</div>
+    <button class="rail-collapse" type="button" aria-pressed="false">${raw('<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>')}<span>Leiste einklappen</span></button>
   </nav>
   <div class="work">
     <header class="top">
       <div class="top-title"><h1>${title}</h1>${context ? html`<p>${context}</p>` : ''}</div>
       <div class="top-user">
         ${actions || ''}
-        <span class="who"><strong>${u.name}</strong><span>${rolesOf(u).map((r) => ROLES[r].label).join(', ')} · <a href="/portal/passwort">Passwort ändern</a></span></span>
+        ${isInternal(u) ? (() => { const n = (getDb().benachrichtigungen || []).filter((x) => x.userId === u.id && !x.gelesenAm).length; return html`<a class="btn btn-quiet bell${n ? ' bell-neu' : ''}" href="/portal/benachrichtigungen" aria-label="Benachrichtigungen: ${n} ungelesen">${n ? html`<span class="badge">${n}</span> neu` : 'Hinweise'}</a>`; })() : ''}
+        <span class="who"><strong>${u.name}</strong><span>${rolesOf(u).map((r) => ROLES[r].label).join(', ')}</span></span>
         <form method="post" action="/portal/abmelden"><input type="hidden" name="_csrf" value="${s.csrf}"><button class="btn btn-quiet" type="submit">Abmelden</button></form>
       </div>
     </header>
@@ -136,22 +170,41 @@ export function mfaEnrollView({ s, secret, account, error }) {
 </div>` });
 }
 
-export function passwordView({ s, u, forced, error }) {
-  return authPage({ title: 'Passwort festlegen', body: html`
-<div class="auth-card">
-  <h1>${forced ? 'Eigenes Passwort festlegen' : 'Passwort ändern'}</h1>
-  <p class="muted">${forced ? 'Sie haben sich mit einem Startpasswort angemeldet. Bitte legen Sie jetzt ein eigenes Passwort fest. Es ist nur Ihnen bekannt.' : 'Hier können Sie Ihr Passwort jederzeit ändern.'}</p>
-  ${error ? html`<div class="alert" role="alert">${error}</div>` : ''}
-  <form method="post" action="/portal/passwort" class="stack">
+// Formular zur Änderung des eigenen Passworts; dieselbe Prüfung für die Pflichtänderung (/portal/passwort) und das Konto (/portal/konto)
+const passwordForm = ({ s, u, action }) => html`<form method="post" action="${action}" class="stack">
     <input type="hidden" name="_csrf" value="${s.csrf}">
     <input type="text" name="username" value="${u.email}" autocomplete="username" hidden>
     <label for="cur">Bisheriges Passwort</label><input id="cur" name="current" type="password" autocomplete="current-password" required>
     <label for="n1">Neues Passwort (mindestens 12 Zeichen)</label><input id="n1" name="neu" type="password" autocomplete="new-password" minlength="12" required>
     <label for="n2">Neues Passwort wiederholen</label><input id="n2" name="neu2" type="password" autocomplete="new-password" minlength="12" required>
     <button class="btn btn-primary" type="submit">Passwort speichern</button>
-  </form>
+  </form>`;
+
+export function passwordView({ s, u, forced, error }) {
+  return authPage({ title: 'Passwort festlegen', body: html`
+<div class="auth-card">
+  <h1>${forced ? 'Eigenes Passwort festlegen' : 'Passwort ändern'}</h1>
+  <p class="muted">${forced ? 'Sie haben sich mit einem Startpasswort angemeldet. Bitte legen Sie jetzt ein eigenes Passwort fest. Es ist nur Ihnen bekannt.' : 'Hier können Sie Ihr Passwort jederzeit ändern.'}</p>
+  ${error ? html`<div class="alert" role="alert">${error}</div>` : ''}
+  ${passwordForm({ s, u, action: '/portal/passwort' })}
   <form method="post" action="/portal/abmelden"><input type="hidden" name="_csrf" value="${s.csrf}"><button class="btn btn-quiet" type="submit">Abmelden</button></form>
 </div>` });
+}
+
+// Eigenes Konto (AW-STROMKAI-20261030-UI-NAVIGATION-PASSWORT-019): nur das angemeldete Konto, keine Auswahl anderer Benutzer
+export function kontoView({ s, u, tabs, error, info }) {
+  return html`${tabs || ''}${info ? html`<div class="notice" role="status">${info}</div>` : ''}
+<div class="grid-2">
+<section class="panel" aria-labelledby="konto-daten"><h2 id="konto-daten">Kontodaten</h2>
+<dl class="kv"><div><dt>Name</dt><dd>${u.name}</dd></div><div><dt>E-Mail-Adresse (Benutzername)</dt><dd>${u.email}</dd></div>
+<div><dt>Rolle</dt><dd>${rolesOf(u).map((r) => ROLES[r].label).join(', ')}</dd></div>
+<div><dt>Passwort zuletzt geändert</dt><dd>${u.passwordChangedAt ? fmtDateTime(u.passwordChangedAt) : 'nicht erfasst'}</dd></div></dl>
+<p class="small muted">Name, Rolle und Berechtigungen ändert nur die Plattformadministration.</p></section>
+<section class="panel" aria-labelledby="konto-pw"><h2 id="konto-pw">Passwort ändern</h2>
+<p class="small muted">Gilt nur für Ihr eigenes Konto. Zur Bestätigung ist das bisherige Passwort erforderlich.</p>
+${error ? html`<div class="alert" role="alert">${error}</div>` : ''}
+${passwordForm({ s, u, action: '/portal/konto' })}</section>
+</div>`;
 }
 
 // ---------- Bausteine ----------
@@ -210,12 +263,13 @@ export function dashboard(ctx) {
   const open = tasks.filter((t) => t.status !== 'erledigt');
   const overdue = open.filter((t) => t.due < new Date().toISOString().slice(0, 10));
   const newInq = inquiries.filter((i) => i.status === 'neu');
+  const dueInq = inquiries.filter(faelligeAnfrage);
   const openAppr = approvals.filter((a) => a.state === 'offen');
   return html`
 <section class="kpis" aria-label="Lage">
   <a class="kpi" href="/portal/pipeline"><span class="kpi-v">${projects.length}</span><span class="kpi-l">Projekte im Zugriff</span></a>
   <a class="kpi" href="/portal/aufgaben"><span class="kpi-v">${open.length}</span><span class="kpi-l">offene Aufgaben${overdue.length ? html` · <span class="bad">${overdue.length} überfällig</span>` : ''}</span></a>
-  <a class="kpi" href="/portal/anfragen"><span class="kpi-v">${newInq.length}</span><span class="kpi-l">neue Anfragen</span></a>
+  <a class="kpi" href="/portal/anfragen"><span class="kpi-v">${newInq.length}</span><span class="kpi-l">neue Anfragen${dueInq.length ? html` · <span class="bad">${dueInq.length} Wiedervorlage</span>` : ''}</span></a>
   <a class="kpi" href="/portal/freigaben"><span class="kpi-v">${openAppr.length}</span><span class="kpi-l">offene Freigaben</span></a>
 </section>
 <section class="grid-2">
@@ -225,9 +279,9 @@ export function dashboard(ctx) {
 <section class="panel"><h2>Pipeline nach Phase</h2>${pipelineBoard(projects)}</section>`;
 }
 
-export function pipelineBoard(projects) {
+export function pipelineBoard(projects, kandidaten = 0) {
   const groups = [[1, 2, 'Akquise und Sicherung'], [3, 5, 'Netz, Genehmigung, Wirtschaftlichkeit'], [6, 8, 'Finanzierung und Bau'], [9, 10, 'Betrieb']];
-  return html`<div class="board">${groups.map(([a, b, t]) => {
+  return html`${kandidaten ? html`<p class="small muted">${kandidaten} Flächenkandidat(en) in der Vorqualifizierung – <a href="/portal/grundstuecke#akquise">unter Grundstücke</a>.</p>` : ''}<div class="board">${groups.map(([a, b, t]) => {
     const ps = projects.filter((p) => p.phase >= a && p.phase <= b);
     return html`<div class="lane"><h3>${t} <span class="muted">(${ps.length})</span></h3>${ps.map((p) => html`<a class="card" href="/portal/projekte/${p.id}"><strong>${p.name}</strong><span class="muted small">${p.code} · Region ${p.region === 'nord' ? 'Nord' : 'Süd'}</span>${phaseBar(p.phase)}<span class="small">${p.contractStatus}</span></a>`)}${ps.length ? '' : html`<p class="muted small">–</p>`}</div>`;
   })}</div>`;
@@ -237,22 +291,23 @@ export function pipelineBoard(projects) {
 export function projectList({ u, projects, spvs }) {
   if (!projects.length) return empty('Keine Projekte in Ihrem Zugriff.');
   return html`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Projekt</th><th>Projektgesellschaft</th><th>Phase</th><th>Vertrag</th><th>Netz</th><th><span class="sr">Aktion</span></th></tr></thead><tbody>
-  ${projects.map((p) => { const spv = spvs.find((x) => x.id === p.spvId); return html`<tr><td data-l="Projekt"><strong>${p.name}</strong><br><span class="muted small">${p.code} · ${p.location}</span></td><td data-l="Gesellschaft">${u.role === 'eigentuemer' ? '–' : html`${spv?.name}<br>${statusMark(spv?.legalStatus)}`}</td><td data-l="Phase">${phaseLabel(p.phase)}</td><td data-l="Vertrag">${p.contractStatus}</td><td data-l="Netz">${u.role === 'eigentuemer' ? '–' : p.gridStatus}</td><td><a class="btn btn-small" href="/portal/projekte/${p.id}">Öffnen</a></td></tr>`; })}
+  ${projects.map((p) => { const spv = spvs.find((x) => x.id === p.spvId); return html`<tr><td data-l="Projekt"><strong>${p.name}</strong>${p.kandidat && isInternal(u) ? html` <span class="mark mark-info">Flächenkandidat</span>` : ''}<br><span class="muted small">${p.code} · ${p.location}</span></td><td data-l="Gesellschaft">${u.role === 'eigentuemer' ? '–' : spv ? html`${spv.name}<br>${statusMark(spv.legalStatus)}` : html`<span class="muted small">noch keine – Gründung bei Projektreife</span>`}</td><td data-l="Phase">${phaseLabel(p.phase)}</td><td data-l="Vertrag">${p.contractStatus}</td><td data-l="Netz">${u.role === 'eigentuemer' ? '–' : p.gridStatus}</td><td><a class="btn btn-small" href="/portal/projekte/${p.id}">Öffnen</a></td></tr>`; })}
   </tbody></table></div>`;
 }
 
-export function projectDetail({ u, s, p, spv, docs, showFin, showTech, parcels, approvals }) {
+export function projectDetail({ u, s, p, spv, docs, showFin, showTech, parcels, approvals, akte = '' }) {
   const byId = { [p.id]: p };
   const m = p.econ?.meta;
   return html`
 <section class="panel proj-top">
   <div><p class="kicker">${p.code} · ${p.location}</p>${phaseBar(p.phase)}<p>Aktuelle Phase: <strong>${phaseLabel(p.phase)}</strong></p></div>
   <dl class="kv">
-    ${showTech ? html`<div><dt>Projektgesellschaft</dt><dd>${spv?.name}<br>${statusMark(spv?.legalStatus)} <span class="muted small">${spv?.note}</span></dd></div>` : ''}
+    ${showTech ? html`<div><dt>Projektgesellschaft</dt><dd>${spv ? html`${spv.name}<br>${statusMark(spv.legalStatus)} <span class="muted small">${spv.note}</span>` : html`<span class="muted small">noch keine – Gründung bei Projektreife</span>`}</dd></div>` : ''}
     <div><dt>Flächensicherung</dt><dd>${p.contractStatus}</dd></div>
     ${showTech ? html`<div><dt>Netzanschluss</dt><dd>${p.gridStatus}</dd></div><div><dt>Genehmigung</dt><dd>${p.permitStatus}</dd></div>` : ''}
   </dl>
 </section>
+${akte}
 ${u.role === 'eigentuemer' ? html`<section class="panel"><h2>Projektfortschritt</h2>${p.ownerUpdates?.length ? html`<ul class="timeline">${[...p.ownerUpdates].reverse().map((x) => html`<li><span class="date">${fmtDate(x.at)}</span><p>${x.text}</p></li>`)}</ul>` : empty('Noch keine Meldungen.')}</section>` : ''}
 ${showTech ? html`<section class="panel"><h2>Technische Eckdaten <span class="mark mark-demo">synthetisch</span></h2><dl class="kv kv-4">
   <div><dt>Leistung</dt><dd class="num">${p.tech.powerMW ? `${fmtNum(p.tech.powerMW)} MW` : 'offen'}</dd></div>
@@ -280,7 +335,40 @@ ${isInternal(u) ? html`<section class="panel"><h2>Öffentliche Darstellung</h2>
 }
 
 export function parcelTable(parcels) {
-  return html`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Gemarkung / Flur / Flurstück</th><th>Größe</th><th>Entwicklungsfläche</th><th>Nutzung</th><th>Status</th></tr></thead><tbody>${parcels.map((x) => html`<tr><td data-l="Lage">${x.gemarkung}, Flur ${x.flur}, Flurstück ${x.flurstueck}</td><td data-l="Größe" class="num">${x.areaHa ? `${fmtNum(x.areaHa, 1)} ha` : '–'}</td><td data-l="Entwicklungsfläche" class="num">${x.devAreaHa ? `ca. ${fmtNum(x.devAreaHa, 1)} ha` : '–'}</td><td data-l="Nutzung">${x.use}</td><td data-l="Status">${statusMark(x.status)}</td></tr>`)}</tbody></table></div>`;
+  return html`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Gemarkung / Flur / Flurstück</th><th>Größe</th><th>Entwicklungsfläche</th><th>Nutzung</th><th>Status</th></tr></thead><tbody>${parcels.map((x) => html`<tr><td data-l="Lage">${[x.gemeinde, x.gemarkung && x.gemarkung !== '–' ? x.gemarkung : '', x.flur && x.flur !== '–' ? `Flur ${x.flur}` : '', x.flurstueck && x.flurstueck !== '–' ? `Flurstück ${x.flurstueck}` : ''].filter(Boolean).join(', ')}</td><td data-l="Größe" class="num">${x.areaHa ? `${fmtNum(x.areaHa, 1)} ha` : '–'}</td><td data-l="Entwicklungsfläche" class="num">${x.devAreaHa ? `ca. ${fmtNum(x.devAreaHa, 1)} ha` : '–'}</td><td data-l="Nutzung">${x.use}</td><td data-l="Status">${statusMark(x.status)}</td></tr>`)}</tbody></table></div>`;
+}
+
+// Standortakte (AW-020): verdichtet die vorhandenen Daten eines Standorts für interne Rollen – keine eigene Datenhaltung.
+// Quellen: Projekt, Kontakte, Verträge, Aufgaben, Freigaben, Protokoll und Herkunftsanfrage.
+const AKTE_EREIGNISSE = { anfrage_als_standort: 'Aus Anfrage übernommen', anlagenplanung_freigegeben: 'Anlagenplanung freigegeben', anlagenplanung_wm_uebergabe: 'Anlagenplanung an STROMKAI-WM übergeben', finanzkennzahlen_freigegeben: 'Finanzkennzahlen für Investoren freigegeben', wm_referenzbasis_angelegt: 'WM-Referenzbasis angelegt', wm_versionshinweis: 'WM-Versionshinweis', vertragsstand_angelegt: 'Vertragsstand angelegt', angebot_erfasst: 'Angebot erfasst',
+  flaeche_erfasst: 'Fläche aktiv erfasst (ohne Anfrage)', vorqualifizierung_gespeichert: 'Vorqualifizierung gespeichert', kandidat_in_pipeline: 'In die Pipeline übernommen', beteiligung_verknuepft: 'Beteiligte verknüpft', flurstueck_strukturiert: 'Flurstück aus Altangabe strukturiert' };
+export function standortakte({ u, p, db, tasks, contacts, contracts }) {
+  const name = (id) => db.users.find((x) => x.id === id)?.name || '–';
+  const offen = tasks.filter((t) => t.status !== 'erledigt').sort((a, b) => a.due.localeCompare(b.due));
+  const heute = new Date().toISOString().slice(0, 10);
+  const docIds = new Set(db.documents.filter((d) => d.projectId === p.id).map((d) => d.id));
+  const anfrage = p.source?.inquiryId ? db.inquiries.find((i) => i.id === p.source.inquiryId) : db.inquiries.find((i) => i.projectId === p.id);
+  const verantwortlich = [...new Set([p.responsible, ...contacts.map((c) => c.owner), ...offen.map((t) => t.assignee)].filter(Boolean))];
+  const hist = [
+    ...db.approvals.filter((a) => a.targetId === p.id || docIds.has(a.targetId)).map((a) => ({ at: a.decidedAt || a.at, text: `Freigabe ${a.kind === 'project_public' ? 'Veröffentlichung' : 'Dokument'}: ${a.state}${a.decidedBy ? ` (${name(a.decidedBy)})` : ` (beantragt von ${name(a.requestedBy)})`}` })),
+    ...db.audit.filter((x) => (x.projekt === p.id || x.projectId === p.id) && AKTE_EREIGNISSE[x.event]).map((x) => ({ at: x.at, text: `${AKTE_EREIGNISSE[x.event]} · ${x.actorName}` })),
+  ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 8);
+  const darfWm = rolesOf(u).some((r) => ['admin', 'projektleitung', 'vertrieb_nord', 'vertrieb_sued'].includes(r));
+  const darfIp = rolesOf(u).some((r) => r === 'admin' || r === 'projektleitung');
+  return html`<section class="panel akte"><div class="panel-head"><h2>Standortakte</h2><span class="small muted">Verdichtung aus Pipeline, Kontakten, Verträgen, Aufgaben und Freigaben</span></div>
+  <dl class="kv">
+    <div><dt>Akquise</dt><dd>${p.contractStatus}${anfrage ? html`<br><a class="small" href="/portal/anfragen/${anfrage.id}">Herkunft: ${anfrageKennung(anfrage)}</a>` : ''}</dd></div>
+    <div><dt>Eigentümer</dt><dd>${eigentuemerText(db, p, contacts) || '–'}</dd></div>
+    <div><dt>Technische Vorprüfung</dt><dd>${p.tech?.variant || '–'}</dd></div>
+    <div><dt>Netzanschluss</dt><dd>${p.gridStatus}</dd></div>
+    <div><dt>Genehmigung</dt><dd>${p.permitStatus}</dd></div>
+    <div><dt>Vertrag / Option</dt><dd>${contracts.length ? contracts.map((c) => c.status).join(', ') : 'kein Vertrag'}</dd></div>
+    <div><dt>Wirtschaftlichkeit</dt><dd>${darfWm ? html`<a href="/portal/wirtschaftlichkeit/${p.id}">Varianten (STROMKAI-WM)</a>` : '–'}${darfIp ? html`<br><a href="/portal/anlagenplanung/${p.id}">Anlagenplanung & Investition</a>` : ''}</dd></div>
+    <div><dt>Verantwortlich</dt><dd>${verantwortlich.length ? verantwortlich.map(name).join(', ') : html`<span class="bad">nicht zugeordnet</span>`}</dd></div>
+  </dl>
+  <div class="grid-2 mt"><div><h3>Nächste Maßnahmen</h3>${offen.length ? html`<ul class="list">${offen.slice(0, 4).map((t) => html`<li><span class="date${t.due < heute ? ' bad' : ''}">${fmtDate(t.due)}</span><span>${t.title}<br><span class="muted small">${t.assignee ? name(t.assignee) : 'nicht zugeordnet'}</span></span></li>`)}</ul>` : html`<p class="muted">Keine offenen Aufgaben.</p>`}<p class="small"><a href="/portal/aufgaben">Alle Aufgaben</a></p></div>
+  <div><h3>Entscheidungen und Freigaben</h3>${hist.length ? html`<ul class="timeline">${hist.map((x) => html`<li><span class="date">${fmtDateTime(x.at)}</span><p>${x.text}</p></li>`)}</ul>` : html`<p class="muted">Noch keine protokollierten Entscheidungen.</p>`}</div></div>
+</section>`;
 }
 
 export function grundstuecke({ u, parcels, contracts, projects }) {
@@ -314,12 +402,12 @@ ${canUpload ? html`<section class="panel"><h2>Dokument hochladen</h2>
 }
 
 // ---------- Nachrichten ----------
-export function nachrichten({ u, s, threads, projects, users, active }) {
+export function nachrichten({ u, s, threads, projects, users, active, ungelesen = {} }) {
   const byId = Object.fromEntries(projects.map((p) => [p.id, p]));
   const name = (id) => users.find((x) => x.id === id)?.name || 'Unbekannt';
   const t = threads.find((x) => x.key === active) || threads[0];
   return html`<div class="msg-layout">
-  <nav class="panel msg-list" aria-label="Unterhaltungen">${threads.length ? html`<ul>${threads.map((x) => html`<li><a href="/portal/nachrichten?t=${encodeURIComponent(x.key)}"${t && x.key === t.key ? raw(' aria-current="true"') : ''}><strong>${isInternal(u) ? name(x.externalUserId) : 'Ihr Ansprechpartner'}</strong><span class="muted small">${byId[x.projectId]?.name} · ${x.messages.length} Nachrichten</span></a></li>`)}</ul>` : empty('Keine Unterhaltungen.')}</nav>
+  <nav class="panel msg-list" aria-label="Unterhaltungen">${threads.length ? html`<ul>${threads.map((x) => html`<li><a href="/portal/nachrichten?t=${encodeURIComponent(x.key)}"${t && x.key === t.key ? raw(' aria-current="true"') : ''}><strong>${isInternal(u) ? name(x.externalUserId) : 'Ihr Ansprechpartner'}</strong>${ungelesen[x.key] ? html` <span class="badge" aria-label="${ungelesen[x.key]} ungelesen">${ungelesen[x.key]} neu</span>` : ''}<span class="muted small">${byId[x.projectId]?.name} · ${x.messages.length} Nachrichten</span></a></li>`)}</ul>` : empty('Keine Unterhaltungen.')}</nav>
   <section class="panel msg-thread">${t ? html`
     <h2>${byId[t.projectId]?.name}</h2>
     <ol class="msgs">${t.messages.map((m) => html`<li class="${m.fromUserId === u.id ? 'mine' : ''}"><p>${m.text}</p><span class="muted small">${name(m.fromUserId)} · ${fmtDateTime(m.at)}</span></li>`)}${t.messages.length ? '' : html`<li class="muted">Noch keine Nachrichten. Schreiben Sie die erste.</li>`}</ol>
@@ -333,19 +421,8 @@ export function nachrichten({ u, s, threads, projects, users, active }) {
 export function kontakte({ contacts, users, projects }) {
   const byId = Object.fromEntries(projects.map((p) => [p.id, p]));
   return html`<section class="panel"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Kontakt</th><th>Art</th><th>Projekte</th><th>Verantwortlich</th><th>Notiz</th></tr></thead><tbody>
-  ${contacts.map((c) => html`<tr><td data-l="Kontakt"><strong>${c.name}</strong><br><span class="muted small">${c.email} ${c.phone}</span></td><td data-l="Art">${c.kind}</td><td data-l="Projekte">${(c.projectIds || []).map((id) => byId[id]?.code || '(kein Zugriff)').join(', ')}</td><td data-l="Verantwortlich">${users.find((x) => x.id === c.owner)?.name || html`<span class="muted">nicht zugewiesen</span>`}</td><td data-l="Notiz">${c.note}</td></tr>`)}
+  ${contacts.map((c) => html`<tr><td data-l="Kontakt"><a href="/portal/kontakte/${c.id}"><strong>${c.name}</strong></a>${c.testdaten ? html` <span class="mark mark-demo">Testdatensatz</span>` : ''}${c.datenschutz?.gesperrt ? html` <span class="mark mark-warn">gesperrt</span>` : ''}<br><span class="muted small">${c.email} ${c.phone}</span></td><td data-l="Art">${rollenText(c)}${eigentuemerstatus(getDb(), c) ? html`<br>${statusMarke(eigentuemerstatus(getDb(), c))}` : ''}</td><td data-l="Projekte">${(c.projectIds || []).length ? (c.projectIds || []).map((id) => byId[id]?.code || '(kein Zugriff)').join(', ') : html`<span class="muted">ohne Standort</span>`}</td><td data-l="Verantwortlich">${users.find((x) => x.id === c.owner)?.name || html`<span class="muted">nicht zugewiesen</span>`}</td><td data-l="Notiz">${c.note}</td></tr>`)}
   </tbody></table></div></section>`;
-}
-export function aufgaben({ s, tasks, projects, users }) {
-  const byId = Object.fromEntries(projects.map((p) => [p.id, p]));
-  const today = new Date().toISOString().slice(0, 10);
-  return html`<section class="panel"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Frist</th><th>Aufgabe</th><th>Projekt</th><th>Zuständig</th><th>Status</th><th><span class="sr">Aktion</span></th></tr></thead><tbody>
-  ${tasks.sort((a, b) => a.due.localeCompare(b.due)).map((t) => html`<tr><td data-l="Frist" class="${t.status !== 'erledigt' && t.due < today ? 'bad' : ''}">${fmtDate(t.due)}</td><td data-l="Aufgabe">${t.title}</td><td data-l="Projekt">${byId[t.projectId]?.code}</td><td data-l="Zuständig">${users.find((x) => x.id === t.assignee)?.name || html`<span class="muted">offen</span>`}</td><td data-l="Status">${statusMark(t.status)}</td><td>${t.status !== 'erledigt' ? html`<form method="post" action="/portal/aufgaben/${t.id}/erledigt"><input type="hidden" name="_csrf" value="${s.csrf}"><button class="btn btn-small" type="submit">Erledigt</button></form>` : ''}</td></tr>`)}
-  </tbody></table></div></section>`;
-}
-export function anfragen({ s, inquiries }) {
-  return html`<section class="panel"><p class="small muted">Eingänge aus den öffentlichen Formularen. Aus Anfragen werden keine automatischen Angebote erzeugt.</p>
-  ${inquiries.length ? html`<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Eingang</th><th>Art</th><th>Absender</th><th>Angaben</th><th>Status</th><th><span class="sr">Aktion</span></th></tr></thead><tbody>${[...inquiries].reverse().map((i) => html`<tr><td data-l="Eingang">${fmtDateTime(i.at)}</td><td data-l="Art">${i.kind === 'flaeche' ? 'Flächenangebot' : `Kontakt: ${i.anliegen}`}</td><td data-l="Absender"><strong>${i.name}</strong><br><span class="small">${i.email} ${i.phone}</span></td><td data-l="Angaben" class="small">${i.kind === 'flaeche' ? html`${i.lage}${i.flurstueck ? html`<br>${i.flurstueck}` : ''}<br>${i.flaeche ? `${i.flaeche} ha · ` : ''}${i.nutzung} · Umspannwerk: ${i.umspannwerk}${i.fileId ? html`<br>Anlage vorhanden` : ''}` : ''}${i.nachricht ? html`<br>${i.nachricht}` : ''}</td><td data-l="Status">${statusMark(i.status)}</td><td>${i.status === 'neu' ? html`<form method="post" action="/portal/anfragen/${i.id}/status"><input type="hidden" name="_csrf" value="${s.csrf}"><button class="btn btn-small" name="status" value="in Bearbeitung">Übernehmen</button></form>` : ''}</td></tr>`)}</tbody></table></div>` : empty('Keine Anfragen eingegangen.')}</section>`;
 }
 export function freigaben({ u, s, approvals, users, docs, projects }) {
   const name = (id) => users.find((x) => x.id === id)?.name || id;

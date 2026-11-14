@@ -64,7 +64,8 @@ test('Alle Bereiche rendern mit Pflichtinhalten und Kennzeichnungen', async () =
     const { r, body } = await K.admin.text(`/portal/strommarkt?b=${b}`);
     assert.equal(r.status, 200, b);
     for (const m of muster) assert.match(body, new RegExp(m), `${b}: ${m}`);
-    assert.doesNotMatch(body, /<script/i, `${b}: kein Skript`);
+    // einzig zulässig: die gemeinsame Navigationsdatei des Portalrahmens (AW-…-016), keine Inline-Skripte, keine Diagrammbibliothek
+    assert.doesNotMatch(body.replace('<script src="/static/js/portal.js"></script>', ''), /<script/i, `${b}: kein Skript`);
   }
 });
 

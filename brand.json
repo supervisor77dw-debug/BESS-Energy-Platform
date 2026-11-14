@@ -1,26 +1,63 @@
 {
   "_hinweis": "Zentrale Markendatei. Alle Werte sind ARBEITSWERTE bis zur Marken-, Domain- und Gesellschaftsentscheidung (KLÄRUNGSBEDARF). Änderungen hier wirken auf Website und Portal. Bildmarke: Datei unter logo (SVG, Rahmen in currentColor, Akzentlinie mit class=\"bm-accent\").",
   "name": "STROMKAI",
-  "nameStatus": "Arbeitsname (favorisiert, Entscheidung nicht abgeschlossen) – Markenprüfung offen",
+  "nameStatus": "Projektbezeichnung (Entscheidung Dirk 2026-11-14) – Markenprüfung offen, keine eigene juristische Person",
   "wordmark": "STROMKAI",
   "logo": "static/img/brand/bildmarke.svg",
   "favicon": "/static/img/favicon.svg",
   "claim": "Speicherinfrastruktur für ein leistungsfähiges Energiesystem",
-  "domain": "https://www.example.invalid",
-  "legal": {
-    "operator": "[Rechtsträger der Plattform – noch festzulegen]",
-    "address": [
-      "[Straße Hausnummer]",
-      "[PLZ Ort]"
-    ],
-    "representatives": "[Geschäftsführung – noch festzulegen]",
-    "register": "[Registergericht und Registernummer – nach Eintragung]",
-    "vatId": "[nach Erteilung]",
-    "responsible": "[Name, Anschrift – Verantwortlich nach § 18 Abs. 2 MStV]"
+  "domain": "https://stromkai.de",
+  "domainStatus": "ENTSCHIEDEN (Dirk 2026-11-14, AW-022): stromkai.de Hauptdomain; stromkai.com und www-Adressen leiten per 308 weiter. Wirkt erst nach Go-live-Freigabe (kanonische URL, Sitemap); DNS noch nicht eingetragen",
+  "domainAliases": [
+    "www.stromkai.de",
+    "stromkai.com",
+    "www.stromkai.com"
+  ],
+  "freigaben": {
+    "_hinweis": "Nur Dirk setzt diese Werte auf true, und zwar nach Kanzleiprüfung (Impressum, Datenschutz) bzw. abgeschlossener Markenrecherche. Solange ein Wert nicht true ist, bleibt die Website gesperrt (noindex, Entwurfshinweis).",
+    "impressum": false,
+    "datenschutz": false,
+    "marke": false,
+    "traegerschaft": false,
+    "_traegerschaft": "true erst, wenn Projektträgerschaft durch die Gesellschaft geklärt ist: Unternehmensgegenstand (Satzung) bzw. rechtliche Einschätzung, Zustimmung der Geschäftsführung/Gesellschafter dokumentiert"
   },
+  "legal": {
+    "_hinweis": "Betreiber der Website (Anbieter nach § 5 DDG, Verantwortlicher nach DSGVO). Zentral hier gepflegt – bei einer späteren Ausgründung nur diesen Block ändern (Code enthält keine juristische Person). Werte aus amtlichem Ausdruck HRB 3147 KI vom 16.10.2013; Aktualität vor Veröffentlichung mit aktuellem amtlichem Registerauszug bestätigen und dann stand.status auf BESTAETIGT setzen.",
+    "stand": {
+      "status": "VORLAEUFIG",
+      "quelle": "Amtlicher Ausdruck Amtsgericht Kiel HRB 3147 KI vom 16.10.2013 (DOC-PROFINANZ-2026-0003); Entscheidung Dirk 2026-11-14 (STROMKAI als Projekt dieser Gesellschaft)",
+      "offen": "aktueller amtlicher Registerauszug (Firma, Sitz, Geschäftsanschrift, Vertretung)"
+    },
+    "operator": "profinanz Kanzlei für Finanz- und Wirtschaftsfragen GmbH",
+    "address": [
+      "Grasweg 48",
+      "24118 Kiel"
+    ],
+    "representatives": "[Geschäftsführung – laut Ausdruck 2013 Rainer Wilkens; vor Veröffentlichung mit aktuellem Registerauszug bestätigen]",
+    "register": "Amtsgericht Kiel, HRB 3147 KI",
+    "vatId": "",
+    "_vatId": "nur eine nachgewiesene USt-IdNr. (Format DE + 9 Ziffern) eintragen; leer = Abschnitt entfällt",
+    "mstv": {
+      "einschlaegig": null,
+      "verantwortlich": "",
+      "_hinweis": "§ 18 Abs. 2 MStV nur bei journalistisch-redaktionellem Angebot. Kanzlei entscheidet: false = Abschnitt entfällt; true = verantwortlich (Name, Anschrift) eintragen. null sperrt den Go-live."
+    },
+    "projektgesellschaften": "Für einzelne Speicherprojekte sind eigenständige Projektgesellschaften vorgesehen. Sie werden erst bei Projektreife gegründet."
+  },
+  "dienstleister": [
+    { "name": "Vercel Inc.", "land": "USA", "zweck": "Hosting und Auslieferung der Website, serverseitige Ausführung in der Region Frankfurt am Main, Speicherung des geschützten Portals", "status": "aktiv", "grundlage": "[PRÜFUNGSBEDÜRFTIG – Data Processing Addendum und Übermittlungsgrundlage (EU-US Data Privacy Framework bzw. Standardvertragsklauseln) belegen]" },
+    { "name": "Microsoft Ireland Operations Limited", "land": "Irland; Unterauftragsverarbeiter u. a. in den USA", "zweck": "E-Mail-Postfächer (Microsoft 365)", "status": "vorgesehen – erst nach Einrichtung aktiv setzen", "grundlage": "[PRÜFUNGSBEDÜRFTIG – Microsoft Products and Services Data Protection Addendum, Vertragspartner und EU-Datengrenze nach Bestellung belegen]" }
+  ],
+  "datenschutzAufsicht": "",
+  "_datenschutzAufsicht": "Für nichtöffentliche Stellen mit Sitz in Schleswig-Holstein voraussichtlich das Unabhängige Landeszentrum für Datenschutz Schleswig-Holstein (ULD), Kiel – PRÜFUNGSBEDÜRFTIG, erst nach Kanzleiprüfung eintragen",
   "contact": {
-    "email": "[kontakt@domain – noch festzulegen]",
-    "phone": "[Telefon – noch festzulegen]"
+    "_hinweis_adressen": "Kontaktwege der Website (AW-022). bestaetigt erst auf true setzen, wenn das Postfach eingerichtet und ein Empfangstest von außen erfolgreich war (Dirk). Unbestätigte Adressen erscheinen nirgends auf der Website.",
+    "adressen": [
+      { "email": "info@stromkai.de", "zweck": "Allgemeine Anfragen, Kommunen, Investoren, Partner", "bestaetigt": false },
+      { "email": "vertrieb@stromkai.de", "zweck": "Flächenangebote, Grundstückseigentümer, Vertrieb", "bestaetigt": false }
+    ],
+    "email": "info@stromkai.de",
+    "phone": ""
   },
   "regions": [
     {

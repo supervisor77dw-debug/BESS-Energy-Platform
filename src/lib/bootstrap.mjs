@@ -20,7 +20,7 @@ export function applyAccounts(db, acc, hash) {
   const byId = new Map((acc.users || []).map((u) => [u.id, u]));
   let geaendert = false;
   for (const u of db.users) {
-    if (u.createdVia === 'verwaltung') continue; // in der Benutzerverwaltung angelegte Konten verwaltet der Kontenabgleich nicht
+    if (u.createdVia === 'verwaltung' || u.createdVia === 'spiegel') continue; // Spiegelkonten (QA, AW-020) verwaltet der Kontenabgleich nicht // in der Benutzerverwaltung angelegte Konten verwaltet der Kontenabgleich nicht
     const a = byId.get(u.id);
     if (!a || !/^scrypt\$/.test(a.pw || '')) { u.active = false; continue; } // nicht mehr aufgeführt: gesperrt, Passwort bleibt für eine spätere Reaktivierung erhalten
     u.active = true;
@@ -44,7 +44,9 @@ export function applyAccounts(db, acc, hash) {
       u.failedLogins = []; delete u.lockedUntil;
       u.adminResetAm = u.passwordChangedAt;
     }
-    if (u.mfa) { u.totp = null; delete u.totpEnrolledAt; } // MFA wird beim ersten Login vom Nutzer selbst eingerichtet
+    // MFA wird beim ersten Login vom Nutzer selbst eingerichtet. Auch ohne Merker mfa (BESS_MFA=privilegiert gilt nach Rolle):
+    // ein administrativer Reset ist der Notfallweg bei Geräteverlust und darf nie ein altes Geheimnis stehen lassen (S-1)
+    u.totp = null; delete u.totpEnrolledAt;
   }
   db.gateUsers = (acc.gate || []).filter((g) => /^scrypt\$/.test(g.hash || ''));
   if (config.gate && !db.gateUsers.length) throw new Error('Vorschau-Schranke aktiv, aber BESS_ACCOUNTS enthält keine Schrankenzugänge.');
