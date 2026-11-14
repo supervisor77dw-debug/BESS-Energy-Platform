@@ -9,7 +9,7 @@ import { KATALOG_START } from './planer/planer.mjs';
 import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { config } from '../config.mjs';
+import { config, speicherVerstoesse } from '../config.mjs';
 
 let db = null;
 let base = null;      // Stand beim letzten Laden (für die Zusammenführung bei Konflikten)
@@ -39,6 +39,9 @@ export async function openStore(opts) {
     return db;
   }
   if (opts.kind === 'blob') {
+    // S-2 (AW-022): Speichertrennung vor jedem Zugriff prüfen – bei Verstoß kein Lesen und kein Schreiben (fail closed)
+    const verstoss = opts.sdk ? [] : speicherVerstoesse(process.env, config.stage);
+    if (verstoss.length) throw new Error(`Speichertrennung verletzt: ${verstoss.join('; ')}`);
     driver = { kind: 'blob', sdk: opts.sdk || globalThis.__bessBlobSdk || await import('@vercel/blob'), bootstrap: opts.bootstrap }; // __bessBlobSdk: nur Tests
     // Getrennte Speicherbereiche je Betriebsstufe (z. B. 'abnahme/'), damit QA- und Abnahmedaten nie vermischt werden
     const prefix = opts.prefix || '';

@@ -51,8 +51,10 @@ test('Schalter: Formulare standardmäßig aus; in der Produktion nur mit beiden 
   assert.equal(run({}), 'false', 'lokal ohne Schalter aus');
   assert.equal(run({ BESS_FORMULARE: '1' }), 'true', 'QA/lokal mit Schalter an (synthetische Daten)');
   assert.equal(run({ BESS_STAGE: 'abnahme', BESS_FORMULARE: '1' }), 'false');
-  assert.equal(run({ BESS_STAGE: 'abnahme', BESS_EIGENER_PRODUKTIONSSPEICHER: '1' }), 'false', 'zweiter Schlüssel allein reicht nicht');
-  assert.equal(run({ BESS_STAGE: 'abnahme', BESS_FORMULARE: '1', BESS_EIGENER_PRODUKTIONSSPEICHER: '1' }), 'true');
+  const P = 'store_PRODTEST0000001', T = ['vercel', 'blob', 'rw', 'PRODTEST0000001', 'platzhalter'].join('_'); // Stellvertreter ohne Geheimnis
+  assert.equal(run({ BESS_STAGE: 'abnahme', BESS_PRODUKTIONSSPEICHER: P, BLOB_READ_WRITE_TOKEN: T }), 'false', 'zweiter Schlüssel allein reicht nicht');
+  assert.equal(run({ BESS_STAGE: 'abnahme', BESS_FORMULARE: '1', BESS_EIGENER_PRODUKTIONSSPEICHER: '1' }), 'false', 'Bestätigungsschalter ersetzt keine technische Trennung');
+  assert.equal(run({ BESS_STAGE: 'abnahme', BESS_FORMULARE: '1', BESS_PRODUKTIONSSPEICHER: P, BLOB_READ_WRITE_TOKEN: T }), 'true');
 });
 
 test('Öffentliche Seiten vollständig nutzbar, ohne Formular und ohne unbestätigte E-Mail-Adresse', async () => {

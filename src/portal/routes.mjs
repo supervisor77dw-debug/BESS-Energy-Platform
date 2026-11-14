@@ -32,6 +32,8 @@ function current(req, res) {
   const u = getDb().users.find((x) => x.id === s.userId && x.active);
   // gesperrte Konten und Sitzungen vor einer Sperre, Rücksetzung oder erzwungenen Abmeldung sind sofort ungültig
   if (!u || (u.sessionsNotBefore && s.created < u.sessionsNotBefore)) { destroySession(s); return {}; }
+  // S-1: Wird MFA eingeschaltet, sind bestehende Sitzungen ohne bestätigten zweiten Faktor sofort ungültig (neu anmelden)
+  if (!s.mfaPending && !s.mfaOk && mfaRequired(u)) { destroySession(s); return {}; }
   return { s, u: s.mfaPending ? null : u, pendingUser: u };
 }
 
@@ -123,9 +125,11 @@ export async function handlePortal(req, res, url) {
     const { s, pendingUser } = current(req, res);
     if (!s || !s.mfaPending) return redirect(res, s ? '/portal' : '/portal/login');
     // Ersteinrichtung: Konten ohne hinterlegtes TOTP-Geheimnis richten MFA bei der ersten Anmeldung ein.
-    const enrolling = !pendingUser.totp;
+    // S-1: In der Produktionsstufe gilt ein öffentlich bekanntes Demo-Geheimnis aus data/seed-lib.mjs nie als eingerichtet
+    const demoGeheimnis = config.stage === 'abnahme' && /^JBSWY3DPEHPK3PXP/.test(String(pendingUser.totp || ''));
+    const enrolling = !pendingUser.totp || demoGeheimnis;
     if (enrolling && !s.enrollSecret) { s.enrollSecret = newTotpSecret(); res.setHeader('Set-Cookie', sessionCookie(s)); }
-    const secret = pendingUser.totp || s.enrollSecret;
+    const secret = (!demoGeheimnis && pendingUser.totp) || s.enrollSecret;
     const demoCode = config.previewHelpers && !enrolling ? totp(secret) : null;
     const page = (extra = {}) => enrolling ? V.mfaEnrollView({ s, secret, account: pendingUser.email, ...extra }) : V.mfaView({ s, demoCode, ...extra });
     if (method === 'GET') return out(res, page());
@@ -136,7 +140,7 @@ export async function handlePortal(req, res, url) {
     if (enrolling) { pendingUser.totp = secret; pendingUser.totpEnrolledAt = now(); persist(); audit('mfa_eingerichtet', pendingUser); }
     // Sitzung nach erfolgreicher MFA erneuern (Session-Fixation vermeiden)
     destroySession(s);
-    const s2 = createSession(pendingUser.id, { mfaPending: false });
+    const s2 = createSession(pendingUser.id, { mfaPending: false, mfaOk: true });
     res.setHeader('Set-Cookie', sessionCookie(s2));
     audit('anmeldung', pendingUser, { mfa: 'ok' });
     return redirect(res, landing(pendingUser));

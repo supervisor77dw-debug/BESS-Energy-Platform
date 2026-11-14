@@ -32,7 +32,7 @@ Für den ersten öffentlichen Start läuft der Kontakt über E-Mail. Die Formula
 | Schalter | Standard | Wirkung |
 |---|---|---|
 | `BESS_FORMULARE=1` | aus | liefert die Formulare Kontakt und Fläche aus und nimmt Einsendungen an |
-| `BESS_EIGENER_PRODUKTIONSSPEICHER=1` | aus | in Stufe `abnahme` **zusätzlich** nötig. Erst setzen, wenn ein eigenständiger, abgesicherter Produktionsspeicher freigegeben ist (DS-5), nie mit dem gemeinsamen QA-/Produktions-Store |
+| `BESS_PRODUKTIONSSPEICHER=store_…` | nicht gesetzt | Kennung des **eigenen** Produktions-Blob-Stores (nicht geheim), in **allen** Umgebungen setzen. Technisch erzwungen (`speicherVerstoesse`, fail closed beim Öffnen): Vorschau/Entwicklung mit Token dieses Stores startet nicht, Production mit fremdem Token startet nicht, Stufe `abnahme` nur im Production-Ziel, der gemeinsame Store `store_A8KSoIBxmYMplN9S` gilt nie als getrennt. Go-live und Formulare in `abnahme` verlangen `speicherGetrennt`. Der frühere Schalter `BESS_EIGENER_PRODUKTIONSSPEICHER` ist wirkungslos. |
 
 Ohne beide Schlüssel gilt:
 - `POST /kontakt` und `POST /standort-anbieten` antworten mit **403**, bevor der Request-Body gelesen wird. Es gibt keine Speicherung, keinen Upload und kein Protokoll mit Inhalt.
@@ -59,3 +59,15 @@ Tests, die Formulare prüfen, setzen `BESS_FORMULARE=1` ausdrücklich. `test/kon
 4. `node tools/golive-pruefen.mjs` → Exit 0, dann `BESS_OEFFENTLICH=1` setzen und neu deployen.
 5. Nachprüfung: Header, robots, Sitemap, Weiterleitungen, Formulare, mobile Darstellung.
 6. Rückfall: `BESS_OEFFENTLICH` entfernen und neu deployen. Die Website ist dann sofort wieder `noindex` mit Vorschauleiste.
+
+
+## Speichertrennung S-2 und MFA S-1 (Ablauf, AW-022)
+
+1. Sicherung: `node tools/blob-sicherung.mjs sichern --prefix abnahme/ --ziel <ordner> --store store_A8KSoIBxmYMplN9S` (Token nur in der Umgebung, von Dirk gesetzt), danach `pruefen`.
+2. Neuen privaten Blob-Store (fra1) anlegen und **nur** mit dem Production-Ziel verbinden; Token als „Sensitive“.
+3. `einspielen --quelle <ordner> --store <neu> --leer`, Ergebnis „Abweichungen 0“.
+4. `BESS_PRODUKTIONSSPEICHER=<neu>` in allen Umgebungen; altes Token aus dem Production-Ziel entfernen; Deployment.
+5. Prüfung: `vergleich` gegen den neuen Store, Portal-Login; danach `abnahme/` im alten Store löschen und das alte Token rotieren (Vorschauen hatten Zugriff).
+6. Rückfall: Production-Variable auf den alten Store zurück und das vorherige Deployment fördern; Sicherung bleibt unverändert.
+7. MFA: `BESS_MFA=privilegiert` (Administration, Projektleitung). Bestehende Sitzungen ohne zweiten Faktor enden sofort; Ersteinrichtung beim nächsten Login, deshalb Dirk und Markus direkt nach dem Deployment anmelden. Aussperrung: Rücksetzung durch die Administration (`/portal/admin/mfa-zuruecksetzen`) bzw. über den Passwort-Link nach `tools/recovery-code.mjs`.
+8. Smoke-Test: `node tools/smoke-produktion.mjs --basis <deployment-url> --erwartet vorschau`, nach DNS zusätzlich `--basis https://stromkai.de --aliase`.

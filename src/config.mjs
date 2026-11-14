@@ -20,6 +20,27 @@ function blobPrefix() {
 // Nur Stufe 'qa', nie im Production-Ziel, nur mit ausdrücklichem Schalter; die Produktion wird dabei ausschließlich gelesen.
 const QA_SPIEGEL = env.BESS_QA_ADMIN_SPIEGEL === '1' && STAGE === 'qa' && env.VERCEL_ENV !== 'production';
 
+// S-2 Speichertrennung (AW-022): Die Produktion arbeitet auf einem EIGENEN Vercel-Blob-Store, dessen Kennung (nicht geheim)
+// in BESS_PRODUKTIONSSPEICHER steht und in ALLEN Umgebungen gesetzt wird. Technisch erzwungen (fail closed beim Öffnen
+// des Speichers): keine Produktionsstufe außerhalb des Vercel-Production-Ziels und keine Nicht-Produktionsumgebung mit
+// einem Token des Produktions-Stores. Der bisherige gemeinsame Store gilt nie als Produktionsspeicher.
+export const GEMEINSAME_SPEICHER = ['store_A8KSoIBxmYMplN9S']; // „bess-energy-platform-preview“, bis 14.11.2026 Production+Preview+Development
+const storeKennung = (v) => { const t = String(v || '').trim(); if (!t) return ''; const id = t.startsWith('vercel_blob_rw_') ? t.split('_')[3] || '' : t.replace(/^store_/, ''); return id ? `store_${id}` : ''; };
+export function speicherVerstoesse(e = env, stage = STAGE) {
+  const v = [];
+  const prod = storeKennung(e.BESS_PRODUKTIONSSPEICHER), ist = storeKennung(e.BLOB_READ_WRITE_TOKEN);
+  if (e.VERCEL_ENV && e.VERCEL_ENV !== 'production' && stage === 'abnahme') v.push(`Produktionsstufe „abnahme“ im Vercel-Ziel „${e.VERCEL_ENV}“ unzulässig`);
+  if (stage !== 'abnahme' && prod && ist === prod) v.push('Nicht-Produktionsumgebung ist mit dem Produktionsspeicher verbunden');
+  if (stage === 'abnahme' && prod && ist && ist !== prod) v.push('Produktion ist nicht mit dem festgelegten Produktionsspeicher verbunden');
+  if (prod && GEMEINSAME_SPEICHER.includes(prod)) v.push('BESS_PRODUKTIONSSPEICHER zeigt auf den gemeinsamen Store – kein getrennter Produktionsspeicher');
+  return v;
+}
+// Getrennt = eigener, festgelegter Produktions-Store, Token gehört dazu, kein Verstoß
+export function speicherGetrennt(e = env, stage = STAGE) {
+  const prod = storeKennung(e.BESS_PRODUKTIONSSPEICHER);
+  return stage === 'abnahme' && !!prod && storeKennung(e.BLOB_READ_WRITE_TOKEN) === prod && speicherVerstoesse(e, stage).length === 0;
+}
+
 export const config = {
   host: env.BESS_HOST || '127.0.0.1',
   port: Number(env.BESS_PORT || 4710),
@@ -60,8 +81,8 @@ export const config = {
   akquiseEchtdaten: env.BESS_AKQUISE_ECHTDATEN === '1' && STAGE === 'abnahme',
   // Öffentliche Formulare Kontakt/Fläche (AW-022, Entscheidung G-11): standardmäßig AUS. Ohne Schalter nimmt der Server
   // keine Formulardaten an (Abbruch vor dem Lesen des Request-Bodys) und speichert nichts. In der Produktionsstufe zusätzlich
-  // nur mit bestätigtem eigenständigem Produktionsspeicher (zweiter Schlüssel), nie im gemeinsamen QA-/Produktions-Store.
-  formulare: env.BESS_FORMULARE === '1' && (STAGE !== 'abnahme' || env.BESS_EIGENER_PRODUKTIONSSPEICHER === '1'),
+  // nur mit technisch nachgewiesenem eigenem Produktionsspeicher (speicherGetrennt), nie im gemeinsamen QA-/Produktions-Store.
+  formulare: env.BESS_FORMULARE === '1' && (STAGE !== 'abnahme' || speicherGetrennt(env, STAGE)),
 };
 
 export const isPreview = () => config.mode !== 'production';
@@ -109,12 +130,13 @@ export function goLiveSperren(b = brand, e = process.env, stage = config.stage, 
   const mail = String(b.contact?.email || '');
   if (PLATZHALTER.test(mail) || !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(mail)) s.push('Kontakt-E-Mail fehlt (Impressumspflicht)');
   else if (!kontaktAdressen(b).some((a) => a.email.toLowerCase() === mail.toLowerCase())) s.push('Kontakt-E-Mail nicht als empfangsbereit bestätigt (brand.contact.adressen)');
-  if (!istGesetzt(b.contact?.phone) && !(stage === 'abnahme' && e.BESS_FORMULARE === '1' && e.BESS_EIGENER_PRODUKTIONSSPEICHER === '1')) s.push('Zweiter direkter Kontaktweg neben E-Mail fehlt (Telefon; Formulare sind aus) – § 5 DDG, Kanzlei prüfen');
+  if (!istGesetzt(b.contact?.phone) && !(stage === 'abnahme' && e.BESS_FORMULARE === '1' && speicherGetrennt(e, stage))) s.push('Zweiter direkter Kontaktweg neben E-Mail fehlt (Telefon; Formulare sind aus) – § 5 DDG, Kanzlei prüfen');
   const f = b.freigaben || {};
   if (f.impressum !== true) s.push('Impressum nicht rechtlich freigegeben');
   if (f.datenschutz !== true) s.push('Datenschutzerklärung nicht rechtlich freigegeben');
   if (f.marke !== true) s.push('Markenprüfung nicht abgeschlossen');
   if (f.traegerschaft !== true) s.push('Projektträgerschaft nicht freigegeben (Unternehmensgegenstand, Zustimmung Geschäftsführung/Gesellschafter)');
+  if (e.VERCEL && !speicherGetrennt(e, stage)) s.push('S-2: Produktion nicht auf eigenem Blob-Store (BESS_PRODUKTIONSSPEICHER = Store des Produktions-Tokens, nicht der gemeinsame Store)');
   if (!['privilegiert', 'konto'].includes(mfa)) s.push(`Portal-MFA ist „${mfa || 'aus'}“ – vor öffentlicher Domain BESS_MFA=privilegiert oder konto setzen`);
   return s;
 }

@@ -3,7 +3,7 @@
 // Ändert nichts. Exit 0 = keine Sperre offen, Exit 1 = Sperren offen (Liste wird ausgegeben).
 // Aufruf: node tools/golive-pruefen.mjs
 const { goLiveSperren, brand } = await import('../src/config.mjs');
-const offen = goLiveSperren(brand, { BESS_OEFFENTLICH: '1' }, 'abnahme');
+const offen = goLiveSperren(brand, { BESS_OEFFENTLICH: '1', VERCEL: '1', BESS_PRODUKTIONSSPEICHER: process.env.BESS_PRODUKTIONSSPEICHER, BLOB_READ_WRITE_TOKEN: process.env.BLOB_READ_WRITE_TOKEN }, 'abnahme'); // Zielumgebung Vercel-Production; S-2 lokal ohne Token offen
 console.log(`Hauptdomain: ${brand.domain}  ·  Nebendomains (308): ${(brand.domainAliases || []).join(', ') || '–'}`);
 if (!offen.length) {
   console.log('Keine inhaltliche Sperre offen. Freischaltung erst nach Produktivfreigabe durch Dirk: BESS_OEFFENTLICH=1 im Vercel-Production-Ziel setzen.');
