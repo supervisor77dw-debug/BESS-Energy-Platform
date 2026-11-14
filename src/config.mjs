@@ -76,3 +76,45 @@ export function brandLogo(cls = 'logo-mark') {
 
 // Echte Domain oder null, solange in brand.json nur ein Platzhalter steht (dann keine kanonischen Links/Domainangaben).
 export const realDomain = () => (/\.invalid$|example\./i.test(brand.domain || '') ? null : brand.domain);
+
+// Go-live-Sperre der öffentlichen Website (AW-20261114-GE-CLAUDE-STROMKAI-GOLIVE-VORBEREITUNG-022).
+// Bewusst getrennt von config.mode/isPreview(): Der öffentliche Start schaltet weder das Portal in den Produktionsmodus
+// noch Echtdaten frei (akquiseEchtdaten und synthetische Finanzstände bleiben unberührt). Indexierbar und ohne
+// Vorschau-Hinweis wird die Website nur, wenn ALLE Bedingungen erfüllt sind; sonst bleibt alles wie bisher (noindex).
+const PLATZHALTER = /\[|\]|noch festzulegen|nach Eintragung|nach Erteilung|example\.|\.invalid/i;
+const PFLICHT = [
+  ['operator', 'Rechtsträger und Rechtsform'],
+  ['address', 'Anschrift'],
+  ['representatives', 'Vertretungsberechtigte Person(en)'],
+  ['register', 'Registergericht und Registernummer (oder ausdrücklich „entfällt“ mit Begründung)'],
+  ['responsible', 'Verantwortlich nach § 18 Abs. 2 MStV'],
+];
+export function goLiveSperren(b = brand, e = process.env, stage = config.stage) {
+  const s = [];
+  if (e.BESS_OEFFENTLICH !== '1') s.push('Freigabeschalter BESS_OEFFENTLICH=1 nicht gesetzt (nur nach Produktivfreigabe durch Dirk)');
+  if (stage !== 'abnahme') s.push('nur in der Produktionsstufe „abnahme“ zulässig');
+  if (/\.invalid$|example\./i.test(b.domain || '')) s.push('Hauptdomain in brand.json nicht festgelegt');
+  const L = b.legal || {};
+  for (const [k, label] of PFLICHT) {
+    const v = [].concat(L[k] ?? '').join(' ');
+    if (!v.trim() || PLATZHALTER.test(v)) s.push(`Pflichtangabe fehlt: ${label}`);
+  }
+  const mail = String(b.contact?.email || '');
+  if (PLATZHALTER.test(mail) || !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(mail)) s.push('Kontakt-E-Mail fehlt (Impressumspflicht)');
+  const f = b.freigaben || {};
+  if (f.impressum !== true) s.push('Impressum nicht rechtlich freigegeben');
+  if (f.datenschutz !== true) s.push('Datenschutzerklärung nicht rechtlich freigegeben');
+  if (f.marke !== true) s.push('Markenprüfung nicht abgeschlossen');
+  return s;
+}
+export const isPublicLive = () => goLiveSperren().length === 0;
+
+// 308 von Nebendomains (brand.domainAliases) auf die Hauptdomain; andere Hosts (vercel.app, localhost) bleiben unberührt.
+export function kanonischeWeiterleitung(host, pfad = '/') {
+  const d = realDomain();
+  if (!d) return null;
+  const h = String(host || '').split(',')[0].trim().toLowerCase().replace(/:\d+$/, '');
+  if (!h || h === new URL(d).host) return null;
+  const aliase = (brand.domainAliases || []).map((x) => String(x).toLowerCase());
+  return aliase.includes(h) ? d.replace(/\/$/, '') + (String(pfad).startsWith('/') ? pfad : '/' + pfad) : null;
+}

@@ -519,15 +519,23 @@ export function danke(kind) {
   return page({ path: '/danke', title: 'Vielen Dank', description: 'Bestätigung Ihrer Anfrage.', body });
 }
 
+// Rechtsseiten (AW-022): Entwurfshinweis bleibt, bis brand.freigaben.impressum bzw. .datenschutz nach rechtlicher Prüfung
+// ausdrücklich auf true gesetzt sind. Fehlende Angaben bleiben als [Platzhalter] sichtbar und sperren den Go-live
+// (goLiveSperren in config.mjs). Keine Angabe wird hier ergänzt oder erfunden.
+const freigegeben = (k) => brand.freigaben?.[k] === true;
+const L = () => brand.legal || {};
+const angabe = (v) => [].concat(v ?? '[fehlt]');
+
 export function impressum() {
-  const body = html`<section class="page-head"><div class="wrap narrow"><h1>Impressum</h1><p class="draft">Entwurf – Angaben werden nach Festlegung des Rechtsträgers ergänzt und rechtlich geprüft.</p></div></section>
+  const body = html`<section class="page-head"><div class="wrap narrow"><h1>Impressum</h1>${freigegeben('impressum') ? '' : html`<p class="draft">Entwurf – Angaben werden nach Festlegung des Rechtsträgers ergänzt und rechtlich geprüft.</p>`}</div></section>
 <section class="section"><div class="wrap narrow prose">
-<h2>Angaben gemäß § 5 DDG</h2><p>${brand.legal.operator}<br>${brand.legal.address.map((l) => html`${l}<br>`)}</p>
-<h2>Vertreten durch</h2><p>${brand.legal.representatives}</p>
+<h2>Angaben gemäß § 5 DDG</h2><p>${L().operator}<br>${angabe(L().address).map((l) => html`${l}<br>`)}</p>
+<h2>Vertreten durch</h2><p>${L().representatives}</p>
 <h2>Kontakt</h2><p>Telefon: ${brand.contact.phone}<br>E-Mail: ${brand.contact.email}</p>
-<h2>Registereintrag</h2><p>${brand.legal.register}</p>
-<h2>Umsatzsteuer-ID</h2><p>${brand.legal.vatId}</p>
-<h2>Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV</h2><p>${brand.legal.responsible}</p>
+<h2>Registereintrag</h2><p>${L().register}</p>
+${L().vatId && !/nicht vorhanden|entfällt/i.test(L().vatId) ? html`<h2>Umsatzsteuer-Identifikationsnummer gemäß § 27a UStG</h2><p>${L().vatId}</p>` : ''}
+<h2>Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV</h2><p>${L().responsible}</p>
+${freigegeben('impressum') ? '' : html`<h2>Verbraucherstreitbeilegung</h2><p>[PRÜFUNGSBEDÜRFTIG – Erklärung nach § 36 VSBG je nach Rechtsform, Mitarbeiterzahl und Zielgruppe durch die Kanzlei festlegen.]</p>`}
 <h2>Projektgesellschaften</h2><p>Die einzelnen Speicherprojekte werden von rechtlich eigenständigen Projektgesellschaften getragen. Deren Angaben werden genannt, sobald die Gesellschaften gegründet sind.</p>
 <h2>Bildnachweis</h2><p>Alle Bilder sind eigene Darstellungen: Illustrationen und 3D-Visualisierungen von Beispielanlagen, erstellt für diese Website. Sie zeigen keine gebauten Anlagen und keine realen Standorte. Bildschirminhalte enthalten synthetische Werte.</p>
 </div></section>`;
@@ -535,15 +543,20 @@ export function impressum() {
 }
 
 export function datenschutz() {
-  const body = html`<section class="page-head"><div class="wrap narrow"><h1>Datenschutzerklärung</h1><p class="draft">Entwurf – vor Veröffentlichung durch eine fachkundige Stelle zu prüfen und zu ergänzen.</p></div></section>
+  const body = html`<section class="page-head"><div class="wrap narrow"><h1>Datenschutzerklärung</h1>${freigegeben('datenschutz') ? '' : html`<p class="draft">Entwurf – vor Veröffentlichung durch eine fachkundige Stelle zu prüfen und zu ergänzen.</p>`}</div></section>
 <section class="section"><div class="wrap narrow prose">
-<h2>Verantwortlicher</h2><p>${brand.legal.operator}, ${brand.legal.address.join(', ')}, E-Mail: ${brand.contact.email}</p>
-<h2>Welche Daten wir verarbeiten</h2><p>Beim Besuch der Website verarbeitet der Server technisch notwendige Verbindungsdaten. Wir setzen keine Analyse- oder Werbe-Cookies und binden keine externen Schriften, Karten oder Tracking-Dienste ein.</p>
-<h2>Kontakt- und Flächenanfragen</h2><p>Angaben aus den Formularen (Name, Kontaktdaten, Angaben zur Fläche, freiwillige Unterlagen) verwenden wir ausschließlich zur Bearbeitung Ihrer Anfrage. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (vorvertragliche Maßnahmen) bzw. lit. a (Einwilligung). Wir erheben nur die Angaben, die für eine erste Einschätzung nötig sind; Flurstücksdaten und Unterlagen sind freiwillig.</p>
-<h2>Speicherdauer</h2><p>[Löschfristen – noch festzulegen; Vorschlag: Anfragen ohne Folgekontakt nach 12 Monaten löschen.]</p>
-<h2>Hosting</h2><p>[Entwurf, PRÜFUNGSBEDÜRFTIG] Die Website wird bei Vercel Inc. (USA) betrieben; Rechenregion Frankfurt am Main. Dabei verarbeitet der Anbieter technisch notwendige Verbindungsdaten. Angaben zu Auftragsverarbeitungsvertrag, Datenübermittlung in Drittländer und Speicherdauer sind vor der Veröffentlichung zu ergänzen.</p>
-<h2>Portal</h2><p>Für das geschützte Portal verwenden wir ein technisch notwendiges Sitzungs-Cookie. Zugriffe auf Dokumente werden zur Nachvollziehbarkeit protokolliert.</p>
-<h2>Ihre Rechte</h2><p>Sie haben das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit und Widerspruch sowie das Recht auf Beschwerde bei einer Aufsichtsbehörde.</p>
+<h2>1. Verantwortlicher</h2><p>${L().operator}, ${angabe(L().address).join(', ')}, E-Mail: ${brand.contact.email}</p>
+<p>[Datenschutzbeauftragter: Benennungspflicht nach Art. 37 DSGVO / § 38 BDSG prüfen – ggf. Kontaktdaten ergänzen.]</p>
+<h2>2. Aufruf der Website und Server-Protokolle</h2><p>Beim Besuch der Website verarbeitet der Server technisch notwendige Verbindungsdaten (IP-Adresse, Zeitpunkt, aufgerufene Seite, Browserkennung), um die Seite auszuliefern und die Sicherheit des Angebots zu gewährleisten. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO. [Speicherdauer der Protokolle beim Hostinganbieter – noch festzulegen.] Die Verbindung ist per TLS verschlüsselt.</p>
+<h2>3. Cookies und Tracking</h2><p>Auf den öffentlichen Seiten setzen wir keine Cookies, keine Analyse- oder Werbedienste und binden keine externen Schriften, Karten oder Tracking-Dienste ein. Formulare enthalten einen technisch notwendigen Schutz gegen automatisierte Einsendungen, der ohne Cookie auskommt.</p>
+<h2>4. Kontakt- und Flächenanfragen</h2><p>Angaben aus den Formularen (Name, Kontaktdaten, Angaben zur Fläche, freiwillige Unterlagen) verwenden wir ausschließlich zur Bearbeitung Ihrer Anfrage. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (vorvertragliche Maßnahmen) bzw. lit. a (Einwilligung). Wir erheben nur die Angaben, die für eine erste Einschätzung nötig sind; Flurstücksdaten und Unterlagen sind freiwillig. Eine erteilte Einwilligung können Sie jederzeit mit Wirkung für die Zukunft widerrufen.</p>
+<p>Die Anfragen werden in einem geschützten internen System gespeichert, auf das nur die für die Bearbeitung zuständigen Personen Zugriff haben. Eine automatische E-Mail-Weiterleitung oder Antwort findet nicht statt.</p>
+<h2>5. Kontakt per E-Mail</h2><p>Wenn Sie uns per E-Mail schreiben, verarbeiten wir Ihre Angaben zur Bearbeitung Ihres Anliegens (Art. 6 Abs. 1 lit. b bzw. f DSGVO). [E-Mail-Anbieter und Auftragsverarbeitung – nach Entscheidung C-2 ergänzen.]</p>
+<h2>6. Speicherdauer</h2><p>[Löschfristen – noch festzulegen; Vorschlag: Anfragen ohne Folgekontakt nach 12 Monaten löschen. Gesetzliche Aufbewahrungspflichten bleiben unberührt.]</p>
+<h2>7. Hosting und Empfänger</h2><p>[Entwurf, PRÜFUNGSBEDÜRFTIG] Die Website und die Speicherung der Anfragen erfolgen bei Vercel Inc. (USA); Rechenregion Frankfurt am Main. Dabei verarbeitet der Anbieter Daten in unserem Auftrag (Art. 28 DSGVO). Angaben zum Auftragsverarbeitungsvertrag und zur Grundlage einer möglichen Übermittlung in die USA (z. B. EU-US Data Privacy Framework oder Standardvertragsklauseln) sind vor der Veröffentlichung zu ergänzen und zu belegen.</p>
+<h2>8. Portal</h2><p>Für das geschützte Portal verwenden wir ein technisch notwendiges Sitzungs-Cookie. Zugriffe auf Dokumente werden zur Nachvollziehbarkeit protokolliert.</p>
+<h2>9. Ihre Rechte</h2><p>Sie haben das Recht auf Auskunft (Art. 15), Berichtigung (Art. 16), Löschung (Art. 17), Einschränkung der Verarbeitung (Art. 18), Datenübertragbarkeit (Art. 20) und Widerspruch (Art. 21 DSGVO) sowie das Recht auf Beschwerde bei einer Aufsichtsbehörde (Art. 77 DSGVO). [Zuständige Aufsichtsbehörde nach Sitz des Verantwortlichen – noch festzulegen.]</p>
+<p>Eine automatisierte Entscheidungsfindung einschließlich Profiling findet nicht statt.</p>
 </div></section>`;
   return page({ path: '/datenschutz', title: 'Datenschutz', description: 'Datenschutzerklärung', body });
 }

@@ -1,6 +1,6 @@
 // HTTP-Hilfen: Cookies, Formular- und Multipart-Parsing, Antworten, Sicherheitsheader, Ratenbegrenzung.
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { config, isPreview } from '../config.mjs';
+import { config, isPublicLive } from '../config.mjs';
 
 // Schlüssel für Formular-Token: aus dem gemeinsamen privaten Schlüssel abgeleitet (gleich auf allen Instanzen).
 import { getDb } from './store.mjs';
@@ -109,7 +109,7 @@ export function securityHeaders(res, { portal = false } = {}) {
   if (portal) {
     res.setHeader('X-Robots-Tag', 'noindex, nofollow, noarchive');
     res.setHeader('Cache-Control', 'no-store');
-  } else if (isPreview()) {
+  } else if (!isPublicLive()) {
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
   }
 }

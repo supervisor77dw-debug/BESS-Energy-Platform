@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { html, raw } from '../lib/html.mjs';
-import { brand, isPreview, config, brandLogo, realDomain } from '../config.mjs';
+import { brand, config, brandLogo, realDomain, isPublicLive } from '../config.mjs';
 
 const previewNote = () => config.stage === 'abnahme'
   ? `Vorläufiger Abnahmekandidat · Arbeitsname „${brand.name}“ · Inhalte und Rechtstexte in Prüfung · Bilder sind Visualisierungen von Beispielanlagen`
@@ -28,8 +28,8 @@ export function page({ path, title, description, body, ogType = 'website', jsonl
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${fullTitle}</title>
 <meta name="description" content="${description}">
-${isPreview() ? raw('<meta name="robots" content="noindex, nofollow">') : ''}
-${realDomain() ? html`<link rel="canonical" href="${realDomain()}${path}">` : ''}
+${!isPublicLive() ? raw('<meta name="robots" content="noindex, nofollow">') : ''}
+${isPublicLive() && realDomain() ? html`<link rel="canonical" href="${realDomain()}${path}">` : ''}
 <meta property="og:title" content="${fullTitle}">
 <meta property="og:description" content="${description}">
 <meta property="og:type" content="${ogType}">
@@ -42,7 +42,7 @@ ${jsonld ? raw(`<script type="application/ld+json">${JSON.stringify(jsonld).repl
 </head>
 <body>
 <a class="skip" href="#inhalt">Zum Inhalt springen</a>
-${isPreview() ? html`<aside class="preview-bar" aria-label="Hinweis zur Vorschau">${previewNote()}</aside>` : ''}
+${!isPublicLive() ? html`<aside class="preview-bar" aria-label="Hinweis zur Vorschau">${previewNote()}</aside>` : ''}
 <header class="site-head">
   <div class="wrap head-row">
     <a class="brand" href="/" aria-label="${brand.name} – Startseite">${logo}<span>${brand.wordmark}</span></a>

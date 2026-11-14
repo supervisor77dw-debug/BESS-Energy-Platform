@@ -6,7 +6,19 @@
   "logo": "static/img/brand/bildmarke.svg",
   "favicon": "/static/img/favicon.svg",
   "claim": "Speicherinfrastruktur für ein leistungsfähiges Energiesystem",
-  "domain": "https://www.example.invalid",
+  "domain": "https://stromkai.de",
+  "domainStatus": "VORBEREITET (AW-022) – Hauptdomain-Entscheidung C-1 durch Dirk ausstehend; wirkt erst nach Go-live-Freigabe (kanonische URL, Sitemap, Weiterleitungen)",
+  "domainAliases": [
+    "www.stromkai.de",
+    "stromkai.com",
+    "www.stromkai.com"
+  ],
+  "freigaben": {
+    "_hinweis": "Nur Dirk setzt diese Werte auf true, und zwar nach Kanzleiprüfung (Impressum, Datenschutz) bzw. abgeschlossener Markenrecherche. Solange ein Wert nicht true ist, bleibt die Website gesperrt (noindex, Entwurfshinweis).",
+    "impressum": false,
+    "datenschutz": false,
+    "marke": false
+  },
   "legal": {
     "operator": "[Rechtsträger der Plattform – noch festzulegen]",
     "address": [

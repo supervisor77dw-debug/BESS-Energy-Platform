@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { join, normalize, extname, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { config, ROOT, brand, isPreview } from './src/config.mjs';
+import { config, ROOT, brand, isPreview, isPublicLive, kanonischeWeiterleitung } from './src/config.mjs';
 import { openStore, getDb, persist, newId, now, audit, putFile, refresh, flush, storeKind } from './src/lib/store.mjs';
 import { send, redirect, securityHeaders, parseForm, checkFormToken, rateLimit, clientIp, sniffType } from './src/lib/http.mjs';
 import * as Pub from './src/public/pages.mjs';
@@ -26,7 +26,7 @@ async function serveStatic(res, pathname) {
     // Bildwelt-Dateien sind über ?v= versioniert und dürfen lange zwischengespeichert werden
     res.setHeader('Cache-Control', rel.startsWith('img' + sep + 'v2' + sep) && !rel.endsWith('.json') ? 'public, max-age=31536000, immutable' : isPreview() ? 'no-cache' : 'public, max-age=86400');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    if (isPreview()) res.setHeader('X-Robots-Tag', 'noindex');
+    if (!isPublicLive()) res.setHeader('X-Robots-Tag', 'noindex');
     return send(res, 200, data, TYPES[extname(file)] || 'application/octet-stream');
   } catch { return send(res, 404, 'Nicht gefunden', 'text/plain; charset=utf-8'); }
 }
@@ -81,7 +81,7 @@ async function handleContact(req, res) {
 }
 
 function robots() {
-  return isPreview() ? 'User-agent: *\nDisallow: /\n' : `User-agent: *\nDisallow: /portal/\nSitemap: ${brand.domain}/sitemap.xml\n`;
+  return !isPublicLive() ? 'User-agent: *\nDisallow: /\n' : `User-agent: *\nDisallow: /portal/\nSitemap: ${brand.domain}/sitemap.xml\n`;
 }
 function sitemap() {
   const paths = [...Object.keys(Pub.PUBLIC_ROUTES), '/standort-anbieten', '/kontakt'];
@@ -102,6 +102,9 @@ export async function handleRequest(req, res) {
     const url = new URL(req.url, 'http://localhost');
     const p = url.pathname;
     const portal = p === '/portal' || p.startsWith('/portal/');
+    // Nebendomains (www, .com) per 308 auf die Hauptdomain (AW-022); vercel.app und localhost bleiben unberührt.
+    const ziel = kanonischeWeiterleitung(config.trustProxy ? (req.headers['x-forwarded-host'] || req.headers.host) : req.headers.host, req.url);
+    if (ziel) { res.statusCode = 308; res.setHeader('Location', ziel); res.setHeader('Cache-Control', 'public, max-age=3600'); return res.end(); }
     try {
       if (config.gate) { if (!p.startsWith('/static/')) securityHeaders(res, { portal: true }); if (await handleGate(req, res, url)) return; }
       if (p.startsWith('/static/')) return await serveStatic(res, p);
@@ -109,7 +112,7 @@ export async function handleRequest(req, res) {
       if (portal) return await handlePortal(req, res, url);
       if (req.method === 'GET' || req.method === 'HEAD') {
         if (p === '/robots.txt') return send(res, 200, robots(), 'text/plain; charset=utf-8');
-        if (p === '/sitemap.xml') return send(res, 200, sitemap(), 'application/xml; charset=utf-8');
+        if (p === '/sitemap.xml') { if (!isPublicLive()) throw new HttpError(404); return send(res, 200, sitemap(), 'application/xml; charset=utf-8'); }
         if (p === '/healthz') return send(res, 200, 'ok', 'text/plain; charset=utf-8');
         if (p === '/standort-anbieten') return send(res, 200, String(Pub.standortAnbieten({ region: url.searchParams.get('region') })));
         if (p === '/kontakt') return send(res, 200, String(Pub.kontakt({ anliegen: url.searchParams.get('anliegen'), region: url.searchParams.get('region') })));
