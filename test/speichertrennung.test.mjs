@@ -224,3 +224,25 @@ test('S-2: Inventur nur mit Zählwerten; Wiederherstellungsprobe als lokaler Dat
   assert.ok(existsSync(join(z, 'db.json')) && existsSync(join(z, 'files', 'd-1.pdf')));
   assert.throws(() => B.lokal({ quelle: q, ziel: z }), (e) => e.rc === 24, 'bestehender Datenbestand wird nicht überschrieben');
 });
+
+test('S-2: Einspielen neustartfähig (Teilbestand wird ergänzt, Fremdes stoppt) und Manifestvergleich', async () => {
+  const { Readable } = await import('node:stream');
+  const B = await import('../tools/blob-sicherung.mjs');
+  const st = { alt: new Map([['abnahme/state/db.json', Buffer.from('{"users":[]}')], ['abnahme/files/a.pdf', Buffer.from('A')], ['abnahme/files/b.pdf', Buffer.from('B')]]), neu: new Map() };
+  const welcher = (t) => (t === tok(GEMEINSAM) ? st.alt : st.neu);
+  const sdk = {
+    async list({ prefix, token }) { const m = welcher(token); return { blobs: [...m.keys()].filter((p) => p.startsWith(prefix)).map((pathname) => ({ pathname, size: m.get(pathname).length })), hasMore: false }; },
+    async get(p, { token }) { const m = welcher(token); return m.has(p) ? { stream: Readable.from([m.get(p)]) } : null; },
+    async put(p, d, { token }) { welcher(token).set(p, Buffer.from(d)); return {}; },
+  };
+  const q = join(DIR, 'mig-q'), q2 = join(DIR, 'mig-q2');
+  await B.sichern({ sdk, token: tok(GEMEINSAM), prefix: 'abnahme/', ziel: q });
+  st.neu.set('abnahme/files/a.pdf', Buffer.from('A')); // abgebrochener früherer Lauf: Teilbestand identisch
+  const r = await B.einspielen({ sdk, token: tok(PROD), quelle: q, sicher: true });
+  assert.deepEqual(r.fehler, []); assert.equal(st.neu.size, 3);
+  await B.sichern({ sdk, token: tok(PROD), prefix: 'abnahme/', ziel: q2 });
+  const mv = B.manifestvergleich({ a: q, b: q2 });
+  assert.deepEqual(mv.fehler, []); assert.equal(mv.storeB, PROD);
+  st.neu.set('abnahme/files/fremd.pdf', Buffer.from('X'));
+  await assert.rejects(B.einspielen({ sdk, token: tok(PROD), quelle: q, sicher: true }), (e) => e.rc === 24, 'Fremdobjekt im Ziel: STOPP');
+});

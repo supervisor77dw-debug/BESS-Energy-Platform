@@ -64,11 +64,22 @@ export async function vergleich({ sdk, token, quelle }) {
   return { anzahl: m.eintraege.length, fehler };
 }
 
-export async function einspielen({ sdk, token, quelle, leer }) {
+// sicher (Neustart-fähig): Ziel ist leer ODER enthält nur Objekte der Sicherung mit identischem Inhalt (abgebrochener
+// früherer Lauf) – dann werden nur die fehlenden ergänzt. Abweichende oder zusätzliche Objekte → STOPP, nichts geschrieben.
+export async function einspielen({ sdk, token, quelle, leer, sicher }) {
   const { manifest: m, fehler } = pruefen({ quelle });
   if (fehler.length) throw Object.assign(new Error(`Sicherung beschädigt (${fehler.length} Dateien) – nichts eingespielt`), { rc: 25 });
-  if (leer && (await alle(sdk, token, m.prefix)).length) throw Object.assign(new Error(`Ziel-Store enthält bereits Daten unter ${m.prefix} – STOPP`), { rc: 24 });
-  for (const e of m.eintraege) await sdk.put(e.pfad, readFileSync(join(quelle, 'daten', e.pfad)), { access: 'private', token, addRandomSuffix: false, allowOverwrite: true, contentType: e.contentType });
+  const vorhanden = await alle(sdk, token, m.prefix);
+  if (leer && vorhanden.length) throw Object.assign(new Error(`Ziel-Store enthält bereits Daten unter ${m.prefix} – STOPP`), { rc: 24 });
+  let fehlend = m.eintraege;
+  if (sicher && vorhanden.length) {
+    const v = await vergleich({ sdk, token, quelle });
+    const fremd = v.fehler.filter((f) => !f.startsWith('fehlt: '));
+    if (fremd.length) throw Object.assign(new Error(`Ziel-Store enthält abweichende oder zusätzliche Objekte (${fremd.length}) – STOPP, nichts geschrieben`), { rc: 24 });
+    const fehlt = new Set(v.fehler.map((f) => f.slice('fehlt: '.length)));
+    fehlend = m.eintraege.filter((e) => fehlt.has(e.pfad));
+  }
+  for (const e of fehlend) await sdk.put(e.pfad, readFileSync(join(quelle, 'daten', e.pfad)), { access: 'private', token, addRandomSuffix: false, allowOverwrite: true, contentType: e.contentType });
   return vergleich({ sdk, token, quelle });
 }
 
@@ -98,6 +109,16 @@ export function lokal({ quelle, ziel }) {
   return { konten: (db.users || []).length, aktiv: (db.users || []).filter((u) => u.active).length, projekte: (db.projects || []).length, dokumente: (db.documents || []).length, dateien };
 }
 
+// Zwei Sicherungen inhaltlich vergleichen (Pfade relativ zum Bereich, SHA-256) – ohne Netz
+export function manifestvergleich({ a, b }) {
+  const ma = pruefen({ quelle: a }).manifest, mb = pruefen({ quelle: b }).manifest;
+  const rel = (m) => new Map(m.eintraege.map((e) => [e.pfad.slice(m.prefix.length), e.sha256]));
+  const ra = rel(ma), rb = rel(mb), fehler = [];
+  for (const [k, h] of ra) if (rb.get(k) !== h) fehler.push(rb.has(k) ? `abweichend: ${k}` : `fehlt in B: ${k}`);
+  for (const k of rb.keys()) if (!ra.has(k)) fehler.push(`zusätzlich in B: ${k}`);
+  return { anzahlA: ra.size, anzahlB: rb.size, storeA: ma.store, storeB: mb.store, fehler };
+}
+
 // ---------- Befehlszeile ----------
 const istCli = process.argv[1] && resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
 if (istCli) {
@@ -106,6 +127,11 @@ if (istCli) {
   const stopp = (msg, rc) => { console.error(`STOPP: ${msg} (rc ${rc})`); process.exit(rc); };
   const zeitlimit = setTimeout(() => stopp('Zeitlimit 10 Minuten überschritten', 21), 10 * 60e3); zeitlimit.unref();
   try {
+    if (befehl === 'manifestvergleich') {
+      const r = manifestvergleich({ a: resolve(arg('--a') || ''), b: resolve(arg('--b') || '') });
+      console.log(`manifestvergleich: A ${r.storeA} ${r.anzahlA} Dateien, B ${r.storeB} ${r.anzahlB} Dateien, Abweichungen ${r.fehler.length}`);
+      process.exit(r.fehler.length ? 25 : 0);
+    }
     if (befehl === 'lokal') {
       const r = lokal({ quelle: resolve(arg('--quelle') || ''), ziel: resolve(arg('--ziel') || '') });
       const st = await import('../src/lib/store.mjs'); await st.openStore(resolve(arg('--ziel'))); // mit dem Datei-Treiber der Anwendung öffnen
@@ -125,7 +151,7 @@ if (istCli) {
     console.log('ARBEITET – keine Eingabe nötig');
     if (befehl === 'inventur') { const r = await inventur({ sdk, token }); console.log(`Inventur ${r.store}:`); for (const [k, v] of Object.entries(r.bereiche)) console.log(`  ${k.padEnd(14)} ${String(v.anzahl).padStart(5)} Objekte ${String(v.bytes).padStart(10)} Bytes${v.zustand ? '  (mit Zustand)' : ''}`); }
     else if (befehl === 'sichern') { const m = await sichern({ sdk, token, prefix: arg('--prefix'), ziel: resolve(arg('--ziel') || '') }); console.log(`Gesichert: ${m.anzahl} Dateien, ${m.bytes} Bytes aus ${m.store} ${m.prefix}`); }
-    else { const r = befehl === 'vergleich' ? await vergleich({ sdk, token, quelle: resolve(arg('--quelle') || '') }) : await einspielen({ sdk, token, quelle: resolve(arg('--quelle') || ''), leer: process.argv.includes('--leer') });
+    else { const r = befehl === 'vergleich' ? await vergleich({ sdk, token, quelle: resolve(arg('--quelle') || '') }) : await einspielen({ sdk, token, quelle: resolve(arg('--quelle') || ''), leer: process.argv.includes('--leer'), sicher: process.argv.includes('--sicher') });
       console.log(`${befehl}: ${r.anzahl} Dateien, Abweichungen ${r.fehler.length}`); for (const f of r.fehler) console.log(`  ${f}`); if (r.fehler.length) process.exit(25); }
     process.exit(0);
   } catch (e) { stopp(e.message, e.rc || 25); }
