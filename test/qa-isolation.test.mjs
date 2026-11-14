@@ -12,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-Object.assign(process.env, { VERCEL: '1', VERCEL_ENV: 'preview', BESS_QA_ADMIN_SPIEGEL: '1', BESS_BLOB_PREFIX: 'qa-020/', BESS_PREVIEW_HELPERS: '0' });
+Object.assign(process.env, { VERCEL: '1', VERCEL_ENV: 'preview', BESS_QA_ADMIN_SPIEGEL: '1', BESS_BLOB_PREFIX: 'qa-020/', BESS_PREVIEW_HELPERS: '0', BESS_FORMULARE: '1' }); // AW-022: Formulare ausdrücklich an (QA, synthetisch)
 for (const k of ['BESS_STAGE', 'BESS_GATE', 'BESS_MFA', 'BESS_DATA_DIR']) delete process.env[k];
 const { hashPassword } = await import('../src/lib/auth.mjs');
 

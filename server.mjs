@@ -116,13 +116,16 @@ export async function handleRequest(req, res) {
         if (p === '/healthz') return send(res, 200, 'ok', 'text/plain; charset=utf-8');
         if (p === '/standort-anbieten') return send(res, 200, String(Pub.standortAnbieten({ region: url.searchParams.get('region') })));
         if (p === '/kontakt') return send(res, 200, String(Pub.kontakt({ anliegen: url.searchParams.get('anliegen'), region: url.searchParams.get('region') })));
-        if (p === '/danke') return send(res, 200, String(Pub.danke(url.searchParams.get('k'))));
+        if (p === '/danke') { if (!config.formulare) throw new HttpError(404); return send(res, 200, String(Pub.danke(url.searchParams.get('k')))); }
         const key = p.length > 1 ? p.replace(/\/+$/, '') : p;
         if (Pub.PUBLIC_ROUTES[key]) return send(res, 200, String(Pub.PUBLIC_ROUTES[key]()));
         throw new HttpError(404);
       }
-      if (req.method === 'POST' && p === '/standort-anbieten') return await handleSiteOffer(req, res);
-      if (req.method === 'POST' && p === '/kontakt') return await handleContact(req, res);
+      if (req.method === 'POST' && (p === '/standort-anbieten' || p === '/kontakt')) {
+        // AW-022 (G-11): Formulare gesperrt → Abbruch vor dem Lesen des Bodys; keine Speicherung, kein Upload, kein Protokoll mit Inhalt
+        if (!config.formulare) { res.setHeader('Connection', 'close'); return send(res, 403, String(Pub.formularGesperrt(p === '/standort-anbieten' ? 'flaeche' : 'kontakt'))); }
+        return p === '/standort-anbieten' ? await handleSiteOffer(req, res) : await handleContact(req, res);
+      }
       throw new HttpError(405, 'Methode nicht erlaubt');
     } catch (err) {
       if (res.headersSent) return res.end();

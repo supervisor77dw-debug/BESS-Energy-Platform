@@ -58,6 +58,10 @@ export const config = {
   // Datenschutz-Freigabetor (P0): echte Kontaktdaten aus aktiver Akquise erst nach dokumentierter Freigabe des Konzepts;
   // in Vorschauen nie (PROJECT_RULES §4 Nr. 1) – bis dahin nimmt das Board nur gekennzeichnete synthetische Testdatensätze an
   akquiseEchtdaten: env.BESS_AKQUISE_ECHTDATEN === '1' && STAGE === 'abnahme',
+  // Öffentliche Formulare Kontakt/Fläche (AW-022, Entscheidung G-11): standardmäßig AUS. Ohne Schalter nimmt der Server
+  // keine Formulardaten an (Abbruch vor dem Lesen des Request-Bodys) und speichert nichts. In der Produktionsstufe zusätzlich
+  // nur mit bestätigtem eigenständigem Produktionsspeicher (zweiter Schlüssel), nie im gemeinsamen QA-/Produktions-Store.
+  formulare: env.BESS_FORMULARE === '1' && (STAGE !== 'abnahme' || env.BESS_EIGENER_PRODUKTIONSSPEICHER === '1'),
 };
 
 export const isPreview = () => config.mode !== 'production';
@@ -101,6 +105,7 @@ export function goLiveSperren(b = brand, e = process.env, stage = config.stage) 
   }
   const mail = String(b.contact?.email || '');
   if (PLATZHALTER.test(mail) || !/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(mail)) s.push('Kontakt-E-Mail fehlt (Impressumspflicht)');
+  else if (!kontaktAdressen(b).some((a) => a.email.toLowerCase() === mail.toLowerCase())) s.push('Kontakt-E-Mail nicht als empfangsbereit bestätigt (brand.contact.adressen)');
   const f = b.freigaben || {};
   if (f.impressum !== true) s.push('Impressum nicht rechtlich freigegeben');
   if (f.datenschutz !== true) s.push('Datenschutzerklärung nicht rechtlich freigegeben');
@@ -108,6 +113,13 @@ export function goLiveSperren(b = brand, e = process.env, stage = config.stage) 
   return s;
 }
 export const isPublicLive = () => goLiveSperren().length === 0;
+
+// Betriebsbereite E-Mail-Kontaktwege (AW-022): nur Einträge aus brand.contact.adressen mit bestaetigt === true und gültiger
+// Adresse. Dirk setzt bestaetigt erst nach eingerichtetem Postfach und erfolgreichem Empfangstest. Unbestätigte Adressen
+// werden auf der Website nicht angezeigt (keine irreführende Kontaktangabe).
+export function kontaktAdressen(b = brand) {
+  return (b.contact?.adressen || []).filter((a) => a && a.bestaetigt === true && !PLATZHALTER.test(String(a.email || '')) && /^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(String(a.email || '')));
+}
 
 // 308 von Nebendomains (brand.domainAliases) auf die Hauptdomain; andere Hosts (vercel.app, localhost) bleiben unberührt.
 export function kanonischeWeiterleitung(host, pfad = '/') {

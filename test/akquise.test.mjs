@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DIR = mkdtempSync(join(tmpdir(), 'bess-akquise-'));
 process.env.BESS_DATA_DIR = DIR;
+process.env.BESS_FORMULARE = '1'; // AW-022: öffentliche Formulare sind standardmäßig aus; dieser Test prüft sie ausdrücklich (synthetisch, lokal)
 process.env.BESS_PREVIEW_HELPERS = '0';
 delete process.env.BESS_MFA;
 const PW = 'Vorschau!Speicher-2026';

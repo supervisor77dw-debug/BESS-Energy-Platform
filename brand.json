@@ -31,6 +31,11 @@
     "responsible": "[Name, Anschrift – Verantwortlich nach § 18 Abs. 2 MStV]"
   },
   "contact": {
+    "_hinweis_adressen": "Kontaktwege der Website (AW-022). bestaetigt erst auf true setzen, wenn das Postfach eingerichtet und ein Empfangstest von außen erfolgreich war (Dirk). Unbestätigte Adressen erscheinen nirgends auf der Website.",
+    "adressen": [
+      { "email": "info@stromkai.de", "zweck": "Allgemeine Anfragen, Kommunen, Investoren, Partner", "bestaetigt": false },
+      { "email": "vertrieb@stromkai.de", "zweck": "Flächenangebote, Grundstückseigentümer, Vertrieb", "bestaetigt": false }
+    ],
     "email": "[kontakt@domain – noch festzulegen]",
     "phone": "[Telefon – noch festzulegen]"
   },

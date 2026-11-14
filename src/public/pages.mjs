@@ -1,5 +1,5 @@
 import { html, raw } from '../lib/html.mjs';
-import { brand, realDomain } from '../config.mjs';
+import { brand, realDomain, config, kontaktAdressen } from '../config.mjs';
 import { page, illus, photo, band, picture } from './layout.mjs';
 import { heroSvg } from '../../tools/illustrations.mjs';
 import { publicProjects } from '../lib/policy.mjs';
@@ -11,6 +11,37 @@ import { ROLLEN } from '../portal/akquise.mjs';
 const NORD = brand.regions.find((x) => x.id === 'nord');
 const regionOptionen = (gewaehlt) => html`<option value="">weiß ich nicht</option>${brand.regions.map((r) => html`<option value="${r.id}"${gewaehlt === r.id ? raw(' selected') : ''}>${r.name}${r.status === 'besetzt' && r.contactName ? ` – Ansprechpartner ${r.contactName}` : ''}</option>`)}`;
 const regionGueltig = (r) => (brand.regions.some((x) => x.id === r) ? r : '');
+
+// ---------------- Kontaktweg ohne Formulare (AW-022, Entscheidung G-11) ----------------
+// Solange config.formulare aus ist, zeigen Kontakt- und Flächenseite statt der Formulare die E-Mail-Kontaktwege – aber nur
+// bestätigte Adressen (kontaktAdressen). Ohne bestätigte Adresse erscheint ein ehrlicher Hinweis ohne Adresse.
+// Die Formularfunktionen selbst bleiben unverändert erhalten und werden mit BESS_FORMULARE=1 wieder ausgeliefert.
+const adresseFuer = (art) => {
+  const a = kontaktAdressen();
+  return (art === 'flaeche' ? a.find((x) => /^vertrieb@/i.test(x.email)) : a.find((x) => /^info@/i.test(x.email))) || a[0] || null;
+};
+function emailKontakt(art) {
+  const a = kontaktAdressen();
+  if (!a.length) {
+    return html`<div class="panel kontakt-mail" id="formular"><h2>Kontakt per E-Mail</h2>
+      <p>Unsere E-Mail-Kontaktwege werden gerade eingerichtet. Sobald sie erreichbar sind, finden Sie die Adressen hier.</p>
+      <p class="muted small">Das Onlineformular ist derzeit nicht aktiv. Über diese Website werden keine Anfragen angenommen oder gespeichert.</p></div>`;
+  }
+  const haupt = adresseFuer(art);
+  const betreff = art === 'flaeche' ? 'Fläche prüfen lassen' : 'Anfrage über stromkai.de';
+  return html`<div class="panel kontakt-mail" id="formular"><h2>Kontakt per E-Mail</h2>
+    <p>Schreiben Sie uns direkt – wir antworten persönlich.</p>
+    <p class="kontakt-haupt"><a class="btn btn-solid btn-lg" href="mailto:${haupt.email}?subject=${encodeURIComponent(betreff)}">${haupt.email}</a></p>
+    <ul class="kontakt-liste">${a.map((x) => html`<li><a href="mailto:${x.email}">${x.email}</a><br><span class="muted small">${x.zweck}</span></li>`)}</ul>
+    ${art === 'flaeche' ? html`<p class="hint">Hilfreich sind: Gemeinde oder Ort, ungefähre Größe, aktuelle Nutzung und wie wir Sie erreichen. Flurstücksangaben und Unterlagen sind freiwillig. Bitte nennen Sie nur Ihre eigenen Kontaktdaten, keine Daten Dritter.</p>` : ''}
+    <p class="muted small">Das Onlineformular ist derzeit nicht aktiv. Hinweise zur Verarbeitung Ihrer E-Mail finden Sie in der <a href="/datenschutz">Datenschutzerklärung</a>.</p></div>`;
+}
+export function formularGesperrt(art) {
+  const body = html`<section class="page-head"><div class="wrap narrow"><h1>Onlineformular derzeit nicht aktiv</h1>
+  <p class="lead">Ihre Angaben wurden nicht übermittelt und nicht gespeichert.</p></div></section>
+<section class="section"><div class="wrap narrow">${emailKontakt(art)}</div></section>`;
+  return page({ path: art === 'flaeche' ? '/standort-anbieten' : '/kontakt', title: 'Formular nicht aktiv', description: 'Das Onlineformular ist derzeit nicht aktiv.', body });
+}
 
 const HERO = heroSvg({ inline: true });
 
@@ -345,6 +376,7 @@ export function standortAnbieten({ errors = {}, values = {}, region } = {}) {
   <p class="lead">Wir prüfen, ob Ihre Fläche für einen Batteriespeicher in Frage kommt, und melden uns persönlich. Die Anfrage ist kostenfrei und unverbindlich.</p>
 </div></section>
 <section class="section"><div class="wrap narrow">
+  ${!config.formulare ? emailKontakt('flaeche') : html`
   ${Object.keys(errors).length ? html`<div class="alert" role="alert">Bitte prüfen Sie die markierten Felder.</div>` : ''}
   <form class="form" method="post" action="/standort-anbieten" enctype="multipart/form-data" novalidate>
     <input type="hidden" name="_t" value="${formToken()}">
@@ -382,7 +414,7 @@ export function standortAnbieten({ errors = {}, values = {}, region } = {}) {
     </fieldset>
     <div class="field check"><input id="dsgvo" name="dsgvo" type="checkbox" value="ja"${v('dsgvo') ? raw(' checked') : ''}${inv('dsgvo')}><label for="dsgvo">Ich bin einverstanden, dass meine Angaben zur Bearbeitung dieser Anfrage gespeichert werden. Hinweise in der <a href="/datenschutz">Datenschutzerklärung</a>.</label>${err('dsgvo')}</div>
     <button class="btn btn-solid btn-lg" type="submit">Anfrage senden</button>
-  </form>
+  </form>`}
 </div></section>`;
   return page({ path: '/standort-anbieten', title: 'Fläche für Batteriespeicher prüfen lassen', description: 'Lassen Sie eine Fläche in Netznähe für einen Batterie-Großspeicher prüfen. Wir melden uns persönlich – kostenfrei und unverbindlich.', body });
 }
@@ -487,11 +519,12 @@ export function kontakt({ errors = {}, values = {}, anliegen, region } = {}) {
 <section class="section"><div class="wrap split">
   <div>
     <h2>Regionale Ansprechpartner</h2>
-    <ul class="people">${brand.regions.map((r) => html`<li><h3>${r.name}</h3><p class="muted small">${r.area}</p><p>${r.contactRole}${r.status === 'besetzt' ? html`<br><strong>${r.contactName}</strong>${r.phone ? html`<br>Telefon: ${r.phone}` : ''}${r.email ? html`<br>E-Mail: <a href="mailto:${r.email}">${r.email}</a>` : ''}${r.phone || r.email ? '' : html`<br><a class="link" href="/kontakt?anliegen=eigentuemer&amp;region=${r.id}#formular">Nachricht direkt an ${r.contactName}</a><br><span class="muted small">Mit der ${r.name} geht Ihre Nachricht unmittelbar an ${r.contactName}.</span>`}` : html`<br><em>Funktion im Aufbau – Anfragen bearbeitet die Zentrale</em>`}</p></li>`)}</ul>
+    <ul class="people">${brand.regions.map((r) => html`<li><h3>${r.name}</h3><p class="muted small">${r.area}</p><p>${r.contactRole}${r.status === 'besetzt' ? html`<br><strong>${r.contactName}</strong>${r.phone ? html`<br>Telefon: ${r.phone}` : ''}${r.email ? html`<br>E-Mail: <a href="mailto:${r.email}">${r.email}</a>` : ''}${r.phone || r.email ? '' : config.formulare ? html`<br><a class="link" href="/kontakt?anliegen=eigentuemer&amp;region=${r.id}#formular">Nachricht direkt an ${r.contactName}</a><br><span class="muted small">Mit der ${r.name} geht Ihre Nachricht unmittelbar an ${r.contactName}.</span>` : adresseFuer('flaeche') ? html`<br><a class="link" href="mailto:${adresseFuer('flaeche').email}">${adresseFuer('flaeche').email}</a>` : ''}` : html`<br><em>Funktion im Aufbau – Anfragen bearbeitet die Zentrale</em>`}</p></li>`)}</ul>
     <h2>Zentrale</h2>
-    <p>${brand.legal.operator}<br>${brand.legal.address.map((l) => html`${l}<br>`)}E-Mail: ${brand.contact.email}<br>Telefon: ${brand.contact.phone}</p>
+    <p>${brand.legal.operator}<br>${brand.legal.address.map((l) => html`${l}<br>`)}${kontaktAdressen().some((a) => a.email === brand.contact.email) ? html`E-Mail: <a href="mailto:${brand.contact.email}">${brand.contact.email}</a><br>` : ''}Telefon: ${brand.contact.phone}</p>
   </div>
   <div>
+    ${!config.formulare ? emailKontakt(['flaeche', 'eigentuemer'].includes(anliegen) ? 'flaeche' : 'kontakt') : html`
     <h2 id="formular">Nachricht senden</h2>
     ${Object.keys(errors).length ? html`<div class="alert" role="alert">Bitte prüfen Sie die markierten Felder.</div>` : ''}
     <form class="form" method="post" action="/kontakt" novalidate>
@@ -505,7 +538,7 @@ export function kontakt({ errors = {}, values = {}, anliegen, region } = {}) {
       <div class="field"><label for="nachricht">Nachricht</label><textarea id="nachricht" name="nachricht" rows="5"${inv('nachricht')}>${v('nachricht')}</textarea>${err('nachricht')}</div>
       <div class="field check"><input id="dsgvo" name="dsgvo" type="checkbox" value="ja"${v('dsgvo') ? raw(' checked') : ''}${inv('dsgvo')}><label for="dsgvo">Ich bin einverstanden, dass meine Angaben zur Bearbeitung gespeichert werden. Hinweise in der <a href="/datenschutz">Datenschutzerklärung</a>.</label>${err('dsgvo')}</div>
       <button class="btn btn-solid btn-lg" type="submit">Nachricht senden</button>
-    </form>
+    </form>`}
   </div>
 </div></section>`;
   return page({ path: '/kontakt', title: 'Kontakt', description: 'Kontakt und regionale Ansprechpartner für Grundstückseigentümer, Kommunen, Investoren und technische Partner.', body });
@@ -549,8 +582,8 @@ export function datenschutz() {
 <p>[Datenschutzbeauftragter: Benennungspflicht nach Art. 37 DSGVO / § 38 BDSG prüfen – ggf. Kontaktdaten ergänzen.]</p>
 <h2>2. Aufruf der Website und Server-Protokolle</h2><p>Beim Besuch der Website verarbeitet der Server technisch notwendige Verbindungsdaten (IP-Adresse, Zeitpunkt, aufgerufene Seite, Browserkennung), um die Seite auszuliefern und die Sicherheit des Angebots zu gewährleisten. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO. [Speicherdauer der Protokolle beim Hostinganbieter – noch festzulegen.] Die Verbindung ist per TLS verschlüsselt.</p>
 <h2>3. Cookies und Tracking</h2><p>Auf den öffentlichen Seiten setzen wir keine Cookies, keine Analyse- oder Werbedienste und binden keine externen Schriften, Karten oder Tracking-Dienste ein. Formulare enthalten einen technisch notwendigen Schutz gegen automatisierte Einsendungen, der ohne Cookie auskommt.</p>
-<h2>4. Kontakt- und Flächenanfragen</h2><p>Angaben aus den Formularen (Name, Kontaktdaten, Angaben zur Fläche, freiwillige Unterlagen) verwenden wir ausschließlich zur Bearbeitung Ihrer Anfrage. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (vorvertragliche Maßnahmen) bzw. lit. a (Einwilligung). Wir erheben nur die Angaben, die für eine erste Einschätzung nötig sind; Flurstücksdaten und Unterlagen sind freiwillig. Eine erteilte Einwilligung können Sie jederzeit mit Wirkung für die Zukunft widerrufen.</p>
-<p>Die Anfragen werden in einem geschützten internen System gespeichert, auf das nur die für die Bearbeitung zuständigen Personen Zugriff haben. Eine automatische E-Mail-Weiterleitung oder Antwort findet nicht statt.</p>
+<h2>4. Kontakt- und Flächenanfragen</h2>${!config.formulare ? html`<p>Die Onlineformulare dieser Website sind derzeit nicht aktiv. Über die Website werden keine Anfragen angenommen oder gespeichert; bitte nutzen Sie die angegebenen E-Mail-Adressen (Abschnitt 5).</p>` : html`<p>Angaben aus den Formularen (Name, Kontaktdaten, Angaben zur Fläche, freiwillige Unterlagen) verwenden wir ausschließlich zur Bearbeitung Ihrer Anfrage. Rechtsgrundlage ist Art. 6 Abs. 1 lit. b DSGVO (vorvertragliche Maßnahmen) bzw. lit. a (Einwilligung). Wir erheben nur die Angaben, die für eine erste Einschätzung nötig sind; Flurstücksdaten und Unterlagen sind freiwillig. Eine erteilte Einwilligung können Sie jederzeit mit Wirkung für die Zukunft widerrufen.</p>
+<p>Die Anfragen werden in einem geschützten internen System gespeichert, auf das nur die für die Bearbeitung zuständigen Personen Zugriff haben. Eine automatische E-Mail-Weiterleitung oder Antwort findet nicht statt.</p>`}
 <h2>5. Kontakt per E-Mail</h2><p>Wenn Sie uns per E-Mail schreiben, verarbeiten wir Ihre Angaben zur Bearbeitung Ihres Anliegens (Art. 6 Abs. 1 lit. b bzw. f DSGVO). [E-Mail-Anbieter und Auftragsverarbeitung – nach Entscheidung C-2 ergänzen.]</p>
 <h2>6. Speicherdauer</h2><p>[Löschfristen – noch festzulegen; Vorschlag: Anfragen ohne Folgekontakt nach 12 Monaten löschen. Gesetzliche Aufbewahrungspflichten bleiben unberührt.]</p>
 <h2>7. Hosting und Empfänger</h2><p>[Entwurf, PRÜFUNGSBEDÜRFTIG] Die Website und die Speicherung der Anfragen erfolgen bei Vercel Inc. (USA); Rechenregion Frankfurt am Main. Dabei verarbeitet der Anbieter Daten in unserem Auftrag (Art. 28 DSGVO). Angaben zum Auftragsverarbeitungsvertrag und zur Grundlage einer möglichen Übermittlung in die USA (z. B. EU-US Data Privacy Framework oder Standardvertragsklauseln) sind vor der Veröffentlichung zu ergänzen und zu belegen.</p>

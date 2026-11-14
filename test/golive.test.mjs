@@ -39,7 +39,7 @@ const get = (path, host = `127.0.0.1:${port}`) => new Promise((resolve, reject) 
 const VOLLSTAENDIG = {
   domain: 'https://stromkai.de',
   legal: { operator: 'Muster Speicher GmbH', address: ['Musterweg 1', '24103 Kiel'], representatives: 'Max Muster', register: 'Amtsgericht Kiel, HRB 0000', responsible: 'Max Muster, Musterweg 1, 24103 Kiel' },
-  contact: { email: 'info@stromkai.de', phone: '+49 431 000000' },
+  contact: { email: 'info@stromkai.de', phone: '+49 431 000000', adressen: [{ email: 'info@stromkai.de', zweck: 'Allgemein', bestaetigt: true }] },
   freigaben: { impressum: true, datenschutz: true, marke: true },
 };
 

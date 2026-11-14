@@ -25,6 +25,26 @@ Website und Portal werden getrennt freigeschaltet.
 
 Prüfung ohne Nebenwirkung: `node tools/golive-pruefen.mjs` (Exit 1 = gesperrt, Liste der offenen Punkte).
 
+## Kontaktweg und Formulare (Entscheidung G-11)
+
+Für den ersten öffentlichen Start läuft der Kontakt über E-Mail. Die Formulare bleiben im Code erhalten, nehmen aber keine Daten an.
+
+| Schalter | Standard | Wirkung |
+|---|---|---|
+| `BESS_FORMULARE=1` | aus | liefert die Formulare Kontakt und Fläche aus und nimmt Einsendungen an |
+| `BESS_EIGENER_PRODUKTIONSSPEICHER=1` | aus | in Stufe `abnahme` **zusätzlich** nötig. Erst setzen, wenn ein eigenständiger, abgesicherter Produktionsspeicher freigegeben ist (DS-5), nie mit dem gemeinsamen QA-/Produktions-Store |
+
+Ohne beide Schlüssel gilt:
+- `POST /kontakt` und `POST /standort-anbieten` antworten mit **403**, bevor der Request-Body gelesen wird. Es gibt keine Speicherung, keinen Upload und kein Protokoll mit Inhalt.
+- `/danke` liefert 404.
+- Die Seiten zeigen stattdessen den E-Mail-Kontakt.
+
+E-Mail-Adressen der Website stehen in `brand.contact.adressen`. Angezeigt werden nur Einträge mit `"bestaetigt": true`. Dirk setzt das erst nach eingerichtetem Postfach und erfolgreichem Empfangstest von außen. Ohne bestätigte Adresse zeigt die Website „Kontaktwege werden eingerichtet“ und keine Adresse.
+
+Flächenangebote gehen an `vertrieb@`, alles andere an `info@`; fehlt eine der beiden, wird die andere verwendet. Die Go-live-Sperre verlangt zusätzlich, dass `brand.contact.email` (Impressum) eine bestätigte Adresse ist.
+
+Tests, die Formulare prüfen, setzen `BESS_FORMULARE=1` ausdrücklich. `test/kontaktweg.test.mjs` prüft die Sperre in der Produktionsstufe mit Blob-Stellvertreter.
+
 ## Domains
 
 - Hauptdomain `https://stromkai.de` (Entscheidung C-1 vorbehalten).
