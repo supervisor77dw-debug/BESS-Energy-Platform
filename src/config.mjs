@@ -114,8 +114,7 @@ const PFLICHT = [
   ['register', 'Registergericht und Registernummer (oder ausdrücklich „entfällt“ mit Begründung)'],
 ];
 const istGesetzt = (v) => { const t = [].concat(v ?? '').join(' '); return !!t.trim() && !PLATZHALTER.test(t); };
-// mfa: MFA-Betriebsart des Portals in der Zielumgebung (Standard: aktuelle Konfiguration). Mit eigener Domain ist das
-// Portal-Login öffentlich auffindbar; ohne zweiten Faktor wird nicht freigeschaltet.
+// mfa: MFA-Betriebsart des Portals (nur noch informativ; keine Go-live-Bedingung, siehe unten).
 export function goLiveSperren(b = brand, e = process.env, stage = config.stage, mfa = config.mfa) {
   const s = [];
   if (e.BESS_OEFFENTLICH !== '1') s.push('Freigabeschalter BESS_OEFFENTLICH=1 nicht gesetzt (nur nach Produktivfreigabe durch Dirk)');
@@ -138,7 +137,9 @@ export function goLiveSperren(b = brand, e = process.env, stage = config.stage, 
   if (f.traegerschaft !== true) s.push('Projektträgerschaft nicht freigegeben (Unternehmensgegenstand, Zustimmung Geschäftsführung/Gesellschafter)');
   if (e.BESS_MIGRATION_QUELLE) s.push('S-2: Migrationszugang zum bisherigen Store (BESS_MIGRATION_QUELLE) noch gesetzt – nach der Erstübernahme entfernen und neu bereitstellen');
   if (e.VERCEL && !speicherGetrennt(e, stage)) s.push('S-2: Produktion nicht auf eigenem Blob-Store (BESS_PRODUKTIONSSPEICHER = Store des Produktions-Tokens, nicht der gemeinsame Store)');
-  if (!['privilegiert', 'konto'].includes(mfa)) s.push(`Portal-MFA ist „${mfa || 'aus'}“ – vor öffentlicher Domain BESS_MFA=privilegiert oder konto setzen`);
+  // MFA ist keine Go-live-Bedingung mehr (Entscheidung Dirk 14.11.2026, AW-022: keine MFA-Pflicht für Dirk und Markus;
+  // Standard ohne BESS_MFA bleibt 'aus'). Der Parameter mfa bleibt für Aufrufer erhalten.
+  void mfa;
   return s;
 }
 

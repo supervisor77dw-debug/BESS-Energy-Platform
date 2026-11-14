@@ -47,7 +47,7 @@ const MFA = 'privilegiert';
 test('Sperre aktiv: mit dem heutigen brand.json bleibt die Website gesperrt, auch wenn BESS_OEFFENTLICH=1 gesetzt ist', async () => {
   const s = cfg.goLiveSperren();
   assert.equal(cfg.isPublicLive(), false);
-  for (const erwartet of [/Produktionsstufe/, /Vertretungsberechtigte/, /Betreiberangaben nicht bestätigt/, /§ 18 Abs\. 2 MStV/, /Kontakt-E-Mail/, /Zweiter direkter Kontaktweg/, /Impressum nicht/, /Datenschutzerklärung nicht/, /Markenprüfung/, /Projektträgerschaft/, /Portal-MFA/]) {
+  for (const erwartet of [/Produktionsstufe/, /Vertretungsberechtigte/, /Betreiberangaben nicht bestätigt/, /§ 18 Abs\. 2 MStV/, /Kontakt-E-Mail/, /Zweiter direkter Kontaktweg/, /Impressum nicht/, /Datenschutzerklärung nicht/, /Markenprüfung/, /Projektträgerschaft/]) {
     assert.ok(s.some((x) => erwartet.test(x)), `Sperrgrund fehlt: ${erwartet}`);
   }
   assert.ok(!s.some((x) => /BESS_OEFFENTLICH/.test(x)), 'Schalter ist gesetzt und darf nicht als Grund erscheinen');
@@ -58,7 +58,7 @@ test('Sperrlogik: nur wenn alle Bedingungen erfüllt sind, ist die Freischaltung
   assert.deepEqual(cfg.goLiveSperren(VOLLSTAENDIG, env, 'abnahme', MFA), []);
   assert.ok(cfg.goLiveSperren(VOLLSTAENDIG, {}, 'abnahme', MFA).some((x) => /BESS_OEFFENTLICH/.test(x)), 'ohne Schalter gesperrt');
   assert.ok(cfg.goLiveSperren(VOLLSTAENDIG, env, 'qa', MFA).length === 1, 'QA-Stufe nie öffentlich');
-  assert.ok(cfg.goLiveSperren(VOLLSTAENDIG, env, 'abnahme', 'aus').some((x) => /Portal-MFA/.test(x)), 'ohne MFA gesperrt');
+  assert.deepEqual(cfg.goLiveSperren(VOLLSTAENDIG, env, 'abnahme', 'aus'), [], 'MFA ist keine Go-live-Bedingung (Entscheidung Dirk 14.11.2026)');
   for (const [pfad, wert] of [['legal.operator', '[Rechtsträger – noch festzulegen]'], ['legal.register', ''], ['legal.representatives', '[Geschäftsführung – prüfen]'], ['legal.stand', { status: 'VORLAEUFIG' }], ['legal.mstv', { einschlaegig: null }], ['legal.mstv', { einschlaegig: true, verantwortlich: '' }], ['legal.vatId', '12345'], ['contact.email', '[kontakt@domain – noch festzulegen]'], ['contact.phone', ''], ['domain', 'https://www.example.invalid'], ['freigaben.marke', false], ['freigaben.impressum', undefined], ['freigaben.traegerschaft', false]]) {
     const b = structuredClone(VOLLSTAENDIG); const [a, k] = pfad.split('.');
     if (k) b[a][k] = wert; else b[a] = wert;
@@ -155,4 +155,11 @@ test('Trennung: der öffentliche Schalter ändert weder Portal-Modus noch Echtda
   assert.equal(cfg.isPreview(), true);
   assert.equal(cfg.config.akquiseEchtdaten, false, 'Echtdaten-Akquise bleibt aus');
   assert.notEqual(cfg.config.blobPrefix, 'abnahme/', 'kein Zugriff auf den Produktionsbereich aus der QA-Stufe');
+});
+
+test('MFA-Standard: ohne BESS_MFA ist MFA aus – auch im Vercel-Production-Ziel', () => {
+  const run = (env) => execFileSync(process.execPath, ['--input-type=module', '-e', "const { config } = await import('./src/config.mjs'); console.log(config.mfa);"], { cwd: ROOT, env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, ...env }, encoding: 'utf8' }).trim();
+  assert.equal(run({}), 'aus');
+  assert.equal(run({ VERCEL: '1', VERCEL_ENV: 'production', BESS_STAGE: 'abnahme' }), 'aus', 'Produktion ohne Variable: aus');
+  assert.equal(run({ BESS_MFA: 'unsinn' }), 'aus', 'ungültiger Wert: aus');
 });
