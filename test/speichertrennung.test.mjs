@@ -177,3 +177,50 @@ test('S-1: In der Produktionsstufe gilt ein öffentlich bekanntes Demo-TOTP-Gehe
     assert.equal((await c.form('/portal/mfa', { _csrf: csrf, code: totp(pl.totp) })).status, 401, 'Code aus dem Demo-Geheimnis wird abgelehnt');
   } finally { cfg.config.mfa = 'aus'; cfg.config.stage = stufe; }
 });
+
+test('S-1: privilegiert gilt für alle internen Konten; Notfall-Reset entfernt jedes TOTP-Geheimnis', async () => {
+  const { mfaRequired } = await import('../src/portal/routes.mjs');
+  const { applyAccounts } = await import('../src/lib/bootstrap.mjs');
+  const u = (id) => db.users.find((x) => x.id === id);
+  cfg.config.mfa = 'privilegiert';
+  try {
+    assert.equal(mfaRequired(u('u-admin')), true, 'Administration');
+    assert.equal(mfaRequired(u('u-pl')), true, 'Projektleitung');
+    assert.equal(mfaRequired(u('u-markus')), true, 'Vertrieb (Markus)');
+    assert.equal(mfaRequired(u('u-inv-a')), false, 'externe Rollen nur mit BESS_MFA=konto');
+  } finally { cfg.config.mfa = 'aus'; }
+  // Konto ohne Merker mfa, aber mit eingerichtetem Geheimnis: einmaliger administrativer Reset (Geräteverlust)
+  const kopie = structuredClone({ users: [{ ...u('u-admin'), mfa: false, totp: 'GEHEIMNISAUSGERAETXXXXXXXXXXXXXX', passwordChangedAt: '2026-11-01T00:00:00Z', mustChangePassword: false }], meta: {} });
+  applyAccounts(kopie, { users: [{ id: 'u-admin', email: 'a@x.test', pw: 'scrypt$z$z', reset: 'ar-notfall-1' }] }, 'h-notfall');
+  assert.equal(kopie.users[0].totp, null, 'altes Gerät nach Notfall-Reset ungültig');
+  assert.equal(kopie.users[0].active, true);
+  applyAccounts(kopie, { users: [{ id: 'u-admin', email: 'a@x.test', pw: 'scrypt$z$z', reset: 'ar-notfall-1' }] }, 'h-notfall-2');
+  kopie.users[0].totp = 'NEUESGERAETYYYYYYYYYYYYYYYYYYYYY';
+  applyAccounts(kopie, { users: [{ id: 'u-admin', email: 'a@x.test', pw: 'scrypt$z$z', reset: 'ar-notfall-1' }] }, 'h-notfall-3');
+  assert.equal(kopie.users[0].totp, 'NEUESGERAETYYYYYYYYYYYYYYYYYYYYY', 'Reset wirkt genau einmal');
+});
+
+test('S-2: Inventur nur mit Zählwerten; Wiederherstellungsprobe als lokaler Datenbestand', async () => {
+  const { Readable } = await import('node:stream');
+  const { existsSync } = await import('node:fs');
+  const B = await import('../tools/blob-sicherung.mjs');
+  const m = new Map([
+    ['abnahme/state/db.json', Buffer.from(JSON.stringify({ users: [{ id: 'u1', active: true }, { id: 'u2', active: false }], projects: [{}], documents: [{}, {}] }))],
+    ['abnahme/files/d-1.pdf', Buffer.from('%PDF-1')],
+    ['qa-020/state/db.json', Buffer.from('{}')],
+  ]);
+  const sdk = {
+    async list({ prefix }) { return { blobs: [...m.keys()].filter((p) => p.startsWith(prefix)).map((pathname) => ({ pathname, size: m.get(pathname).length })), hasMore: false }; },
+    async get(p) { return m.has(p) ? { stream: Readable.from([m.get(p)]) } : null; },
+  };
+  const inv = await B.inventur({ sdk, token: tok(GEMEINSAM) });
+  assert.deepEqual(Object.keys(inv.bereiche).sort(), ['abnahme/', 'qa-020/']);
+  assert.equal(inv.bereiche['abnahme/'].anzahl, 2); assert.equal(inv.bereiche['abnahme/'].zustand, true);
+  assert.doesNotMatch(JSON.stringify(inv), /d-1\.pdf|users/, 'keine Dateinamen oder Inhalte');
+  const q = join(DIR, 'sicherung-probe'), z = join(DIR, 'probe-lokal');
+  await B.sichern({ sdk, token: tok(GEMEINSAM), prefix: 'abnahme/', ziel: q });
+  const r = B.lokal({ quelle: q, ziel: z });
+  assert.deepEqual(r, { konten: 2, aktiv: 1, projekte: 1, dokumente: 2, dateien: 1 });
+  assert.ok(existsSync(join(z, 'db.json')) && existsSync(join(z, 'files', 'd-1.pdf')));
+  assert.throws(() => B.lokal({ quelle: q, ziel: z }), (e) => e.rc === 24, 'bestehender Datenbestand wird nicht überschrieben');
+});

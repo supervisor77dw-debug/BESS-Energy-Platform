@@ -5,6 +5,8 @@
 // Das Zugangstoken wird NUR aus der Umgebungsvariable BLOB_READ_WRITE_TOKEN gelesen, nie als Argument angenommen und nie
 // ausgegeben; angezeigt wird ausschließlich die Store-Kennung. Ausführung nur durch Dirk im eigenen Fenster (CLAUDE_GLOBAL §8 Nr. 5).
 //
+//   inventur:  node tools/blob-sicherung.mjs inventur --store store_…   (nur Anzahl/Größe je Bereich, keine Inhalte, keine Dateinamen)
+//   lokal:     node tools/blob-sicherung.mjs lokal --quelle <ordner> --ziel <ordner>   (Wiederherstellungsprobe als lokaler Datenbestand, ohne Netz)
 //   sichern:   node tools/blob-sicherung.mjs sichern  --prefix abnahme/ --ziel <ordner> --store store_…
 //   pruefen:   node tools/blob-sicherung.mjs pruefen  --quelle <ordner>                         (lokal, ohne Netz)
 //   vergleich: node tools/blob-sicherung.mjs vergleich --quelle <ordner> --store store_…          (Store gegen Sicherung)
@@ -70,6 +72,32 @@ export async function einspielen({ sdk, token, quelle, leer }) {
   return vergleich({ sdk, token, quelle });
 }
 
+
+// Inventur: alle Objekte des Stores nach oberstem Bereich (z. B. abnahme/, qa-020/) – nur Zählwerte
+export async function inventur({ sdk, token }) {
+  const bereiche = {};
+  for (const b of await alle(sdk, token, '')) { const k = b.pathname.includes('/') ? b.pathname.split('/')[0] + '/' : '(Wurzel)'; const x = bereiche[k] ??= { anzahl: 0, bytes: 0, zustand: false }; x.anzahl++; x.bytes += b.size || 0; if (/(^|\/)state\/db\.json$/.test(b.pathname)) x.zustand = true; }
+  return { store: storeAusToken(token), bereiche };
+}
+
+// Wiederherstellungsprobe: Sicherung als lokalen Datenbestand (db.json + files/) anlegen; danach mit dem Datei-Treiber öffnen
+export function lokal({ quelle, ziel }) {
+  const { manifest: m, fehler } = pruefen({ quelle });
+  if (fehler.length) throw Object.assign(new Error('Sicherung beschädigt – keine Probe'), { rc: 25 });
+  if (existsSync(join(ziel, 'db.json'))) throw Object.assign(new Error('Ziel enthält bereits einen Datenbestand – STOPP'), { rc: 24 });
+  let zustand = false, dateien = 0;
+  for (const e of m.eintraege) {
+    const rel = e.pfad.slice(m.prefix.length);
+    const nach = rel === 'state/db.json' ? join(ziel, 'db.json') : rel.startsWith('files/') ? join(ziel, rel) : null;
+    if (!nach) continue;
+    mkdirSync(dirname(nach), { recursive: true }); writeFileSync(nach, readFileSync(join(quelle, 'daten', e.pfad)), { flag: 'wx' });
+    if (rel === 'state/db.json') zustand = true; else dateien++;
+  }
+  if (!zustand) throw Object.assign(new Error('Sicherung enthält keinen Zustand state/db.json'), { rc: 25 });
+  const db = JSON.parse(readFileSync(join(ziel, 'db.json'), 'utf8'));
+  return { konten: (db.users || []).length, aktiv: (db.users || []).filter((u) => u.active).length, projekte: (db.projects || []).length, dokumente: (db.documents || []).length, dateien };
+}
+
 // ---------- Befehlszeile ----------
 const istCli = process.argv[1] && resolve(process.argv[1]) === resolve(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
 if (istCli) {
@@ -78,18 +106,25 @@ if (istCli) {
   const stopp = (msg, rc) => { console.error(`STOPP: ${msg} (rc ${rc})`); process.exit(rc); };
   const zeitlimit = setTimeout(() => stopp('Zeitlimit 10 Minuten überschritten', 21), 10 * 60e3); zeitlimit.unref();
   try {
+    if (befehl === 'lokal') {
+      const r = lokal({ quelle: resolve(arg('--quelle') || ''), ziel: resolve(arg('--ziel') || '') });
+      const st = await import('../src/lib/store.mjs'); await st.openStore(resolve(arg('--ziel'))); // mit dem Datei-Treiber der Anwendung öffnen
+      console.log(`Wiederherstellungsprobe: Konten ${r.konten} (aktiv ${r.aktiv}), Projekte ${r.projekte}, Dokumente ${r.dokumente}, Dateien ${r.dateien}`);
+      process.exit(0);
+    }
     if (befehl === 'pruefen') {
       const { manifest, fehler } = pruefen({ quelle: resolve(arg('--quelle') || '') });
       console.log(`Sicherung ${manifest.store} ${manifest.prefix}: ${manifest.anzahl} Dateien, ${manifest.bytes} Bytes, Fehler ${fehler.length}`);
       process.exit(fehler.length ? 25 : 0);
     }
-    if (!['sichern', 'vergleich', 'einspielen'].includes(befehl)) stopp('Befehl sichern | pruefen | vergleich | einspielen', 2);
+    if (!['inventur', 'sichern', 'vergleich', 'einspielen'].includes(befehl)) stopp('Befehl inventur | sichern | pruefen | lokal | vergleich | einspielen', 2);
     const token = process.env.BLOB_READ_WRITE_TOKEN;
     if (!token) stopp('BLOB_READ_WRITE_TOKEN ist nicht gesetzt', 22);
     if (!arg('--store') || storeAusToken(token) !== arg('--store')) stopp(`Token gehört zu ${storeAusToken(token) || 'unbekannt'}, erwartet ${arg('--store') || '(--store fehlt)'}`, 22);
     const sdk = globalThis.__bessBlobSdk || await import('@vercel/blob');
     console.log('ARBEITET – keine Eingabe nötig');
-    if (befehl === 'sichern') { const m = await sichern({ sdk, token, prefix: arg('--prefix'), ziel: resolve(arg('--ziel') || '') }); console.log(`Gesichert: ${m.anzahl} Dateien, ${m.bytes} Bytes aus ${m.store} ${m.prefix}`); }
+    if (befehl === 'inventur') { const r = await inventur({ sdk, token }); console.log(`Inventur ${r.store}:`); for (const [k, v] of Object.entries(r.bereiche)) console.log(`  ${k.padEnd(14)} ${String(v.anzahl).padStart(5)} Objekte ${String(v.bytes).padStart(10)} Bytes${v.zustand ? '  (mit Zustand)' : ''}`); }
+    else if (befehl === 'sichern') { const m = await sichern({ sdk, token, prefix: arg('--prefix'), ziel: resolve(arg('--ziel') || '') }); console.log(`Gesichert: ${m.anzahl} Dateien, ${m.bytes} Bytes aus ${m.store} ${m.prefix}`); }
     else { const r = befehl === 'vergleich' ? await vergleich({ sdk, token, quelle: resolve(arg('--quelle') || '') }) : await einspielen({ sdk, token, quelle: resolve(arg('--quelle') || ''), leer: process.argv.includes('--leer') });
       console.log(`${befehl}: ${r.anzahl} Dateien, Abweichungen ${r.fehler.length}`); for (const f of r.fehler) console.log(`  ${f}`); if (r.fehler.length) process.exit(25); }
     process.exit(0);

@@ -50,10 +50,11 @@ export function landing(u) {
   if (P.isAdmin(u)) return '/portal/zentrale'; // Administration startet in der Zentrale (AW-015)
   return { investor: '/portal/dokumente', kommune: '/portal/projekte', technik: '/portal/projekte', vertrieb_nord: '/portal/pipeline', vertrieb_sued: '/portal/pipeline' }[P.primaryRole(P.rolesOf(u))] || '/portal';
 }
-// MFA nach Betriebsart: aus (Standard der Abnahmeplattform), nur privilegierte Konten oder je Konto
+// MFA nach Betriebsart: aus (Standard der Abnahmeplattform), privilegiert = alle internen Konten (Administration,
+// Projektleitung, Vertrieb – S-1, AW-022) oder je Konto (Merker mfa)
 export function mfaRequired(u) {
   if (config.mfa === 'konto') return !!u.mfa;
-  if (config.mfa === 'privilegiert') return P.isAdmin(u) || P.hasRole(u, 'projektleitung');
+  if (config.mfa === 'privilegiert') return P.isInternal(u);
   return false;
 }
 const LOCK_FAILS = 5, LOCK_WINDOW = 15 * 60000, LOCK_TIME = 15 * 60000;

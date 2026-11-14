@@ -44,7 +44,9 @@ export function applyAccounts(db, acc, hash) {
       u.failedLogins = []; delete u.lockedUntil;
       u.adminResetAm = u.passwordChangedAt;
     }
-    if (u.mfa) { u.totp = null; delete u.totpEnrolledAt; } // MFA wird beim ersten Login vom Nutzer selbst eingerichtet
+    // MFA wird beim ersten Login vom Nutzer selbst eingerichtet. Auch ohne Merker mfa (BESS_MFA=privilegiert gilt nach Rolle):
+    // ein administrativer Reset ist der Notfallweg bei Geräteverlust und darf nie ein altes Geheimnis stehen lassen (S-1)
+    u.totp = null; delete u.totpEnrolledAt;
   }
   db.gateUsers = (acc.gate || []).filter((g) => /^scrypt\$/.test(g.hash || ''));
   if (config.gate && !db.gateUsers.length) throw new Error('Vorschau-Schranke aktiv, aber BESS_ACCOUNTS enthält keine Schrankenzugänge.');
